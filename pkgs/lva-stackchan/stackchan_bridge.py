@@ -17,6 +17,10 @@ This decides what it should feel and say:
   LVA reports a cancelled timer only as an idle in the middle of a turn.
 - Night: between NIGHT_START and NIGHT_END it sleeps, dimmed and still,
   waking for a conversation.
+- The voice's direction: on the wake word it hears where the voice came from
+  (the satellite's microphone array, not the mono LVA listens on) and turns
+  to it, so the camera meets the speaker; with the router's face library a
+  frame of the speaker is probed with it (docs/stackchan.md, docs/people.md).
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
   the robot tells it whether someone is in front of it; it sends the mood
   and gesture the cloud model chose for a reply, and body commands ("nod",
@@ -29,6 +33,7 @@ with scripted events.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import math
 import os
@@ -36,6 +41,7 @@ import struct
 import sys
 import time
 from dataclasses import dataclass, field
+from operator import mul
 
 PROTOCOL = 1
 
@@ -58,6 +64,9 @@ DEFAULT_SAD_WORDS = (
     "error",
 )
 
+# The PlayStation Eye's four mics, metres from its centre (docs/stackchan.md).
+DEFAULT_SOUND_GEOMETRY = "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
+
 
 def log(msg: str) -> None:
     print(f"lva-stackchan: {msg}", file=sys.stderr, flush=True)
@@ -68,6 +77,11 @@ def _minutes(hhmm: str) -> int | None:
         return None
     hours, minutes = hhmm.split(":")
     return int(hours) * 60 + int(minutes)
+
+
+def _angle_moved(target: float, before: float) -> float:
+    """Degrees between two directions, from 0 (same) to 180 (opposite)."""
+    return abs((target - before + 180.0) % 360.0 - 180.0)
 
 
 @dataclass
@@ -82,6 +96,11 @@ class Config:
     notice_guests: bool = True
     nap_after_s: int = 900  # nobody seen this long: the robot naps (0: never)
     sad_words: tuple[str, ...] = DEFAULT_SAD_WORDS
+    sound_direction: bool = True  # the head turns to the voice (the satellite's mics)
+    sound_offset_deg: float = 0.0  # the voice's angle as seen from the robot
+    sound_turn_min_deg: float = 15.0  # the voice must move this far before a new turn
+    sound_mic_geometry: str = DEFAULT_SOUND_GEOMETRY  # four "x,y" points in metres
+    sound_source: str = "lanbat_ps_eye_capture"  # the microphone node to listen on
 
     @classmethod
     def from_env(cls, env=os.environ) -> "Config":
@@ -100,6 +119,11 @@ class Config:
             notice_guests=flag("NOTICE_GUESTS", True),
             nap_after_s=int(env.get("NAP_AFTER_S", "900")),
             sad_words=tuple(w.strip().lower() for w in sad.split(",") if w.strip()) if sad else DEFAULT_SAD_WORDS,
+            sound_direction=flag("SOUND_DIRECTION", True),
+            sound_offset_deg=float(env.get("SOUND_OFFSET_DEG", "0")),
+            sound_turn_min_deg=float(env.get("SOUND_TURN_MIN_DEG", "15")),
+            sound_mic_geometry=env.get("SOUND_MIC_GEOMETRY", DEFAULT_SOUND_GEOMETRY),
+            sound_source=env.get("SOUND_SOURCE", "lanbat_ps_eye_capture"),
         )
 
 
@@ -139,6 +163,7 @@ class Brain:
     present_at: float = 0.0
     napping: bool = False  # the robot's own nap (nobody around), not the night
     battery_low: bool = False
+    sound_angle: float = 0.0  # the direction the head last turned to (degrees)
 
     def __post_init__(self) -> None:
         self.asleep = self.night_seen = self._is_night(self.now)
@@ -379,6 +404,23 @@ class Brain:
             out.append(("log", f"robot: {msg['log']}"))
         return out
 
+    def on_sound(self, angle: float, confidence: float, now: float) -> list:
+        """The voice's direction (estimate_direction, from the satellite's
+        microphones): the head turns to it so the camera meets the speaker.
+        It moves only when the voice has moved on by sound_turn_min_deg: the
+        estimate wobbles a few degrees between windows, and a turn is not a
+        free gesture."""
+        self.now = now
+        target = angle + self.config.sound_offset_deg
+        if _angle_moved(target, self.sound_angle) < self.config.sound_turn_min_deg:
+            return []
+        self.sound_angle = target
+        yaw = int(round(max(-70.0, min(70.0, target)) * 10))
+        return [
+            ("device", {"yaw": yaw}),
+            ("log", f"voice at {angle:.0f} degrees (confidence {confidence:.2f}): turning"),
+        ]
+
     def tick(self, now: float) -> list:
         out: list = []
         self.now = now
@@ -442,6 +484,123 @@ async def follow_mouth(send) -> None:
             await proc.wait()
 
 
+# ── the voice's direction ──────────────────────────────────────────────────
+# The satellite's microphone array (the PlayStation Eye has four mics) hears a
+# word a few microseconds apart. Where the mics sit is sound_mic_geometry:
+# four "x,y" points in metres, y forward, x to the robot's right. The lead of
+# a front mic over its rear partner scales with cos θ and the lead of the right
+# mic over its left one with −sin θ (θ from straight ahead, positive to the
+# robot's left, its yaw sign), so two short cross-correlations per axis and an
+# atan2 give the angle. Pure Python on a 0.3 s window: a few milliseconds, run
+# in a worker thread. The mics' channel order is a calibration step (docs/
+# stackchan.md).
+DOA_RATE = 48000  # the card's own rate: no resampling
+DOA_CHANNELS = 4
+DOA_WINDOW_S = 0.3
+DOA_CHUNK = 256  # frames per read, one pass through the window's deques
+
+CAPTURE_SETTLE_S = 1.2  # the head just turned: let it arrive before the frame
+CAPTURE_TIMEOUT_S = 5.0  # the robot answers a capture with a face_image
+
+_DOA_MIN_SAMPLES = 512
+_DOA_CONFIDENCE_MIN = 0.25  # below this the mics do not agree on a direction
+_DOA_MIN_BASELINE = 0.005  # 5 mm: an axis that short cannot be read
+
+
+def parse_geometry(geometry: str) -> list[tuple[float, float]] | None:
+    """Four "x,y" points in metres (y forward, x to the right), or None."""
+    points = []
+    for part in str(geometry).split(";"):
+        xy = part.split(",")
+        if len(xy) != 2:
+            return None
+        try:
+            points.append((float(xy[0]), float(xy[1])))
+        except ValueError:
+            return None
+    return points if len(points) == 4 else None
+
+
+def _pair_lead(a: list[float], b: list[float], max_lag: int,
+               energy_a: float, energy_b: float) -> tuple[float, float] | None:
+    """(the samples by which mic b leads mic a, how sure 0..1), or None when
+    there is no peak to read; the peak is rounded with its two neighbours."""
+    n = min(len(a), len(b))
+    base = math.sqrt(energy_a * energy_b)
+    if base <= 0:
+        return None
+    scores = [0.0] * (2 * max_lag + 1)
+    for k in range(-max_lag, max_lag + 1):
+        lo, hi = max(0, k), n - max(0, -k)
+        scores[k + max_lag] = sum(map(mul, a[lo:hi], b[lo - k:hi - k]))
+    i = max(range(len(scores)), key=scores.__getitem__)
+    if scores[i] <= 0:
+        return None
+    lead = float(i - max_lag)
+    if 0 < i < len(scores) - 1:
+        s0, s1, s2 = scores[i - 1], scores[i], scores[i + 1]
+        curve = s0 - 2 * s1 + s2
+        if curve != 0:
+            lead += max(-0.5, min(0.5, 0.5 * (s0 - s2) / curve))
+    return lead, min(1.0, scores[i] / base)
+
+
+def estimate_direction(channels: list[list[float]], fs: int, geometry: str,
+                       speed_of_sound: float = 343.0) -> tuple[float, float] | None:
+    """(the voice's angle in the window, how sure 0..1), or None when the mics
+    do not agree. channels: one list of samples per mic, four, equal length.
+    The angle is degrees from straight ahead, positive to the robot's left,
+    its yaw sign."""
+    points = parse_geometry(geometry)
+    if points is None or len(channels) != DOA_CHANNELS:
+        return None
+    if min(len(c) for c in channels) < _DOA_MIN_SAMPLES:
+        return None
+    by_x = sorted(range(4), key=lambda i: (points[i][0], points[i][1]))
+    by_y = sorted(range(4), key=lambda i: (points[i][1], points[i][0]))
+    y_pairs = [sorted(pair, key=lambda i: points[i][1]) for pair in (by_x[:2], by_x[2:])]  # (rear, front)
+    x_pairs = [sorted(pair, key=lambda i: points[i][0]) for pair in (by_y[:2], by_y[2:])]  # (left, right)
+    baselines = [abs(points[f][1] - points[r][1]) for r, f in y_pairs] + \
+        [abs(points[r][0] - points[l][0]) for l, r in x_pairs]
+    if min(baselines) < _DOA_MIN_BASELINE:
+        return None
+    max_lag = int(math.ceil(max(baselines) * fs / speed_of_sound)) + 2
+    energy = [sum(map(mul, c, c)) for c in channels]
+    leads = []
+    for (i, j), base in zip(y_pairs + x_pairs, baselines):
+        out = _pair_lead(channels[i], channels[j], max_lag, energy[i], energy[j])
+        if out is None:
+            return None
+        leads.append(out)
+    cos_part = sum(lead / base for lead, base in zip((l[0] for l in leads[:2]), baselines[:2])) / 2
+    sin_part = sum(-lead / base for lead, base in zip((l[0] for l in leads[2:]), baselines[2:])) / 2
+    confidence = sum(l[1] for l in leads) / len(leads)
+    if confidence < _DOA_CONFIDENCE_MIN:
+        return None
+    return math.degrees(math.atan2(sin_part, cos_part)), confidence
+
+
+class MicWindow:
+    """The last DOA_WINDOW_S of each mic, from interleaved s16 frames."""
+
+    def __init__(self, channels: int, frames: int) -> None:
+        self.channels = [collections.deque(maxlen=frames) for _ in range(channels)]
+
+    def push(self, raw: bytes) -> None:
+        count, n = len(self.channels), len(raw) // (2 * len(self.channels))
+        if n == 0:
+            return
+        values = struct.unpack(f"<{n * count}h", raw[: n * 2 * count])
+        for frame in range(n):
+            for ch in range(count):
+                self.channels[ch].append(values[frame * count + ch] / 32768.0)
+
+    def snapshot(self) -> list[list[float]] | None:
+        if any(len(c) < c.maxlen for c in self.channels):
+            return None
+        return [list(c) for c in self.channels]
+
+
 # ── I/O ────────────────────────────────────────────────────────────────────
 class Bridge:
     def __init__(self, config: Config, device: str, lva_url: str, router_url: str = "", room: str = "") -> None:
@@ -454,6 +613,11 @@ class Bridge:
         self.ws = None
         self.router_ws = None
         self.mouth_task: asyncio.Task | None = None
+        self.config = config
+        self.mic_window: MicWindow | None = None
+        self.router_faces = False  # the router has a face library to probe
+        self.face_waiter: asyncio.Future | None = None  # a capture in flight
+        self.capture_task: asyncio.Task | None = None
 
     async def send_device(self, line: dict) -> None:
         if self.writer is None:
@@ -504,6 +668,12 @@ class Bridge:
                     except ValueError:
                         continue  # boot noise from the ROM before the firmware speaks
                     if isinstance(msg, dict):
+                        img = msg.get("face_image")
+                        if isinstance(img, str) and self.face_waiter is not None:
+                            waiter, self.face_waiter = self.face_waiter, None
+                            if not waiter.done():
+                                waiter.set_result(img)
+                            continue  # the capture's answer, not a sensor event
                         await self.act(self.brain.on_device(msg, time.time()))
             except (OSError, ConnectionError) as err:
                 if self.writer is not None:
@@ -528,6 +698,10 @@ class Bridge:
                         event = msg.get("event")
                         if event:
                             await self.act(self.brain.on_lva(event, msg.get("data") or {}, time.time()))
+                            # The voice was just heard: turn to it before the
+                            # reply's audio drowns the microphone out.
+                            if self.config.sound_direction and event in ("wake_word_detected", "listening"):
+                                asyncio.create_task(self.hear_direction())
             except (OSError, websockets.exceptions.WebSocketException) as err:
                 log(f"LVA unreachable ({err}); retrying")
             self.ws = None
@@ -554,7 +728,16 @@ class Bridge:
                         except ValueError:
                             continue
                         if isinstance(msg, dict):
-                            await self.act(self.brain.on_router(msg, time.time()))
+                            if "body_hello" in msg:
+                                self.router_faces = bool((msg["body_hello"] or {}).get("faces"))
+                            elif "face_result" in msg:
+                                result = msg["face_result"]
+                                if isinstance(result, dict) and result.get("person"):
+                                    conf = result.get("confidence")
+                                    log(f"face probe: {result['person']}"
+                                        + (f" ({conf:.2f})" if isinstance(conf, (int, float)) else ""))
+                            else:
+                                await self.act(self.brain.on_router(msg, time.time()))
             except (OSError, websockets.exceptions.WebSocketException) as err:
                 log(f"router unreachable ({err}); retrying")
             self.router_ws = None
@@ -568,10 +751,90 @@ class Bridge:
             # Heartbeat: the robot shows it has lost its Pi after 10 s without a line.
             await self.send_device({"ping": 1})
 
+    async def doa_loop(self) -> None:
+        """The rolling window behind hear_direction: the microphone node at
+        its full channel count, not the mono LVA listens on."""
+        self.mic_window = MicWindow(DOA_CHANNELS, int(DOA_WINDOW_S * DOA_RATE))
+        delay = 3
+        while True:
+            proc: asyncio.subprocess.Process | None = None
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    os.environ.get("PW_RECORD", "pw-record"),
+                    "--rate", str(DOA_RATE), "--channels", str(DOA_CHANNELS), "--format", "s16",
+                    "-P", f"{{ node.name = lva-stackchan-doa target.object = {self.config.sound_source} }}",
+                    "-",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                delay = 3
+                log(f"hearing direction on {self.config.sound_source}")
+                while True:
+                    self.mic_window.push(await proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2))
+            except (OSError, asyncio.IncompleteReadError) as err:
+                log(f"direction listener stopped ({err}); retrying")
+            finally:
+                if proc is not None and proc.returncode is None:
+                    proc.terminate()
+                    await proc.wait()
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30)
+
+    async def hear_direction(self) -> None:
+        """The voice was just heard: turn to it, and with the head aimed take
+        a frame of the speaker for the router's face library."""
+        window = self.mic_window.snapshot() if self.mic_window is not None else None
+        if window is None:
+            return
+        est = await asyncio.to_thread(
+            estimate_direction, window, DOA_RATE, self.config.sound_mic_geometry)
+        if est is None:
+            return
+        angle, confidence = est
+        await self.act(self.brain.on_sound(angle, confidence, time.time()))
+        if self.router_faces:
+            self._start_capture()
+
+    def _start_capture(self) -> None:
+        if self.capture_task is None or self.capture_task.done():
+            self.capture_task = asyncio.create_task(self.face_for_router(settle_s=CAPTURE_SETTLE_S))
+
+    async def face_capture(self, settle_s: float = 0.0) -> str | None:
+        """A frame of whoever is in front ({"capture": true}), as base64; one at
+        a time. The head settles first when it has just turned."""
+        if self.face_waiter is not None:
+            return None
+        waiter = asyncio.get_running_loop().create_future()
+        self.face_waiter = waiter
+        try:
+            if settle_s:
+                await asyncio.sleep(settle_s)
+            await self.send_device({"capture": True})
+            return await asyncio.wait_for(waiter, CAPTURE_TIMEOUT_S)
+        except (asyncio.TimeoutError, OSError, ConnectionError) as err:
+            log(f"face capture: {err}")
+            return None
+        finally:
+            if self.face_waiter is waiter:
+                self.face_waiter = None
+
+    async def face_for_router(self, settle_s: float = 0.0) -> None:
+        """A face of whoever is talking after a turn, sent to the router as a
+        probe so it can be recognised (the DOA flow; enrolment is the router's
+        own capture request)."""
+        b64 = await self.face_capture(settle_s)
+        if b64 and self.router_ws is not None:
+            try:
+                await self.router_ws.send(json.dumps({"face_probe": b64}))
+            except Exception as err:  # pylint: disable=broad-except
+                log(f"router write failed: {err}")
+
     async def run(self) -> None:
         loops = [self.serial_loop(), self.lva_loop(), self.clock_loop()]
         if self.router_url and self.room:
             loops.append(self.router_loop())
+        if self.config.sound_direction:
+            loops.append(self.doa_loop())
         await asyncio.gather(*loops)
 
 

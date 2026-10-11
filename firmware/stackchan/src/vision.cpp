@@ -2,8 +2,10 @@
 
 #include <M5Unified.h>
 #include <esp_camera.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 
+#include "esp_jpeg_enc.h"
 #include "human_face_detect.hpp"
 
 // esp32-camera's own SCCB teardown (private header): it removes the sensor
@@ -54,6 +56,13 @@ volatile uint32_t frames = 0;
 volatile bool preview = false;
 volatile uint32_t candidatesSeen = 0, trackedFrames = 0;
 volatile float bestScore = 0;
+
+// One frame as a JPEG, on request (the server's face library; the robot keeps
+// no pictures). The encoder wants a 16-byte-aligned input, and the frame
+// buffer's alignment is the heap's (8 bytes), so a frame is copied into this.
+jpeg_enc_handle_t jpeg = nullptr;
+uint8_t* jpegIn = nullptr;
+constexpr uint16_t kFrameW = 320, kFrameH = 240;
 
 // The image is mirrored: a face on the robot's left is on the frame's right.
 constexpr float kMirrorX = -1.0f;
@@ -177,6 +186,16 @@ bool begin() {
   if (err != ESP_OK) {
     return false;
   }
+  // The face's picture, on request. 4:2:0 at quality 55 keeps a QVGA frame
+  // well under the 48 KB the capture task gives it (the camera is the only
+  // other user of the PSRAM frame buffers, so the copy is always fresh).
+  jpeg_enc_config_t jc = DEFAULT_JPEG_ENC_CONFIG();
+  jc.src_type = JPEG_PIXEL_FORMAT_RGB565_BE;  // the camera's native order
+  jc.subsampling = JPEG_SUBSAMPLE_420;
+  jc.quality = 55;
+  jc.task_enable = false;  // encode in the caller's context
+  if (jpeg_enc_open(&jc, &jpeg) != JPEG_ERR_OK) jpeg = nullptr;
+  jpegIn = (uint8_t*)heap_caps_malloc_aligned(kFrameW * kFrameH * 2, 16, MALLOC_CAP_SPIRAM);
   xTaskCreatePinnedToCore(detectTask, "vision", 12288, nullptr, 1, nullptr, 0);
   return true;
 }
@@ -186,6 +205,22 @@ Sighting latest() {
   Sighting s = current;
   xSemaphoreGive(lock);
   return s;
+}
+
+bool captureJpeg(uint8_t* out, uint32_t outLen, uint32_t* outSize) {
+  if (!jpeg || !jpegIn || !out || !outSize) return false;
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) return false;
+  bool ok = false;
+  if (fb->format == PIXFORMAT_RGB565 && fb->width == kFrameW && fb->height == kFrameH) {
+    size_t bytes = (size_t)fb->width * fb->height * 2;
+    memcpy(jpegIn, fb->buf, bytes);
+    int size = 0;
+    ok = jpeg_enc_process(jpeg, jpegIn, (int)bytes, out, (int)outLen, &size) == JPEG_ERR_OK;
+    if (ok) *outSize = (uint32_t)size;
+  }
+  esp_camera_fb_return(fb);
+  return ok;
 }
 
 void setPaused(bool p) { paused = p; }

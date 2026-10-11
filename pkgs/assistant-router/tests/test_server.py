@@ -360,9 +360,80 @@ async def test_a_body_connects_and_reports_over_its_socket(aiohttp_client):
         import asyncio
         await asyncio.sleep(0.01)
     assert bodies.state("Kitchen").present
+    assert (await ws.receive_json()) == {"body_hello": {"faces": False}}  # the body's capabilities
     assert await bodies.act("Kitchen", {"gesture": "nod"})
     assert (await ws.receive_json()) == {"act": {"gesture": "nod"}}
     await ws.close()
+
+
+class FakeRecognizer:
+    def __init__(self, hit=None):
+        self.hit = hit
+        self.calls = []
+
+    async def recognize(self, image, filename="probe.jpg"):
+        self.calls.append(image)
+        return self.hit or {"success": False, "name": None, "confidence": None}
+
+
+async def test_body_hello_reports_whether_faces_are_recognised(aiohttp_client):
+    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 1.0,
+                                           frigate=FakeRecognizer()))
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    assert (await ws.receive_json()) == {"body_hello": {"faces": True}}
+    await ws.close()
+
+
+async def test_a_face_probe_is_recognised_and_answered(aiohttp_client):
+    import asyncio
+    hit = {"success": True, "name": "kiril", "confidence": 0.91}
+    people = People({"kiril": "Kiril"})
+    frigate = FakeRecognizer(hit)
+    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0,
+                                           people=people, frigate=frigate))
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await ws.receive_json()  # body_hello
+    import base64
+    await ws.send_json({"face_probe": base64.b64encode(b"\xff\xd8face").decode()})
+    result = None
+    for _ in range(50):
+        result = await ws.receive_json()
+        if "face_result" in result:
+            break
+        await asyncio.sleep(0.01)
+    assert result == {"face_result": {"person": "Kiril", "confidence": 0.91}}
+    assert frigate.calls == [b"\xff\xd8face"]
+    # The recognised speaker is remembered for the room.
+    assert "talking to Kiril" in people.line("Kitchen", now=100.0)
+    await ws.close()
+
+
+async def test_a_face_probe_with_no_match_or_no_frigate_is_said_so(aiohttp_client):
+    import asyncio, base64
+    frigate = FakeRecognizer({"success": False, "name": None, "confidence": None})
+    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 1.0,
+                                           people=People({}), frigate=frigate))
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await ws.receive_json()  # body_hello
+    await ws.send_json({"face_probe": base64.b64encode(b"stranger").decode()})
+    result = None
+    for _ in range(50):
+        result = await ws.receive_json()
+        if "face_result" in result:
+            break
+        await asyncio.sleep(0.01)
+    assert result == {"face_result": {"person": None, "confidence": None}}
+    await ws.close()
+    # No face library at all: a probe is answered with no person, nothing is recognised.
+    c2 = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 1.0,
+                                            people=People({})))
+    ws2 = await c2.ws_connect("/v1/body")
+    await ws2.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    assert (await ws2.receive_json()) == {"body_hello": {"faces": False}}
+    await ws2.close()
 
 
 # ── who is there (assistant_router/people.py) ─────────────────────────────────

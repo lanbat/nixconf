@@ -17,13 +17,16 @@
 //   {"sleep": true|false}
 //   {"status": {"muted": bool, "online": bool}}
 //   {"config": {"brightness": 0-255, "notice": bool}}
+//   {"yaw": -700..700}              where the voice came from (the Pi's mics)
+//   {"capture": true}               one camera frame, as a JPEG
 //   {"ping": 1}                       a heartbeat, every 3 s
 //
 // and hears back:
 //
-//   {"hello": {"fw": "1.0.0", "proto": 1}}   at boot and when the Pi returns
+//   {"hello": {"fw": "1.1.0", "proto": 1}}   at boot and when the Pi returns
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
 //   {"face": "new|lost"}
+//   {"face_image": "base64 JPEG, or empty"}     a capture's answer
 //   {"log": "..."}
 //
 // Without a line for 10 s it takes the Pi for gone and shows it.
@@ -33,6 +36,7 @@
 #include <Avatar.h>
 #include <M5StackChan.h>
 #include <M5Unified.h>
+#include <esp_heap_caps.h>
 
 #include "lights.h"
 #include "vision.h"
@@ -41,7 +45,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.0.0";
+constexpr const char* kFirmware = "1.1.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -106,6 +110,14 @@ uint32_t touchDownZone = 0;
 
 int targetYaw = 0, targetPitch = kPitchRest;
 
+// One frame as a JPEG, on request (the server's face library): the Pi asks,
+// a task encodes the frame and sends it, the answer is one line.
+volatile bool capturePending = false;
+constexpr uint32_t kCaptureOutBytes = 48 * 1024;
+// Only one line on the wire at a time: a face's picture is a long write, and
+// two concurrent writes would interleave it with whatever else the robot says.
+SemaphoreHandle_t serialLock = nullptr;
+
 // A gesture is a few keyframes on top of where the head is pointed.
 struct Keyframe {
   int yaw, pitch;  // offsets, tenths of a degree
@@ -133,8 +145,39 @@ void gaze(float vertical, float horizontal) {
 }
 
 void send(JsonDocument& doc) {
+  xSemaphoreTake(serialLock, portMAX_DELAY);
   serializeJson(doc, Serial);
   Serial.print('\n');
+  xSemaphoreGive(serialLock);
+}
+
+// Base64, for a face's picture.
+String base64Encode(const uint8_t* data, uint32_t len) {
+  static const char* alphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String out;
+  out.reserve(len / 3 * 4 + 4);
+  uint32_t i = 0;
+  for (; i + 3 <= len; i += 3) {
+    uint32_t v = (uint32_t)data[i] << 16 | (uint32_t)data[i + 1] << 8 | data[i + 2];
+    out += alphabet[v >> 18 & 0x3F];
+    out += alphabet[v >> 12 & 0x3F];
+    out += alphabet[v >> 6 & 0x3F];
+    out += alphabet[v & 0x3F];
+  }
+  if (len - i == 1) {
+    uint32_t v = (uint32_t)data[i] << 16;
+    out += alphabet[v >> 18 & 0x3F];
+    out += alphabet[v >> 12 & 0x3F];
+    out += "==";
+  } else if (len - i == 2) {
+    uint32_t v = (uint32_t)data[i] << 16 | (uint32_t)data[i + 1] << 8;
+    out += alphabet[v >> 18 & 0x3F];
+    out += alphabet[v >> 12 & 0x3F];
+    out += alphabet[v >> 6 & 0x3F];
+    out += "=";
+  }
+  return out;
 }
 
 void sendHello() {
@@ -288,6 +331,15 @@ void handle(JsonDocument& doc) {
       pointHead(0, kPitchRest, 400);
     }
   }
+  if (doc["yaw"].is<int>()) {
+    // Where the voice came from, from the Pi's microphone array
+    // (tenths of a degree, the servos' units).
+    pointHead(doc["yaw"].as<int>(), targetPitch, 500);
+  }
+  if ((doc["capture"].is<bool>() && doc["capture"].as<bool>()) ||
+      (doc["capture"].is<int>() && doc["capture"].as<int>() == 1)) {
+    capturePending = true;
+  }
   if (doc["gesture"].is<const char*>()) {
     String g = doc["gesture"].as<const char*>();
     if (g == "nod") GESTURE(kNod);
@@ -389,6 +441,22 @@ void readSerial() {
     showText();
     setMood("neutral");
     avatar.setMouthOpenRatio(0);
+  }
+}
+
+// The capture's answer, from its own task: encoding and the long write would
+// otherwise hold up the loop (the face tracking, the servos, the touch).
+void captureTask(void*) {
+  uint8_t* out = (uint8_t*)heap_caps_malloc_aligned(kCaptureOutBytes, 16, MALLOC_CAP_SPIRAM);
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(20));
+    if (!capturePending) continue;
+    capturePending = false;
+    uint32_t size = 0;
+    bool ok = out != nullptr && vision::captureJpeg(out, kCaptureOutBytes, &size);
+    JsonDocument doc;
+    doc["face_image"] = ok ? base64Encode(out, size).c_str() : "";
+    send(doc);
   }
 }
 
@@ -560,10 +628,11 @@ void setup() {
   avatar.init();
   avatar.setSpeechFont(&fonts::efontCN_12);
 
+  serialLock = xSemaphoreCreateMutex();
   hasCamera = vision::begin();
   pointHead(0, kPitchRest, 300);
   randomSeed(esp_random());
-
+  xTaskCreatePinnedToCore(captureTask, "face", 8192, nullptr, 3, nullptr, 1);
   sendHello();
   if (!hasCamera) {
     JsonDocument doc;

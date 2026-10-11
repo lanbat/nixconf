@@ -5,7 +5,8 @@ morning, Alex!"), from up to three signals:
 
 | Signal | Where | Status |
 |---|---|---|
-| **Face** | Frigate names faces on the cameras and the **person mapper** relays each room to the router; a robot can also recognise faces on-device ([stackchan.md](stackchan.md)) | planned |
+| **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
+| **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | planned |
 | **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | planned |
 
@@ -40,6 +41,20 @@ those matches, keeps who is in which room (its `settings.cameras` maps room → 
 camera) and tells the router over the same body socket the robots use. Enrolling a person
 means adding photos to their entry in Frigate's face library; the person mapper only
 *names* the faces Frigate reports, it never stores a face itself.
+
+## Faces on the robot
+
+A robot can name the speaker without a room camera. When it turns its head toward the
+voice ([stackchan.md](stackchan.md)), it captures a frame and sends it to the router; the
+router runs it against the **same Frigate face library** and reports the result back. The
+robot never recognises anything itself — it only captures and transmits — and a frame is
+sent only when the router says it has a face library to check against, so a robot on a
+router without Frigate just stays quiet.
+
+The recognised key lands in the router exactly like a camera face does (a `face` signal
+for the room), so the combining rules below are the same. Enrolling a person the robot can
+name is the same as enrolling for the cameras: add photos to their entry in Frigate's face
+library.
 
 ## How the router combines it
 

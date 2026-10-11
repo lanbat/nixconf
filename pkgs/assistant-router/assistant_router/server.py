@@ -8,6 +8,7 @@ a local act from its result, and goes back to the cloud otherwise.
 from __future__ import annotations
 
 import asyncio
+import base64
 import datetime
 import glob
 import json
@@ -332,18 +333,29 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     return app
 
 
-def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None) -> web.Application:
+def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
+                  frigate: Frigate | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
     A robot ("kind": anything but "room-sensor" and "face-source") is the
-    room's body; it may report the faces it recognises. A room sensor
+    room's body; it may report the faces it recognises, and may send a frame
+    of the person it is looking at ({"face_probe": base64}), which is
+    recognised here and remembered as the speaker of that room. A room sensor
     (pkgs/room-presence) is not a body: it only reports the phones it sees, and
     gets nothing back. A face source (the frigate person mapper) is also not a
     body: it reports the recognised people for the room ({"faces": [...]}), the
     full current set each time it changes."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source")
+
+    def _b64(value) -> bytes | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            return base64.b64decode(value, validate=True)
+        except ValueError:
+            return None
 
     def observe_faces(room: str, faces, now: float) -> None:
         # The sender reports the room's full current set, so it replaces.
@@ -375,12 +387,32 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     kind = hello.get("kind") or ""
                     if kind not in non_bodies:
                         bodies.connect(room, ws)
+                        # Tell the body what it may send back: whether this
+                        # router has a face library to probe against.
+                        try:
+                            await ws.send_json({"body_hello": {"faces": frigate is not None}})
+                        except Exception:  # pylint: disable=broad-except
+                            pass
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock())
                 elif room and kind not in non_bodies and "face_image" in data:
                     bodies.complete_capture(room, data["face_image"])
+                elif room and kind not in non_bodies and "face_probe" in data:
+                    img = _b64(data.get("face_probe"))
+                    if img and frigate is not None:
+                        try:
+                            hit = await frigate.recognize(img)
+                        except FrigateError:
+                            hit = None
+                        person = hit.get("name") if hit and hit.get("success") else None
+                        known = person in people.names if person else False
+                        if known:
+                            people.observe(room, "face", person, hit.get("confidence"), clock())
+                        await ws.send_json({"face_result": {
+                            "person": people.names[person] if known else None,
+                            "confidence": hit.get("confidence") if hit else None}})
                 elif room and kind == "room-sensor" and isinstance(data.get("seen"), list):
                     for seen in data["seen"][:32]:
                         if isinstance(seen, dict) and type(seen.get("rssi")) is int and seen["rssi"] >= -85:

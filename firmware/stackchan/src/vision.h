@@ -1,5 +1,6 @@
 // Faces seen through the CoreS3's camera, detected on the robot (esp-dl).
-// Nothing but a face's position leaves this file: no picture is stored or sent.
+// Nothing leaves this file but a face's position and, on request, one frame
+// as a JPEG for the server's face library (the robot keeps no pictures).
 #pragma once
 
 #include <Arduino.h>
@@ -20,6 +21,11 @@ bool begin();
 
 // The latest sighting (copied under a lock).
 Sighting latest();
+
+// One fresh frame as a JPEG, for the server's face library: true and outSize
+// set when it fit into out (the camera must be up; it works while the
+// detector is paused, the sensor keeps streaming).
+bool captureJpeg(uint8_t* out, uint32_t outLen, uint32_t* outSize);
 
 // Paused while asleep: no frames, less heat and power.
 void setPaused(bool paused);
