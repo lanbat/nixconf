@@ -35,7 +35,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
-        runners.append(web.AppRunner(make_body_app(bodies, people=people)))
+        runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate)))
         await runners[1].setup()
         await web.TCPSite(runners[1], a.body_host, a.body_port).start()
     try:

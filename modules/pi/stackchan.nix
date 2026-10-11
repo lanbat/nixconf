@@ -22,6 +22,7 @@ let
   cfg = config.lanbat.stackchan;
   satellite = config.lanbat.voiceSatellite;
   bridge = pkgs.callPackage ../../pkgs/lva-stackchan { };
+  doaOrder = pkgs.callPackage ../../pkgs/doa-order { };
   flag = b: if b then "1" else "0";
   endpointLib = import ../../lib/endpoints.nix { inherit lib; };
 
@@ -131,6 +132,57 @@ in
         English list (pkgs/lva-stackchan); set it for another language.
       '';
     };
+    soundDirection = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Turn the head toward the voice when the wake word is heard, so the
+        camera meets the speaker: direction finding on the satellite's four
+        microphones (a PlayStation Eye). A no-op that only retries quietly on
+        a host whose microphone is not the Eye; set it to false to stop
+        listening. See docs/stackchan.md.
+      '';
+    };
+    soundOffsetDeg = mkOption {
+      type = types.str;
+      default = "0";
+      example = "-15";
+      description = ''
+        Degrees added to the found angle. The voice as the satellite's mics
+        measure it is not always where it is as the robot sees it (the head is
+        turned, the mics are not exactly where the geometry says): a
+        calibration, docs/stackchan.md.
+      '';
+    };
+    soundTurnMinDeg = mkOption {
+      type = types.str;
+      default = "15";
+      description = ''
+        The voice must move this many degrees before the head turns again; the
+        estimate wobbles a few degrees between windows, and a turn is not a
+        free gesture.
+      '';
+    };
+    soundMicGeometry = mkOption {
+      type = types.str;
+      default = "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01";
+      description = ''
+        Where the four microphones sit, as four "x,y" points in metres (y
+        forward, x to the robot's right), in the order the card reports them.
+        The default is a 2 cm square; set it from the hardware and the channel
+        order, docs/stackchan.md. The doa-order tool (on the satellite's PATH)
+        records the four channels, you clap three times, and prints the string.
+      '';
+    };
+    soundSource = mkOption {
+      type = types.str;
+      default = "lanbat_ps_eye_capture";
+      description = ''
+        The microphone node to listen on for direction: the satellite capture
+        node by default (modules/core/voice-satellite-audio.nix), which keeps
+        all four channels for this.
+      '';
+    };
   };
 
   config = lib.mkIf (cfg.enable && satellite.enable) {
@@ -143,6 +195,9 @@ in
 
     lanbat.voiceSatellite.lva.peripheralApiUsers = [ "lva-stackchan" ];
     lanbat.services.stackchan.consumes = lib.optional routerHere "assistant-router";
+
+    # The channel-order discovery helper, to find soundMicGeometry (docs/stackchan.md).
+    environment.systemPackages = [ doaOrder ];
 
     services.udev.extraRules = ''
       SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ${
@@ -176,6 +231,11 @@ in
         BRIGHTNESS = toString cfg.brightness;
         NIGHT_BRIGHTNESS = toString cfg.nightBrightness;
         NAP_AFTER_S = toString (if cfg.napAfter == null then 0 else cfg.napAfter * 60);
+        SOUND_DIRECTION = flag cfg.soundDirection;
+        SOUND_OFFSET_DEG = cfg.soundOffsetDeg;
+        SOUND_TURN_MIN_DEG = cfg.soundTurnMinDeg;
+        SOUND_MIC_GEOMETRY = cfg.soundMicGeometry;
+        SOUND_SOURCE = cfg.soundSource;
       }
       // lib.optionalAttrs routerHere {
         ROUTER_BODY_URL = routerUrl;

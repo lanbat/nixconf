@@ -318,6 +318,8 @@ let
           "sorry"
           "leider"
         ];
+        soundDirection = false;
+        soundOffsetDeg = "-15";
       };
     }
   ];
@@ -798,21 +800,31 @@ let
       && lib.elem "pipewire" unit.serviceConfig.SupplementaryGroups
       && unit.environment.NIGHT_START == "23:00"
       && unit.environment.NAP_AFTER_S == "900"
+      && unit.environment.SOUND_DIRECTION == "1"
+      && unit.environment.SOUND_OFFSET_DEG == "0"
+      && unit.environment.SOUND_TURN_MIN_DEG == "15"
+      && unit.environment.SOUND_MIC_GEOMETRY == "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
+      && unit.environment.SOUND_SOURCE == "lanbat_ps_eye_capture"
       && !(unit.environment ? SAD_WORDS)
       && lib.hasInfix ''SYMLINK+="stackchan"'' stackchan.services.udev.extraRules
       && !(lib.hasInfix "ID_SERIAL_SHORT" stackchan.services.udev.extraRules)
       && failedAssertions stackchan == [ ]
     ))
 
-    (expect "stackchan: a profile pins the robot, keeps it awake and gives it its own sad words" (
-      let
-        env = stackchanTuned.systemd.services.lva-stackchan.environment;
-      in
-      lib.hasInfix ''ENV{ID_SERIAL_SHORT}=="F4:12:FA:00:00:01"'' stackchanTuned.services.udev.extraRules
-      && env.NIGHT_START == ""
-      && env.SAD_WORDS == "sorry,leider"
-      && env.NAP_AFTER_S == "0"
-    ))
+    (expect
+      "stackchan: a profile pins the robot, keeps it awake, gives it its own sad words and aims its sound"
+      (
+        let
+          env = stackchanTuned.systemd.services.lva-stackchan.environment;
+        in
+        lib.hasInfix ''ENV{ID_SERIAL_SHORT}=="F4:12:FA:00:00:01"'' stackchanTuned.services.udev.extraRules
+        && env.NIGHT_START == ""
+        && env.SAD_WORDS == "sorry,leider"
+        && env.NAP_AFTER_S == "0"
+        && env.SOUND_DIRECTION == "0"
+        && env.SOUND_OFFSET_DEG == "-15"
+      )
+    )
 
     (expect "stackchan: the robot is the router's body in its room, over a port opened to it alone" (
       let

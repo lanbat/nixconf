@@ -162,9 +162,10 @@ and the assistant knows it has a body:
 - **It remembers people.** Ask it "remember me as <name>" and, if the robot can see you,
   it takes a photo and registers your face with Frigate, so the assistant knows your name
   in this room. The photo only goes to Frigate's recognition library and is never used to
-  unlock, disarm, open or allow anything. *The robot's camera still needs its
-  JPEG-capture firmware update for this to work end to end; the router and the bridge are
-  ready.*
+  unlock, disarm, open or allow anything.
+- **It knows who is talking.** When the router has a face library (Frigate), the robot
+  captures the speaker's face, right after it turns to them, and the router names it, so
+  the reply can be addressed. See [people.md](people.md) for how that becomes a name.
 
 Only fixed fields pass between the robot and the router (yes/no, seconds, names from
 fixed lists), so nothing the robot sends becomes text in a prompt. The router listens
@@ -174,6 +175,49 @@ for robots on port 8770, which is opened only to the hosts running `lva-stackcha
 Check it: `journalctl -u lva-stackchan` on the Pi shows `body of Kitchen at
 ws://…:8770/v1/body`, and `journalctl -u assistant-router` on the server shows
 `{"body": "connected", "room": "Kitchen", …}`.
+
+## Turning toward the voice
+
+Say the wake word and the robot turns its head to where the voice is coming from, so the
+camera meets the speaker. It hears you with the satellite's microphone array — the
+PlayStation Eye carries four mics — and works out the direction from the few microseconds
+between them (TDOA, pure Python on the Pi, no extra hardware). This is what lets it catch
+your face for recognition above.
+
+It is on by default and needs only the four-mic source, so the robot still works without
+it (the head just stays put). `lanbat.stackchan.soundDirection = false` turns it off.
+
+| Option | Default | What it does |
+|---|---|---|
+| `lanbat.stackchan.soundDirection` | `true` | Turn the head toward the voice |
+| `lanbat.stackchan.soundOffsetDeg` | `"0"` | A fixed nudge added to every angle, in degrees |
+| `lanbat.stackchan.soundTurnMinDeg` | `"15"` | The voice must move this far before it turns again |
+| `lanbat.stackchan.soundMicGeometry` | the Eye's four mics | Where the four mics sit, four "x,y" points in metres |
+| `lanbat.stackchan.soundSource` | the PS Eye capture node | Which PipeWire node to listen on for the four channels |
+
+### Calibrating the direction
+
+The estimate is good to a few degrees once three things are right: the mic **geometry**,
+the mic **channel order**, and a per-room **offset**.
+
+- **Geometry.** `soundMicGeometry` is four "x,y" points in metres, y forward and x to the
+  robot's right, one per mic in channel order. The default is the PlayStation Eye's array.
+  With a different four-mic card, set its points here; two mics closer than 5 mm apart
+  make an axis that can't be read.
+- **Channel order.** The four channels must line up with the four geometry points. The
+  `doa-order` tool (on the satellite's PATH, from this module) finds it: it records all
+  four channels, you clap three times — straight ahead, then to the robot's right, then to
+  its left — and it prints the channel-to-corner mapping and a `soundMicGeometry` string
+  ready to paste. `doa-order --geometry "$(current)"` also tells you if it disagrees with
+  what you have set. A wrong order makes the head turn the wrong way or mirror image.
+- **Offset.** Rooms reflect, and the mics sit off the robot's centre. If it consistently
+  turns a little short or far, add `soundOffsetDeg` (for example `"-15"` for "always 15°
+  too far right"). `soundTurnMinDeg` is the hysteresis: the estimate wobbles a few degrees
+  between windows, and the head only moves once the voice has moved on by that much, so a
+  little higher (say `"20"`) stops it chasing its own echo.
+
+Check it: `journalctl -u lva-stackchan -f` shows `voice at 25 degrees (confidence 0.83):
+turning` as you move around the robot.
 
 ## How it fits together
 
@@ -207,6 +251,7 @@ One JSON object per line, 115200 baud over the CoreS3's USB port.
 | `{"status": {"muted", "online"}}` | Muted microphone; Home Assistant reachable |
 | `{"config": {"brightness", "notice"}}` | Screen brightness; whether to greet newcomers |
 | `{"ping": 1}` | Heartbeat every 3 s. After 10 s without any line the robot shows "No Pi" |
+| `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 
 | Robot → Pi | Meaning |
@@ -220,8 +265,9 @@ One JSON object per line, 115200 baud over the CoreS3's USB port.
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
 
 `face_image` is the only line that can be large (a full-frame JPEG, base64). The robot
-only sends it in answer to a `capture`, never on its own; the bridge relays it to the
-router, which passes the decoded photo to Frigate.
+only sends it in answer to a `capture`, never on its own. The bridge sends it on to the
+router: as `face_image` when the router asked (enrolment), or as a `face_probe` after the
+robot has turned to the speaker, which the router runs against Frigate.
 
 ## Troubleshooting
 

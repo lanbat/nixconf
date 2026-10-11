@@ -11,12 +11,13 @@
 #
 # Microphone
 # ----------
-# The microphone's capture node is renamed lanbat_ps_eye_capture and set to
-# one channel, so PipeWire downmixes a microphone array (the PlayStation Eye
-# has four) and LVA opens it by a stable name rather than by whatever the
-# card calls itself. WirePlumber's device properties carry the USB IDs but
-# don't reach the node, which has only ALSA's "USBvvvv:pppp" components
-# string; the node rule matches that.
+# The microphone's capture node is renamed lanbat_ps_eye_capture and keeps the
+# card's own channels (four on the PlayStation Eye), so the satellite's
+# direction-of-arrival listener (modules/pi/stackchan.nix) can read every mic;
+# LVA opens it by a stable name rather than by whatever the card calls itself
+# and asks for one channel, which PipeWire mixes down. WirePlumber's device
+# properties carry the USB IDs but don't reach the node, which has only ALSA's
+# "USBvvvv:pppp" components string; the node rule matches that.
 #
 # Echo cancellation (echoCancellation.enable)
 # -------------------------------------------
@@ -76,9 +77,10 @@ in
           ];
           actions.update-props = {
             "node.name" = captureNode;
-            # LVA captures mono (--audio-input-channels 1).
-            "audio.channels" = 1;
-            "audio.position" = [ "MONO" ];
+            # The channels stay the card's own (four on the PlayStation Eye),
+            # so the direction-of-arrival listener can read every mic. A
+            # consumer that wants one (LVA, the echo canceller) asks for mono
+            # on its own stream and PipeWire mixes it down.
           };
         }
       ];
@@ -100,6 +102,10 @@ in
               "capture.props" = {
                 "node.name" = "lanbat_aec_capture";
                 "target.object" = captureNode;
+                # The microphone node keeps its four channels; the canceller
+                # works on one, so mix them down on this stream.
+                "audio.channels" = 1;
+                "audio.position" = [ "MONO" ];
               };
               "source.props" = {
                 "node.name" = cfg.echoCancellation.pulseSourceName;

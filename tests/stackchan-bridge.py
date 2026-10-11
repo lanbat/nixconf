@@ -6,7 +6,9 @@ and check what comes out.
 
 Run with: nix build .#checks.x86_64-linux.stackchan-bridge
 """
+import math
 import os
+import struct
 import sys
 import time
 import unittest
@@ -15,7 +17,19 @@ os.environ["TZ"] = "UTC"
 time.tzset()
 sys.path.insert(0, sys.argv.pop(1))
 
-from stackchan_bridge import Brain, Config, envelope_level  # noqa: E402
+from stackchan_bridge import (  # noqa: E402
+    Brain,
+    Config,
+    DEFAULT_SOUND_GEOMETRY,
+    DOA_CHANNELS,
+    DOA_RATE,
+    DOA_WINDOW_S,
+    MicWindow,
+    _angle_moved,
+    envelope_level,
+    estimate_direction,
+    parse_geometry,
+)
 
 NOON = 1_800_000_000 - 1_800_000_000 % 86400 + 12 * 3600  # 12:00 UTC
 MIDNIGHT = NOON + 12 * 3600  # 00:00 UTC, the next day
@@ -362,6 +376,135 @@ class Envelope(unittest.TestCase):
         self.assertEqual(envelope_level(quiet), 0.0)
         self.assertGreater(envelope_level(loud), 0.4)
         self.assertLessEqual(envelope_level(loud), 1.0)
+
+
+def wave(theta_deg, n=2048, fs=DOA_RATE, geom=DEFAULT_SOUND_GEOMETRY, speed=343.0):
+    """A plane wave arriving at theta_deg (0 straight ahead, + to the left) at
+    the four mics: each mic's trace is the reference shifted by the extra path
+    the wave travels to reach it, in samples."""
+    th = math.radians(theta_deg)
+    ux, uy = -math.sin(th), math.cos(th)  # toward the source
+
+    def ref(k):
+        return (math.sin(2 * math.pi * 997 * k / fs)
+                + 0.5 * math.sin(2 * math.pi * 1321 * k / fs)
+                + 0.3 * math.sin(2 * math.pi * 713 * k / fs))
+
+    out = []
+    for x, y in parse_geometry(geom):
+        shift = (x * ux + y * uy) / speed * fs
+        out.append([ref(i + shift) for i in range(n)])
+    return out
+
+
+class Geometry(unittest.TestCase):
+    def test_four_points_parse(self):
+        pts = parse_geometry("-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01")
+        self.assertEqual(pts, [(-0.01, -0.01), (0.01, -0.01), (0.01, 0.01), (-0.01, 0.01)])
+
+    def test_not_four_points_is_none(self):
+        self.assertIsNone(parse_geometry("0,0;0,1;1,0"))
+        self.assertIsNone(parse_geometry("0,0;0,1;1,0;1,1;0,2"))
+
+    def test_bad_token_is_none(self):
+        self.assertIsNone(parse_geometry("0,0;0,1;1,0;1,x"))
+        self.assertIsNone(parse_geometry("0;1;2;3"))
+
+
+class Direction(unittest.TestCase):
+    def test_a_wave_at_a_known_angle_is_found(self):
+        for theta in (0, 30, -30, 60, -60, 90):
+            with self.subTest(theta=theta):
+                est = estimate_direction(wave(theta), DOA_RATE, DEFAULT_SOUND_GEOMETRY)
+                self.assertIsNotNone(est)
+                angle, confidence = est
+                self.assertLess(abs(angle - theta), 2.0)
+                self.assertGreater(confidence, 0.25)
+
+    def test_silence_is_no_direction(self):
+        self.assertIsNone(estimate_direction([[0.0] * 2048 for _ in range(4)], DOA_RATE, DEFAULT_SOUND_GEOMETRY))
+
+    def test_too_few_samples_is_no_direction(self):
+        self.assertIsNone(estimate_direction([c[:300] for c in wave(30)], DOA_RATE, DEFAULT_SOUND_GEOMETRY))
+
+    def test_unrelated_mics_is_no_direction(self):
+        import random
+        rng = random.Random(7)
+        noise = [[rng.uniform(-1.0, 1.0) for _ in range(1000)] for _ in range(4)]
+        self.assertIsNone(estimate_direction(noise, DOA_RATE, DEFAULT_SOUND_GEOMETRY))
+
+    def test_bad_geometry_is_no_direction(self):
+        self.assertIsNone(estimate_direction(wave(30), DOA_RATE, "nope"))
+        self.assertIsNone(estimate_direction(wave(30)[:3], DOA_RATE, DEFAULT_SOUND_GEOMETRY))
+
+
+class Mic(unittest.TestCase):
+    def frame(self, *values):
+        return b"".join(struct.pack("<h", v) for v in values)
+
+    def test_empty_window_is_none(self):
+        self.assertIsNone(MicWindow(4, 8).snapshot())
+
+    def test_a_partial_frame_keeps_it_none(self):
+        w = MicWindow(4, 8)
+        w.push(self.frame(1, 2, 3, 4) + self.frame(5, 6))  # second frame incomplete
+        self.assertIsNone(w.snapshot())
+
+    def test_a_full_window_keeps_the_last_frames(self):
+        w = MicWindow(4, 8)
+        for i in range(12):
+            w.push(self.frame(100 + i, 101 + i, 102 + i, 103 + i))
+        snap = w.snapshot()
+        self.assertEqual(len(snap), 4)
+        self.assertEqual(len(snap[0]), 8)
+        self.assertEqual(snap[0][0], 104 / 32768.0)  # the fifth frame pushed (12 - 8)
+        self.assertEqual(snap[3][-1], (103 + 11) / 32768.0)  # the last frame
+
+
+class AngleMoved(unittest.TestCase):
+    def test_same_and_half_turns(self):
+        self.assertEqual(_angle_moved(10, 10), 0.0)
+        self.assertEqual(_angle_moved(0, 180), 180.0)
+        self.assertEqual(_angle_moved(90, 0), 90.0)
+
+    def test_across_zero(self):
+        self.assertEqual(_angle_moved(350, 10), 20.0)
+        self.assertEqual(_angle_moved(-170, 20), 170.0)
+
+
+class Sound(unittest.TestCase):
+    """The head turns to the voice, but only when it has moved on."""
+
+    def setUp(self):
+        self.b = Brain(Config(sound_turn_min_deg=15.0), now=NOON)
+
+    def yaw(self, angle, confidence=0.9):
+        out = self.b.on_sound(angle, confidence, NOON)
+        yaws = [a[1]["yaw"] for a in out if a[0] == "device" and "yaw" in a[1]]
+        return yaws[0] if yaws else None
+
+    def test_it_turns_when_the_voice_is_far_enough(self):
+        self.assertIsNone(self.yaw(10))  # only 10 degrees on: not far enough
+        self.assertEqual(self.yaw(20), 200)  # 20 from straight ahead: turn
+        self.assertEqual(self.b.sound_angle, 20.0)
+
+    def test_small_wobbles_do_not_return(self):
+        self.assertEqual(self.yaw(20), 200)
+        self.assertIsNone(self.yaw(25))  # 5 degrees on: a wobble
+        self.assertEqual(self.yaw(40), 400)  # 20 more: turn again
+
+    def test_the_offset_shifts_the_target(self):
+        b = Brain(Config(sound_turn_min_deg=15.0, sound_offset_deg=5.0), now=NOON)
+        out = b.on_sound(10, 0.9, NOON)  # target 15: far enough from 0
+        self.assertEqual([a[1]["yaw"] for a in out if a[0] == "device"], [150])
+
+    def test_the_yaw_is_clamped_to_the_servo(self):
+        self.assertEqual(self.yaw(80), 700)  # clamped to +70 degrees
+        self.assertEqual(self.yaw(-80), -700)  # clamped to -70 degrees
+
+    def test_around_the_back(self):
+        self.assertEqual(self.yaw(20), 200)
+        self.assertEqual(self.yaw(-170), -700)  # 170 degrees on, clamped
 
 
 if __name__ == "__main__":

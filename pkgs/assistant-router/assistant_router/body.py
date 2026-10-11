@@ -97,7 +97,7 @@ class Bodies:
         self.persona = persona.strip()
         self._sockets: dict[str, Any] = {}
         self._states: dict[str, BodyState] = {}
-        self._captures: dict[str, Any] = {}  # room key -> a face in flight
+        self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
 
     def connect(self, room: str, socket: Any) -> None:
         self._sockets[_key(room)] = socket
