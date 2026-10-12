@@ -30,7 +30,7 @@ def test_add_is_persisted_and_survives_a_restart(tmp_path):
     path = tmp_path / "people.json"
     people = People(dict(BASE))
     PeopleStore(people, str(path)).add("jane", "Jane")
-    assert "talking to Jane" in people.line("Kitchen", now=0.0, voice=("jane", 0.9))
+    assert "talking to Jane" in people.line("Kitchen", now=0.0, voice={"jane": 0.9})
 
     again = People(dict(BASE))
     PeopleStore(again, str(path))

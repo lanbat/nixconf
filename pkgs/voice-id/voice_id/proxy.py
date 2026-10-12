@@ -1,28 +1,29 @@
-#!/usr/bin/env python3
 """voice-id: a Wyoming speech-to-text proxy for Home Assistant's voice pipeline.
 
 Home Assistant sends each utterance here instead of to faster-whisper; this
 passes every event straight through to faster-whisper (the upstream) and the
 transcript straight back, and reports itself to Home Assistant as "voice-id".
 
-Phase A of speaker identification (docs/pi3-satellite.md): pass-through only,
-logging how long the upstream took and how much the proxy added, so the cost
-of sitting in the pipeline is measured before anything else is added to it.
+Beside that, it keeps the utterance's audio and, as soon as the audio ends,
+works out who it sounds like (voice_id/service.py) in a thread, in parallel
+with speech-to-text: the transcript is never held back for it. Each
+utterance's log line gives how long the upstream took and how much the
+proxy added.
 """
 from __future__ import annotations
 
-import argparse
 import asyncio
 import logging
 import time
-from functools import partial
 
 from wyoming.asr import Transcript
-from wyoming.audio import AudioChunk, AudioStop
+from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.client import AsyncClient
 from wyoming.event import Event
 from wyoming.info import Attribution, Describe, Info
-from wyoming.server import AsyncEventHandler, AsyncServer
+from wyoming.server import AsyncEventHandler
+
+from .embedder import samples
 
 _LOGGER = logging.getLogger("voice-id")
 
@@ -49,9 +50,13 @@ async def upstream_info(uri: str) -> Info:
 
 
 class ProxyHandler(AsyncEventHandler):
-    def __init__(self, upstream_uri: str, *args, **kwargs) -> None:
+    def __init__(self, upstream_uri: str, voice, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.upstream_uri = upstream_uri
+        self.voice = voice  # voice_id.service.VoiceId, or None for pass-through only
+        self.audio = bytearray()
+        self.audio_format = (16000, 2, 1)
+        self.embedding: asyncio.Task | None = None
         self.upstream: AsyncClient | None = None
         self.pump: asyncio.Task | None = None
         self.audio_bytes = 0
@@ -67,10 +72,20 @@ class ProxyHandler(AsyncEventHandler):
             await self.upstream.connect()
             self.pump = asyncio.create_task(self._pump())
 
-        if AudioChunk.is_type(event.type):
+        if AudioStart.is_type(event.type):
+            start = AudioStart.from_event(event)
+            self.audio_format = (start.rate, start.width, start.channels)
+            self.audio.clear()
+        elif AudioChunk.is_type(event.type):
             self.audio_bytes += len(event.payload or b"")
+            if self.voice is not None and len(self.audio) < 60 * 32000:
+                self.audio += event.payload or b""
         elif AudioStop.is_type(event.type):
             self.stopped_at = time.monotonic()
+            if self.voice is not None and self.audio:
+                rate, width, channels = self.audio_format
+                signal = samples(bytes(self.audio), width, channels)
+                self.embedding = asyncio.create_task(asyncio.to_thread(self.voice.embed, signal, rate))
 
         await self.upstream.write_event(event)
         return True
@@ -94,11 +109,21 @@ class ProxyHandler(AsyncEventHandler):
                         (sent - received) * 1000,
                         self.audio_bytes / 32000,
                     )
+                    if self.embedding is not None:
+                        asyncio.create_task(self._identify(Transcript.from_event(event).text, self.embedding))
+                        self.embedding = None
                     break
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("upstream failed")
         finally:
             await self._close_upstream()
+
+    async def _identify(self, text: str, embedding: asyncio.Task) -> None:
+        """After the transcript has gone back: who the utterance sounds like."""
+        try:
+            await self.voice.utterance(text, await embedding)
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("speaker identification failed")
 
     async def _close_upstream(self) -> None:
         if self.upstream is not None:
@@ -112,24 +137,3 @@ class ProxyHandler(AsyncEventHandler):
         if self.pump is not None:
             self.pump.cancel()
         await self._close_upstream()
-
-
-async def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--uri", required=True, help="where Home Assistant connects, e.g. tcp://127.0.0.1:10303")
-    parser.add_argument("--upstream", required=True, help="the speech-to-text server, e.g. tcp://127.0.0.1:10301")
-    parser.add_argument("--debug", action="store_true")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, format="%(message)s")
-
-    server = AsyncServer.from_uri(args.uri)
-    _LOGGER.info("listening on %s, passing through to %s", args.uri, args.upstream)
-    await server.run(partial(ProxyHandler, args.upstream))
-
-
-def run() -> None:
-    asyncio.run(main())
-
-
-if __name__ == "__main__":
-    run()

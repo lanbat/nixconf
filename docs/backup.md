@@ -34,6 +34,12 @@
 | Jackett indexers, credentials and API key | `/var/lib/jackett/` | `backup-server.sh` (it holds private-indexer logins: treat the backup as a secret). qBittorrent's `jackett.json` is rewritten from this key on every start, so it needs no backup of its own |
 | Music Assistant state | `/var/lib/music-assistant/` | `backup-server.sh` |
 
+### Deliberately not backed up
+
+| Data | Reason |
+|---|---|
+| Voiceprints (`/mnt/workload/voice-id/`) | Biometric data kept to a minimum: re-enrolling ("remember me") takes a minute. The directory carries a `CACHEDIR.TAG`, so a backup with `--exclude-caches` skips it too |
+
 ### Regenerable (do not need to back up)
 
 | Data | Reason |

@@ -506,7 +506,8 @@ async def test_a_face_source_reports_central_faces_without_becoming_a_body(aioht
         if line and "Kiril" in line:
             break
         await asyncio.sleep(0.01)
-    assert "You are probably talking to Kiril" in line
+    # The cameras say who is present, not who is speaking.
+    assert "Kiril is nearby" in line and "talking to" not in line
     # A face source is not a body: no persona, no acts for it.
     assert not bodies.has("Kitchen")
     # It reports the room's full current set, so an empty list clears it.
@@ -724,3 +725,184 @@ def test_person_key_from_a_name():
     assert _person_key("  Padded  ") == "padded"
     assert _person_key("!!!") is None
     assert _person_key("") is None
+
+
+# ── voice (assistant_router/voice.py, voice-id) ───────────────────────────────
+class FakeVoiceId:
+    """voice-id's API: enrols once it has three utterances from this conversation."""
+
+    def __init__(self, needed=3, available=True):
+        self.needed, self.available = needed, available
+        self.texts, self.learned, self.forgotten = {}, [], []
+
+    async def enrol(self, key, texts):
+        got = self.texts.setdefault(key, [])
+        got += [t for t in texts if t not in got]
+        enrolled = self.available and len(got) >= self.needed
+        return {"enrolled": enrolled, "utterances": len(got), "needed": self.needed, "available": self.available}
+
+    async def learn(self, key, text):
+        self.learned.append((key, text))
+        return True
+
+    async def forget(self, key):
+        self.forgotten.append(key)
+        return True
+
+
+class ForgettingFrigate(FakeFrigate):
+    def __init__(self, faces=None):
+        super().__init__()
+        self.faces = faces or {}
+        self.deleted = []
+
+    async def list(self):
+        return self.faces
+
+    async def delete(self, name, ids):
+        self.deleted.append((name, list(ids)))
+        return {"success": True}
+
+
+def _tool_call(name, args=None):
+    return {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "t1", "type": "function", "function": {"name": name, "arguments": json.dumps(args or {})}}]}
+
+
+async def voice_client(aiohttp_client, base, people, voice, store=None, frigate=None, bodies=None, capture=None):
+    cfg = Config(local_url=f"{base}/local/v1/chat/completions", local_model="qwen3-4b",
+                 cloud_url=f"{base}/cloud/v1/chat/completions", cloud_model="smart", mode="cloud-first")
+    return await aiohttp_client(make_app(cfg, State(), people=people, people_store=store, frigate=frigate,
+                                         bodies=bodies, capture_face=capture, voice=voice))
+
+
+async def test_a_voice_report_names_the_speaker_for_the_cloud(aiohttp_client, fakes):
+    seen, _, _, base = fakes
+    people = People({"kiril": "Kiril", "maria": "Maria"})
+    c = await voice_client(aiohttp_client, base, people, FakeVoiceId())
+    await c.post("/v1/voice", json={"text": "Good morning!", "scores": {"kiril": 0.78, "maria": 0.1}, "t": 0})
+    await post(c, req("Good morning"))
+    assert "talking to Kiril (recognised by voice)" in seen["cloud"][-1]["messages"][0]["content"]
+
+
+async def test_a_voice_report_a_moment_late_still_counts(aiohttp_client, fakes):
+    import asyncio
+    seen, _, _, base = fakes
+    people = People({"kiril": "Kiril"})
+    c = await voice_client(aiohttp_client, base, people, FakeVoiceId())
+
+    async def late():
+        await asyncio.sleep(0.1)
+        await c.post("/v1/voice", json={"text": "good morning", "scores": {"kiril": 0.8}})
+
+    task = asyncio.create_task(late())
+    await post(c, req("Good morning"))
+    await task
+    assert "talking to Kiril" in seen["cloud"][-1]["messages"][0]["content"]
+
+
+async def test_a_bad_voice_report_is_refused(aiohttp_client, fakes):
+    _, _, _, base = fakes
+    c = await voice_client(aiohttp_client, base, People({"kiril": "Kiril"}), FakeVoiceId())
+    assert (await c.post("/v1/voice", json={"text": 3, "scores": "high"})).status == 400
+
+
+async def test_a_clear_voice_refines_its_own_voiceprint(aiohttp_client, fakes):
+    _, _, _, base = fakes
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, People({"kiril": "Kiril", "maria": "Maria"}), voice)
+    await c.post("/v1/voice", json={"text": "what's the weather", "scores": {"kiril": 0.86, "maria": 0.2}})
+    await post(c, req("What's the weather"))
+    assert voice.learned == [("kiril", "What's the weather")]
+
+
+async def test_a_middling_voice_teaches_nothing(aiohttp_client, fakes):
+    _, _, _, base = fakes
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, People({"kiril": "Kiril", "maria": "Maria"}), voice)
+    await c.post("/v1/voice", json={"text": "hello", "scores": {"kiril": 0.7, "maria": 0.6}})
+    await post(c, req("Hello"))
+    assert voice.learned == []
+
+
+async def test_remember_me_by_voice_takes_a_short_conversation(aiohttp_client, fakes, tmp_path):
+    seen, _, cloud_reply, base = fakes
+    people = People({})
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, people, voice, store=store)
+    # No camera here: the tool is offered for the voice.
+    cloud_reply["v"] = _enroll_call("Jane")
+    first = await post(c, req("Please remember me, I'm Jane"))
+    said = first["message"]["content"]
+    assert "Jane" in said and said.endswith("?")      # asks for more, keeping the microphone open
+    assert "jane" not in people.names                  # not yet
+    second = await post(c, req("I went for a long walk by the river today"))
+    assert second["message"]["content"].endswith("?")
+    third = await post(c, req("And then I cooked dinner for my family"))
+    assert "Jane" in third["message"]["content"] and "voice" in third["message"]["content"]
+    assert people.names == {"jane": "Jane"}
+    assert voice.texts["jane"][0] == "Please remember me, I'm Jane"
+    names = [t["function"]["name"] for t in seen["cloud"][0].get("tools", [])]
+    assert "enroll_person" in names and "forget_person" in names
+
+
+async def test_remember_me_while_the_vault_is_locked(aiohttp_client, fakes):
+    _, _, cloud_reply, base = fakes
+    people = People({})
+    c = await voice_client(aiohttp_client, base, people, FakeVoiceId(available=False))
+    cloud_reply["v"] = _enroll_call("Jane")
+    said = (await post(c, req("Remember me, I'm Jane")))["message"]["content"]
+    assert "can't learn voices right now" in said
+    assert people.names == {}
+
+
+async def test_stop_ends_a_voice_enrolment(aiohttp_client, fakes):
+    _, _, cloud_reply, base = fakes
+    people = People({})
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, people, voice)
+    cloud_reply["v"] = _enroll_call("Jane")
+    await post(c, req("Remember me, I'm Jane"))
+    await post(c, req("Stop."))
+    cloud_reply["v"] = {"role": "assistant", "content": "It's sunny."}
+    assert (await post(c, req("What's the weather")))["message"]["content"] == "It's sunny."
+
+
+async def test_forget_me_forgets_the_recognised_speaker(aiohttp_client, fakes, tmp_path):
+    _, _, cloud_reply, base = fakes
+    people = People({"kiril": "Kiril"})
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    store.add("jane", "Jane")
+    voice = FakeVoiceId()
+    frigate = ForgettingFrigate({"jane": ["a.jpg", "b.jpg"]})
+    c = await voice_client(aiohttp_client, base, people, voice, store=store, frigate=frigate)
+    await c.post("/v1/voice", json={"text": "forget me please", "scores": {"jane": 0.85, "kiril": 0.1}})
+    cloud_reply["v"] = _tool_call("forget_person")
+    said = (await post(c, req("Forget me please")))["message"]["content"]
+    assert "Jane" in said and "forgotten" in said
+    assert voice.forgotten == ["jane"]
+    assert frigate.deleted == [("jane", ["a.jpg", "b.jpg"])]
+    assert "jane" not in people.names and "kiril" in people.names
+
+
+async def test_forget_me_keeps_people_from_the_profile(aiohttp_client, fakes, tmp_path):
+    _, _, cloud_reply, base = fakes
+    people = People({"kiril": "Kiril"})
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, people, voice, store=store, frigate=ForgettingFrigate())
+    await c.post("/v1/voice", json={"text": "forget me", "scores": {"kiril": 0.85}})
+    cloud_reply["v"] = _tool_call("forget_person")
+    said = (await post(c, req("Forget me")))["message"]["content"]
+    assert voice.forgotten == ["kiril"] and "kiril" in people.names
+    assert "recordings" in said
+
+
+async def test_forget_me_needs_to_know_who_you_are(aiohttp_client, fakes):
+    _, _, cloud_reply, base = fakes
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, People({"kiril": "Kiril"}), voice)
+    cloud_reply["v"] = _tool_call("forget_person")
+    said = (await post(c, req("Forget me")))["message"]["content"]
+    assert "not sure who you are" in said and voice.forgotten == []

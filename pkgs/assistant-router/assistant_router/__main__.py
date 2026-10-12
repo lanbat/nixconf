@@ -13,6 +13,7 @@ import json
 from .body import Bodies
 from .frigate import Frigate
 from .people import People
+from .voice import VoiceIdClient
 from .people_store import PeopleStore
 from .server import Config, make_app, make_body_app
 
@@ -30,8 +31,9 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     people = People(names)
     people_store = PeopleStore(people, a.people_state) if a.people_state else None
     frigate = Frigate(a.frigate_url) if a.frigate_url else None
+    voice = VoiceIdClient(a.voice_id_url) if a.voice_id_url else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
-                                      capture_face=bodies.capture))]
+                                      capture_face=bodies.capture, voice=voice))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
@@ -64,6 +66,7 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--persona-file", help="who the assistant is when a body is in the room")
     p.add_argument("--people-file", help="JSON {key: name}: the people it may recognise (people.py)")
     p.add_argument("--people-state", help="JSON {key: name} in the state dir: people enrolled at runtime, merged over --people-file (people_store.py)")
+    p.add_argument("--voice-id-url", help="voice-id's API (services/voice-id.nix): enrol, refine and forget voices")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,

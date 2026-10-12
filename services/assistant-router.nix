@@ -162,6 +162,9 @@ in
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
             # Co-located on this host (localhost); its API needs no auth. The URL
             # is only rendered when Frigate is present, so its port is read then.
+            ++ lib.optionals (config.lanbat.hasService "voice-id") [
+              "--voice-id-url http://127.0.0.1:${toString (lib.last config.lanbat.services.voice-id.extraPorts)}"
+            ]
             ++ lib.optionals (config.lanbat.hasService "frigate") [
               "--frigate-url http://127.0.0.1:${toString config.lanbat.services.frigate.port}/"
             ]

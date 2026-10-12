@@ -414,7 +414,12 @@ let
           example = {
             "immich/thumbs".user = "immich";
           };
-          description = "Directories under /mnt/workload to create with this ownership when the layer is unlocked.";
+          description = ''
+            Directories under /mnt/workload to create with this ownership when the
+            layer is unlocked. An always-on service may declare one too (voice-id's
+            voiceprints): it keeps running while the layer is locked and must cope
+            without the directory until then.
+          '';
         };
 
         units = mkOption {

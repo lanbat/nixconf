@@ -139,7 +139,7 @@ Follow this checklist every time:
    | `endpoint` | is reached over the network by another service |
    | `consumes` | reaches another service over the network |
    | `tier = "workload"`, `state`, `units` | holds personal data that must stay on the encrypted layer |
-   | `workloadDirs` | needs directories with an owner on the workload layer before it starts |
+   | `workloadDirs` | needs directories with an owner on the workload layer before it starts (an always-on service may have one too, and must work without it while the layer is locked) |
    | `nfs.drives` (and `nfs.units`) | reads or writes Pi storage |
    | `onDemand` | should start on the first request and stop when idle |
    | `account` | runs as a rootless container (`container = true`) or needs a pinned UID |

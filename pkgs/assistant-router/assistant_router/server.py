@@ -27,6 +27,7 @@ from .body import Bodies
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
 from .people import People
+from .voice import VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
 from .state import State
 
@@ -66,6 +67,22 @@ ENROLL_TOOL = {
         },
     },
 }
+
+# Forget the person speaking now: their voiceprint, their faces, and, if they
+# enrolled themselves, their entry. Offered wherever there is something to
+# forget (voice-id or Frigate); acts only on a recognised speaker.
+FORGET_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "forget_person",
+        "description": ("Forget the person speaking right now: their voice, their face and their "
+                        "name. Use only when they ask to be forgotten."),
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
+
+SPEAKER_SECONDS = 300.0   # the speaker of a device's conversation, carried this long
+ENROL_SECONDS = 120.0     # a voice enrolment waits this long for the next sentence
 
 ENROLL_TAKEN = "That name is already taken."
 ENROLL_BAD_NAME = "I didn't catch a good name for you."
@@ -144,11 +161,25 @@ def _allowed(calls: list[dict], ctx: Context | None) -> bool:
 def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              bodies: Bodies | None = None, people: People | None = None,
              people_store: PeopleStore | None = None, frigate: Frigate | None = None,
-             capture_face: Callable[[str], Awaitable[bytes | None]] | None = None) -> web.Application:
+             capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
+             voice: VoiceIdClient | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
     enrollable = capture_face is not None
+    reports = VoiceReports()
+    speakers: dict[str, tuple[str, float]] = {}       # device -> (person, when)
+    enrolling: dict[str, tuple[str, str, float]] = {}  # device -> (key, name, when)
+
+    def last_speaker(device: str, now: float) -> str | None:
+        hit = speakers.get(device)
+        return hit[0] if hit and now - hit[1] <= SPEAKER_SECONDS and hit[0] in people.names else None
+
+    def remember(key: str, name: str) -> None:
+        if people_store is not None:
+            people_store.add(key, name)
+        else:
+            people.add(key, name)
     log_day = {"v": ""}
 
     def log(entry: dict) -> None:
@@ -167,19 +198,24 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         with open(os.path.join(cfg.log_dir, f"requests-{today.isoformat()}.jsonl"), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
-    async def cloud(session: aiohttp.ClientSession, body: dict, room: str = "") -> dict | None:
+    async def cloud(session: aiohttp.ClientSession, body: dict, room: str = "",
+                    voice_scores: dict | None = None, last: str | None = None) -> dict | None:
         # Home Assistant always sends temperature and top_p; current Claude
         # models refuse both together, so the provider's defaults apply.
         out = {k: v for k, v in body.items() if k not in ("temperature", "top_p", "user")}
         out["model"] = cfg.cloud_model
         # The enrolment tool is offered only where a body can actually capture
         # a face: Frigate is wired and this room has a body connected.
-        if enrollable and bodies.has(room):
+        # With voice-id, a voice can be enrolled anywhere.
+        if (enrollable and bodies.has(room)) or voice is not None:
             out["tools"] = list(out.get("tools") or []) + [ENROLL_TOOL]
+        if voice is not None or frigate is not None:
+            out["tools"] = list(out.get("tools") or []) + [FORGET_TOOL]
         # A body in the room: its persona and what it senses go after Home
         # Assistant's block, so the start of the prompt stays the same.
         now = clock()
-        block = "\n".join(b for b in (bodies.prompt_block(room, now), people.line(room, now)) if b)
+        block = "\n".join(b for b in (bodies.prompt_block(room, now),
+                                      people.line(room, now, voice_scores, last)) if b)
         msgs = out.get("messages") or []
         if block and msgs and msgs[0].get("role") == "system":
             out["messages"] = [dict(msgs[0], content=(msgs[0].get("content") or "") + "\n" + block)] + msgs[1:]
@@ -197,7 +233,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         state.remember_reply(device, said, clock())
         return _reply(said)
 
-    async def _enroll(device: str, ctx: Context | None, call: dict, tool_results: list[str]) -> dict:
+    async def _enroll(device: str, ctx: Context | None, call: dict, tool_results: list[str],
+                      texts: list[str]) -> dict:
         # Run by the router itself, not Home Assistant: take the name, make a
         # key, check it is unused, capture a face, register it with Frigate and
         # remember the person. Each failure is a plain, honest reply.
@@ -212,6 +249,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             return finish(device, ENROLL_BAD_NAME, tool_results)
         if key in people.names:
             return finish(device, ENROLL_TAKEN, tool_results)
+        if voice is not None:
+            return await _enroll_with_voice(device, ctx, key, name, tool_results, texts)
         if frigate is None:
             return finish(device, ENROLL_NO_FRIGATE, tool_results)
         room = ctx.room if ctx else ""
@@ -231,7 +270,84 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             people.add(key, name)
         return finish(device, f"Okay, I'll remember you as {name}.", tool_results)
 
-    async def from_cloud(device: str, ctx: Context | None, data: dict | None, tool_results: list[str]) -> dict:
+    async def _enroll_with_voice(device: str, ctx: Context | None, key: str, name: str,
+                                 tool_results: list[str], texts: list[str]) -> dict:
+        # The face too, where a robot can see and Frigate can keep it; the
+        # voice from this conversation, and more sentences if it needs them.
+        room = ctx.room if ctx else ""
+        face = False
+        if frigate is not None and capture_face is not None and bodies.has(room):
+            try:
+                img = await capture_face(room)
+                if img:
+                    await frigate.enroll(key, img)
+                    face = True
+            except Exception:  # pylint: disable=broad-except
+                face = False
+        result = await voice.enrol(key, texts)
+        if face or result.get("enrolled"):
+            remember(key, name)
+        if result.get("enrolled"):
+            return finish(device, f"Okay, I'll remember you as {name}"
+                                  + (", your face and your voice." if face else ", and your voice."), tool_results)
+        if result.get("available") is False or not result:
+            if face:
+                return finish(device, f"Okay, I'll remember your face, {name}. "
+                                      "I can't learn voices right now.", tool_results)
+            return finish(device, "Sorry, I can't learn voices right now.", tool_results)
+        enrolling[device] = (key, name, clock())
+        if face:
+            return finish(device, f"I'll remember your face, {name}. Now tell me a little about your day, "
+                                  "so I learn your voice too?", tool_results)
+        return finish(device, f"Nice to meet you, {name}! Tell me a little about your day, "
+                              "so I learn your voice?", tool_results)
+
+    async def _keep_enrolling(device: str, text: str, now: float) -> dict | None:
+        """The next sentence of a voice enrolment, or None if none is going on."""
+        pending = enrolling.get(device)
+        if pending is None or voice is None:
+            return None
+        key, name, at = pending
+        if now - at > ENROL_SECONDS:
+            enrolling.pop(device, None)
+            return None
+        if gate_mod.gate(text, "") == "stop":
+            enrolling.pop(device, None)
+            return finish(device, STOPPED, [])
+        result = await voice.enrol(key, [text])
+        if result.get("enrolled"):
+            enrolling.pop(device, None)
+            remember(key, name)
+            return finish(device, f"Got it, {name}, I'll know your voice now.", [])
+        if result.get("available") is False or not result:
+            enrolling.pop(device, None)
+            return finish(device, "Sorry, I can't learn voices right now.", [])
+        enrolling[device] = (key, name, now)
+        return finish(device, "Lovely! One more sentence?", [])
+
+    async def _forget(device: str, tool_results: list[str]) -> dict:
+        key = last_speaker(device, clock())
+        if key is None:
+            return finish(device, "I'm not sure who you are, so I can't forget you.", tool_results)
+        name = people.names.get(key, key)
+        if voice is not None:
+            await voice.forget(key)
+        if frigate is not None:
+            try:
+                faces = await frigate.list()
+                if faces.get(key):
+                    await frigate.delete(key, faces[key])
+            except FrigateError:
+                pass
+        speakers.pop(device, None)
+        if people_store is not None and people_store.has(key):
+            people_store.remove(key)
+            return finish(device, f"Okay, {name}, I've forgotten you: your face and your voice.", tool_results)
+        return finish(device, f"Okay, {name}, I've forgotten your recordings. "
+                              "Your name is in the house settings, so it stays.", tool_results)
+
+    async def from_cloud(device: str, ctx: Context | None, data: dict | None, tool_results: list[str],
+                         texts: list[str] | None = None) -> dict:
         if data is None:
             return finish(device, CLOUD_DOWN, tool_results)
         msg = data["choices"][0]["message"]
@@ -239,7 +355,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if calls:
             enroll = next((c for c in calls if (c.get("function") or {}).get("name") == "enroll_person"), None)
             if enroll is not None:
-                return await _enroll(device, ctx, enroll, tool_results)
+                return await _enroll(device, ctx, enroll, tool_results, texts or [])
+            if any((c.get("function") or {}).get("name") == "forget_person" for c in calls):
+                return await _forget(device, tool_results)
             return _tool_reply(calls) if _allowed(calls, ctx) else finish(device, REFUSED, tool_results)
         text = msg.get("content") or ""
         room = ctx.room if ctx else ""
@@ -258,6 +376,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         device = ctx.device_id if ctx else ""
         text, asked, rounds = _turn(messages)
         tool_results = [m.get("content") or "" for m in rounds if m.get("role") in ("tool", "function")]
+        texts = [m.get("content") or "" for m in messages if m.get("role") == "user"]
         now = clock()
         session: aiohttp.ClientSession = request.app["session"]
         started = time.monotonic()
@@ -273,12 +392,32 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                     await bodies.act(ctx.room, {"mood": "happy", "gesture": "nod"})
                 log({"conv": conv, "tier": "local", "round": "result", "results": tool_results})
                 return web.json_response(finish(device, said, tool_results))
+            room = ctx.room if ctx else ""
+            last = last_speaker(device, now)
             return web.json_response(await from_cloud(
-                device, ctx, await cloud(session, body, ctx.room if ctx else ""), tool_results))
+                device, ctx, await cloud(session, body, room, None, last), tool_results, texts))
+
+        room = ctx.room if ctx else ""
+        # A voice enrolment going on takes the next sentences.
+        enrol_reply = await _keep_enrolling(device, text, now)
+        if enrol_reply is not None:
+            log({"conv": conv, "device": device, "room": room, "tier": "enrol", "route": "voice",
+                 "ms": int((time.monotonic() - started) * 1000)})
+            return web.json_response(enrol_reply)
+
+        # Who is speaking: voice-id's scores for this sentence (it may still be
+        # on its way), with who is in the room. A sure answer refines the voice.
+        voice_scores = (await reports.wait(text) or None) if voice is not None else None
+        last = last_speaker(device, now)
+        assessment = people.assess(room, now, voice_scores, last)
+        if assessment.speaker:
+            speakers[device] = (assessment.speaker, now)
+            last = assessment.speaker
+        if assessment.learn and voice_scores and voice is not None:
+            await voice.learn(assessment.learn, text)
 
         # A command to the room's body ("nod", "dance", "go to sleep") is
         # answered here, before the gate: "Nod." alone is a fragment to it.
-        room = ctx.room if ctx else ""
         cmd = body_mod.command(text) if bodies.has(room) else None
         if cmd is not None:
             await bodies.act(room, cmd[0])
@@ -309,7 +448,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                 resp = finish(device, OFFLINE, [])
             else:
                 tier, route = "cloud", "escalate"
-                resp = await from_cloud(device, ctx, await cloud(session, body, room), [])
+                resp = await from_cloud(device, ctx, await cloud(session, body, room, voice_scores, last), [], texts)
         log({"conv": conv, "device": device, "room": ctx.room if ctx else "", "text": text,
              "tier": tier, "route": route, "ms": int((time.monotonic() - started) * 1000)})
         return web.json_response(resp)
@@ -323,11 +462,24 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     async def on_cleanup(app: web.Application) -> None:
         await app["session"].close()
 
+    async def voice_report(request: web.Request) -> web.Response:
+        # voice-id, on the loopback: this sentence's score for every voiceprint.
+        try:
+            data = await request.json()
+        except ValueError:
+            return web.json_response({"error": "json"}, status=400)
+        if not isinstance(data, dict) or not isinstance(data.get("text"), str) \
+                or not isinstance(data.get("scores"), dict):
+            return web.json_response({"error": "text and scores"}, status=400)
+        reports.add(data["text"], {k: v for k, v in data["scores"].items() if k in people.names})
+        return web.json_response({})
+
     app = web.Application()
     app["people_store"] = people_store
     app["frigate"] = frigate
     app.router.add_post("/v1/chat/completions", completions)
     app.router.add_get("/healthz", healthz)
+    app.router.add_post("/v1/voice", voice_report)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     return app
@@ -357,13 +509,16 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
         except ValueError:
             return None
 
-    def observe_faces(room: str, faces, now: float) -> None:
+    def observe_faces(room: str, faces, now: float, source: str = "face") -> None:
         # The sender reports the room's full current set, so it replaces.
+        # A room's cameras say who is present ("face"); a robot's own camera
+        # looks at whoever it faces, likely the speaker ("aimed").
         if isinstance(faces, list):
-            people.forget_faces(room)
+            if source == "face":
+                people.forget_faces(room)
             for face in faces[:8]:
                 if isinstance(face, dict):
-                    people.observe(room, "face", face.get("person"), face.get("confidence"), now)
+                    people.observe(room, source, face.get("person"), face.get("confidence"), now)
 
     async def socket(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=20)
@@ -396,7 +551,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
-                    observe_faces(room, data["state"].get("faces"), clock())
+                    observe_faces(room, data["state"].get("faces"), clock(), source="aimed")
                 elif room and kind not in non_bodies and "face_image" in data:
                     bodies.complete_capture(room, data["face_image"])
                 elif room and kind not in non_bodies and "face_probe" in data:
@@ -409,7 +564,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         person = hit.get("name") if hit and hit.get("success") else None
                         known = person in people.names if person else False
                         if known:
-                            people.observe(room, "face", person, hit.get("confidence"), clock())
+                            # The robot turned to the voice first: likely the speaker.
+                            people.observe(room, "aimed", person, hit.get("confidence"), clock())
                         await ws.send_json({"face_result": {
                             "person": people.names[person] if known else None,
                             "confidence": hit.get("confidence") if hit else None}})

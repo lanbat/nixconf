@@ -49,6 +49,10 @@ class PeopleStore:
         self._overlay[key] = name
         _persist(self.path, self._overlay)
 
+    def has(self, key: str) -> bool:
+        """Whether `key` was enrolled at runtime (not declared in the profile)."""
+        return str(key) in self._overlay
+
     def remove(self, key: str) -> None:
         key = str(key)
         self.people.remove(key)

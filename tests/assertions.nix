@@ -98,7 +98,7 @@ let
 
     (expect "state without workload tier" {
       demo.state = [ "demo" ];
-    } [ "declares state or workloadDirs but isn't workload-gated" ])
+    } [ "declares state but isn't workload-gated" ])
 
     (expect "unit that no module defines" {
       demo = {

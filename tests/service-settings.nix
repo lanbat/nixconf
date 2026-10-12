@@ -1110,6 +1110,31 @@ let
       )
     ))
 
+    (expect "voice-id: identifies speakers into the router, voiceprints on the workload layer" (
+      let
+        exec = routerServer.systemd.services.voice-id.serviceConfig.ExecStart;
+      in
+      lib.hasInfix "--model /nix/store/" exec
+      && lib.hasInfix "campplus" exec
+      && lib.hasInfix "--store-dir /mnt/workload/voice-id" exec
+      && lib.hasInfix "--api-port 10304" exec
+      && lib.hasInfix "--router-url http://127.0.0.1:8092/v1/voice" exec
+      && lib.hasInfix "--voice-id-url http://127.0.0.1:10304" routerServer.systemd.services.assistant-router.serviceConfig.ExecStart
+      && routerServer.users.users.voice-id.uid == 959
+      && routerServer.systemd.services.voice-id.serviceConfig.User == "voice-id"
+      && lib.elem "-/mnt/workload/voice-id" routerServer.systemd.services.voice-id.serviceConfig.ReadWritePaths
+      && lib.elem "workload-online.target" routerServer.systemd.services.voice-id-unlocked.wantedBy
+      && routerServer.lanbat.services.voice-id.tier != "workload"
+      && failedAssertions routerServer == [ ]
+    ))
+
+    (expect "voice-id: without the router it identifies but tells nobody" (
+      !(lib.hasInfix "--router-url" base.systemd.services.voice-id.serviceConfig.ExecStart)
+      && !(lib.hasInfix "--voice-id-url" (
+        base.systemd.services.assistant-router.serviceConfig.ExecStart or ""
+      ))
+    ))
+
     (expect "router: HA's agent behind the router starts it, llama.cpp and the gateway" (
       routerServer.systemd.services ? assistant-router
       && routerServer.systemd.services ? llm-gateway

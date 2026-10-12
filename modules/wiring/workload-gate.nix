@@ -32,7 +32,11 @@ let
 
   stateDirs = lib.unique (lib.concatLists (lib.mapAttrsToList (_: svc: svc.state) gated));
   gatedUnits = lib.unique (lib.concatLists (lib.mapAttrsToList (_: svc: svc.units) gated));
-  workloadDirs = lib.foldl' (acc: svc: acc // svc.workloadDirs) { } (lib.attrValues gated);
+  # From every service: an always-on one may keep a directory on the layer too
+  # (voice-id's voiceprints), and must cope while it is locked.
+  workloadDirs = lib.foldl' (acc: svc: acc // svc.workloadDirs) { } (
+    lib.attrValues config.lanbat.services
+  );
 
   # /var/lib/nextcloud → var-lib-nextcloud.mount
   mountUnit = path: "${lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" path)}.mount";

@@ -1,30 +1,50 @@
 """Who the assistant is talking to: a hint from voice, faces and phones.
 
 Evidence arrives as (room, source, person key, confidence). The person keys
-are the profile's people (lanbat.deployment.people); anything else is
-dropped, so no free text from a satellite or a robot reaches a prompt. For a
-request, the evidence in its room becomes one line for the cloud model:
+are the profile's people (lanbat.deployment.people, and those enrolled since);
+anything else is dropped, so no free text from a satellite or a robot reaches
+a prompt. The sources:
 
-- the voice of this request, if it matches someone well enough;
-- faces at the room's robot, seen in the last FACE_SECONDS;
-- phones in the room, seen over Bluetooth in the last PHONE_SECONDS.
+- "phone": a person's phone heard in the room (pkgs/room-presence), last 2 min;
+- "face": a face recognised in the room (cameras via Frigate), last 10 s;
+- "aimed": the face the room's robot saw after turning to the voice, last 10 s;
+- and, per request, the voice: a score for every enrolled person (voice-id).
 
-Voice and face agreeing, or either alone, name the speaker; disagreeing, or
-two faces without a voice, name nobody: unknown beats wrong. Phones only
-say who is nearby. However sure, it is a hint for what the assistant says,
-never authority over anything, and the line says so.
+Rather than eliminate people outright, each enrolled person is a candidate
+with a weight: everyone starts small, presence raises it (a phone, a face in
+the room, having been the speaker earlier in this conversation), absence
+never rules anyone out. The voice scores and an aimed face multiply in as
+evidence, and an extra candidate stands for someone not enrolled. A speaker
+is named only when one candidate clearly leads (POSTERIOR_MIN, LEAD_MIN);
+otherwise nobody is: unknown beats wrong. So presence narrows who a voice can
+be, without a phone left in another room overruling a clear voice.
+
+However sure, it is a hint for what the assistant says, never authority over
+anything, and the line says so.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 
-SOURCES = ("face", "phone")
-FACE_SECONDS = 10.0
-PHONE_SECONDS = 120.0
-WINDOW = {"face": FACE_SECONDS, "phone": PHONE_SECONDS}
-VOICE_MIN = 0.7
-FACE_MIN = 0.6
-PHONE_MIN = 0.5
+SOURCES = ("face", "aimed", "phone")
+WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0}
+MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5}
+
+# The weights. Tuned on the scenarios in tests/test_people.py.
+PRIOR = 0.05            # every enrolled person
+PRIOR_UNKNOWN = 0.1     # someone not enrolled
+PHONE = 4.0             # × prior: their phone is in the room
+FACE = 6.0              # × prior: their face is in the room
+CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
+VOICE_SHARPNESS = 10.0  # likelihood exp(k·cosine)
+VOICE_UNKNOWN = 0.25    # the cosine an unenrolled voice scores against itself
+AIMED = 1200.0          # × (1 + AIMED·confidence): the face the robot turned to
+POSTERIOR_MIN = 0.8
+LEAD_MIN = 3.0          # × the runner-up (the unknown candidate included)
+LEARN_VOICE = 0.8       # a voice this close, and LEARN_MARGIN ahead, teaches itself
+LEARN_MARGIN = 0.2
+LEARN_AIMED = 0.8       # an aimed face this sure teaches the voice
 
 
 @dataclass
@@ -32,6 +52,15 @@ class Evidence:
     person: str
     confidence: float
     at: float
+
+
+@dataclass
+class Assessment:
+    speaker: str | None = None
+    posterior: float = 0.0
+    how: str = ""
+    nearby: list[str] = field(default_factory=list)
+    learn: str | None = None  # whose voiceprint this utterance may refine
 
 
 def _key(room: str) -> str:
@@ -65,34 +94,72 @@ class People:
     def forget_faces(self, room: str) -> None:
         self._seen.get(_key(room), {}).pop("face", None)
 
-    def _recent(self, room: str, source: str, now: float, minimum: float) -> list[str]:
+    def _recent(self, room: str, source: str, now: float) -> dict[str, float]:
         found = self._seen.get(_key(room), {}).get(source, {})
-        return sorted(e.person for e in found.values()
-                      if now - e.at <= WINDOW[source] and e.confidence >= minimum)
+        return {e.person: e.confidence for e in found.values()
+                if now - e.at <= WINDOW[source] and e.confidence >= MIN_CONFIDENCE[source]}
 
-    def line(self, room: str, now: float, voice: tuple[str, float] | None = None) -> str | None:
+    def assess(self, room: str, now: float, voice: dict[str, float] | None = None,
+               last: str | None = None) -> Assessment:
+        """Who is speaking in `room`, given this request's voice scores and the
+        speaker earlier in the conversation."""
+        phones = self._recent(room, "phone", now)
+        faces = self._recent(room, "face", now)
+        aimed = self._recent(room, "aimed", now)
+        voice = {k: float(v) for k, v in (voice or {}).items()
+                 if k in self.names and type(v) in (int, float)}
+
+        weights: dict[str, float] = {}
+        for person in self.names:
+            w = PRIOR
+            if person in phones:
+                w *= PHONE
+            if person in faces:
+                w *= FACE
+            if person == last:
+                w *= CONTINUITY
+            if voice:
+                w *= math.exp(VOICE_SHARPNESS * voice.get(person, 0.0))
+            if person in aimed:
+                w *= 1 + AIMED * aimed[person]
+            weights[person] = w
+        unknown = PRIOR_UNKNOWN * (math.exp(VOICE_SHARPNESS * VOICE_UNKNOWN) if voice else 1.0)
+
+        total = sum(weights.values()) + unknown
+        ranked = sorted(weights, key=weights.get, reverse=True)
+        a = Assessment()
+        if ranked:
+            top = ranked[0]
+            runner_up = max([unknown] + [weights[p] for p in ranked[1:]])
+            a.posterior = weights[top] / total
+            if a.posterior >= POSTERIOR_MIN and weights[top] >= LEAD_MIN * runner_up:
+                a.speaker = top
+                by = []
+                if voice and voice.get(top, 0.0) == max(voice.values()):
+                    by.append("voice")
+                if top in aimed:
+                    by.append("face")
+                a.how = " and ".join(by) or ("presence" if top in phones or top in faces else "conversation")
+                second = max([v for k, v in voice.items() if k != top], default=0.0)
+                if aimed.get(top, 0.0) >= LEARN_AIMED or (
+                        voice.get(top, 0.0) >= LEARN_VOICE and voice[top] - second >= LEARN_MARGIN):
+                    a.learn = top
+        a.nearby = [p for p in dict.fromkeys(list(faces) + list(aimed) + list(phones)) if p != a.speaker]
+        return a
+
+    def line(self, room: str, now: float, voice: dict[str, float] | None = None,
+             last: str | None = None) -> str | None:
         """The hint for a request from `room`, or None when nothing is known."""
-        heard = voice[0] if voice and voice[0] in self.names and voice[1] >= VOICE_MIN else None
-        faces = self._recent(room, "face", now, FACE_MIN)
-        phones = self._recent(room, "phone", now, PHONE_MIN)
-
-        speaker, how = None, ""
-        if heard and (not faces or faces == [heard]):
-            speaker, how = heard, "voice and face" if faces else "voice"
-        elif not heard and len(faces) == 1:
-            speaker, how = faces[0], "face"
-
-        nearby = [p for p in dict.fromkeys(faces + phones) if p != speaker]
-        if speaker is None and not nearby and not heard:
+        a = self.assess(room, now, voice, last)
+        if a.speaker is None and not a.nearby:
             return None
-
         parts = []
-        if speaker:
-            parts.append(f"You are probably talking to {self.names[speaker]} (recognised by {how}).")
+        if a.speaker:
+            parts.append(f"You are probably talking to {self.names[a.speaker]} (recognised by {a.how}).")
         else:
             parts.append("You don't know who is speaking.")
-        if nearby:
-            names = [self.names[p] for p in nearby]
+        if a.nearby:
+            names = sorted(self.names[p] for p in a.nearby)
             parts.append(f"{_names(names)} {'is' if len(names) == 1 else 'are'} nearby.")
         parts.append("Recognition is a guess: use names to be friendly, never to decide or allow anything.")
         return " ".join(parts)

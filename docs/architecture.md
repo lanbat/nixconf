@@ -142,6 +142,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Assistant router bodies (`assistant-router`, 8770) | No auth; open only to the hosts that consume it (a Stack-chan's Pi) | Robot bodies (`lva-stackchan`) report presence and receive moods, gestures and body commands; fixed fields only (docs/stackchan.md) |
 | LLM gateway (`llm-gateway`, LiteLLM, 8093) | No auth (localhost only); provider keys in `llm-gateway-env` (agenix) | Only the assistant router calls it; it calls cloud LLM APIs outbound, with fallbacks and a monthly budget |
 | Speaker identification (`voice-id`, 10303) | No auth (localhost only) | Home Assistant's speech-to-text; a Wyoming proxy in front of faster-whisper |
+| Speaker identification API (`voice-id`, 10304) | No auth (localhost only) | The assistant router enrols, refines and forgets voiceprints; voice-id reports each sentence's scores to the router's `/v1/voice` |
 | Conversation LLM (`lanbat.haLlm`) | None for the local model (`services/llama-cpp.nix`, loopback only, port 8091); API key (agenix) for an external API | A `haLlm` on the loopback runs llama.cpp on the server; only HA calls it. Any other URL is an external OpenAI-compatible API, called outbound (with the `apple-silicon` voice profile, a Mac on the LAN; `apiKey = false` when it takes none) |
 
 The Authentik side of this matrix is generated: every `forward-auth` service gets a

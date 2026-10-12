@@ -174,8 +174,8 @@ let
       message = "lanbat: ${s.name} is workload-gated but declares no units to gate";
     }
     {
-      assertion = s.tier == "workload" || (s.state == [ ] && s.workloadDirs == { });
-      message = "lanbat: ${s.name} declares state or workloadDirs but isn't workload-gated; set tier = \"workload\"";
+      assertion = s.tier == "workload" || s.state == [ ];
+      message = "lanbat: ${s.name} declares state but isn't workload-gated; set tier = \"workload\"";
     }
     {
       assertion = s.nfs.drives == [ ] || s.nfs.units != [ ];

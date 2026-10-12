@@ -8,7 +8,7 @@ morning, Alex!"), from up to three signals:
 | **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
 | **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
-| **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | planned |
+| **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | live |
 
 This page describes the part they share: the people list and how the assistant router
 combines what it hears into one line for the cloud model.
@@ -91,15 +91,52 @@ if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth a
 fixes it. Phones and their signal strengths go to the router and nowhere else, and only
 as person keys.
 
+## Voices
+
+Every sentence said to any satellite passes through `voice-id` on its way to
+speech-to-text. As soon as the audio ends it computes a speaker embedding (a CAM++ model,
+on the server's CPU, in parallel with speech-to-text, so it adds no delay) and scores it
+against every enrolled person's voiceprint. The router gets all the scores, not just the
+best one, and weighs them with who is in the room (below). A sentence with less than about
+a second of speech gives no scores: "lights off" says too little about who said it.
+
+- **Remember me.** "Okay Nabu, remember me, I'm Alex" enrols Alex's voice from that
+  conversation, and asks for a sentence or two more if it needs them ("Tell me a little
+  about your day…"). Where a robot can see, it registers the face at the same time.
+  "Stop" ends it.
+- **It gets better with use.** When the router is sure who spoke (a voice match well
+  ahead of everyone else, or the face the robot turned to), that sentence refines the
+  person's voiceprint: at most 40 kept per person, and a sentence too unlike the rest is
+  refused, so one mistake cannot snowball. Only enrolled people are ever learned from;
+  other voices are kept in memory for ten minutes, for a "remember me", and never stored.
+- **Forget me.** "Okay Nabu, forget me" removes the voiceprint and the faces of the
+  person it recognises as speaking, and their name if they enrolled themselves; people
+  listed in `deploy.nix` keep their name. It does nothing when it isn't sure who is
+  asking.
+- **Where it is kept.** Voiceprints are embeddings, never audio, in
+  `/mnt/workload/voice-id` on the encrypted workload layer. Until the layer is unlocked
+  after a reboot, voice-id recognises nobody and stores nothing. They are not backed up
+  ([backup.md](backup.md)).
+
 ## How the router combines it
 
 For a request from a room (`pkgs/assistant-router/assistant_router/people.py`):
 
-- **The speaker** is named when the voice of the request matches someone, or a face is
-  recognised in the room, or both agree. When they disagree, or two faces are in view
-  with no voice match, nobody is named: unknown beats wrong.
-- **Nearby** are the other faces in the room (last 10 s) and phones in the room (last
-  2 minutes).
+Not by ruling people out, but by weighing them: every enrolled person is a candidate,
+and an extra one stands for someone not enrolled.
+
+- **Presence** raises a candidate's weight: their phone in the room (last 2 minutes),
+  their face on a room camera (last 10 s), having been the speaker earlier in this
+  conversation. Absence lowers it but never rules anyone out, so a phone left in another
+  room doesn't overrule a clear voice.
+- **Evidence** multiplies in: the voice scores of this sentence, and above all the face
+  the robot saw after turning to the voice.
+- **The speaker** is named only when one candidate clearly leads (80 % and three times
+  the next); otherwise nobody is: unknown beats wrong. Presence is what makes a close
+  voice call decidable: two people who sound alike, only one of them in the room.
+- **Nearby** are the others present.
+
+The weights are in one place (`people.py`), tested on these situations.
 
 The cloud model gets one line after Home Assistant's context, for example: *"You are
 probably talking to Alex (recognised by voice and face). Sam is nearby. Recognition is a
