@@ -7,7 +7,7 @@ morning, Alex!"), from up to three signals:
 |---|---|---|
 | **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
 | **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
-| **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | planned |
+| **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
 | **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | planned |
 
 This page describes the part they share: the people list and how the assistant router
@@ -55,6 +55,41 @@ The recognised key lands in the router exactly like a camera face does (a `face`
 for the room), so the combining rules below are the same. Enrolling a person the robot can
 name is the same as enrolling for the cameras: add photos to their entry in Frigate's face
 library.
+
+## Phones in the room
+
+The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on a
+satellite Pi that has a room, and every 15 s tells the router whose phones it heard in the
+last minute, with their signal strength. The router counts a phone as *nearby* for two
+minutes; a phone never names the speaker. Enable it next to the voice plugin:
+
+```nix
+plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.room-presence ];
+modules = [ { lanbat.roomPresence.irks = true; } ];   # only if iPhones are in the list
+```
+
+Phones change their Bluetooth address every few minutes, so each needs one of:
+
+- **Android: the Home Assistant app's beacon.** In the Companion app, *Settings → Companion
+  app → Manage sensors → BLE transmitter*: turn it on, keep it in iBeacon mode, and copy
+  its UUID into the person's entry:
+  ```nix
+  people.alex = { name = "Alex"; bleBeacon = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"; };
+  ```
+  It is not secret: a beacon only says "this is Alex's phone" to whoever listens.
+- **iPhone (or any phone without the beacon): its IRK.** The Identity Resolving Key lets
+  the Pi recognise the phone's rotating addresses. Pair the phone with the Pi once
+  (`bluetoothctl`, then `scan on`, `pair <address>`, accept on the phone), then
+  `sudo room-presence --paired` prints each paired phone's key. Put the keys in the
+  `room-presence-irks` secret, one `<person key> <key>` line per phone
+  ([secrets/README.md](../secrets/README.md)). It is a secret: anyone with it can follow
+  that phone.
+
+The Pi 3's own Bluetooth chip works but is flaky (it shares a UART and sometimes starts
+without a controller; `hosts/pi3/hardware.nix` retries). The scanner restarts on its own;
+if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth adapter
+fixes it. Phones and their signal strengths go to the router and nowhere else, and only
+as person keys.
 
 ## How the router combines it
 
