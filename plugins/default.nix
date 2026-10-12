@@ -9,4 +9,5 @@
   xiaomi-clock = import ./xiaomi-clock;
   dns = import ./dns;
   stackchan = import ./stackchan;
+  room-presence = import ./room-presence;
 }

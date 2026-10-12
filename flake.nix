@@ -162,6 +162,7 @@
         pkgs-build = import ./tests/pkgs-build.nix { inherit pkgs; };
         ha-dashboards = import ./tests/ha-dashboards.nix { inherit pkgs; };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
+        room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         doa-order = import ./tests/doa-order.nix { inherit pkgs; };
         plugins = import ./tests/plugins.nix { inherit lib pkgs; };
         endpoints-table = import ./tests/endpoints-table.nix { inherit lib pkgs; };
