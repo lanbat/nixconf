@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-id"
+version = "1.0"
+description = "Speaker identification in front of speech-to-text (a Wyoming proxy)"
+requires-python = ">=3.11"
+
+[project.scripts]
+voice-id = "voice_id.__main__:run"
+
+[tool.setuptools]
+packages = ["voice_id"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["tests"]
