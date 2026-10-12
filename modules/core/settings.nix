@@ -410,6 +410,19 @@ in
               type = types.strMatching "[^\n]{1,40}";
               description = "What the assistant calls this person.";
             };
+            options.bleBeacon = mkOption {
+              type = types.nullOr (
+                types.strMatching "[0-9A-Fa-f]{8}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{4}-?[0-9A-Fa-f]{12}"
+              );
+              default = null;
+              example = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90";
+              description = ''
+                The UUID the Home Assistant app on this person's Android phone
+                transmits as an iBeacon (Companion app → Manage sensors → BLE
+                transmitter), for the room-presence plugin. iPhones are known by
+                their IRK instead (docs/people.md).
+              '';
+            };
           }
         );
         default = { };

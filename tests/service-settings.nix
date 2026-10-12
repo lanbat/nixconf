@@ -360,6 +360,51 @@ let
     );
   bodyServer = bodyProfile.configurations.example-server.config;
   bodyPi = bodyProfile.configurations.example-pi-voice.config;
+  # Phones in the Kitchen (lanbat-room-presence on the Pi 3), Alex with the
+  # Home Assistant app's beacon, iPhone keys when `irks` is set.
+  presenceProfile =
+    irks:
+    let
+      deploy = hostsWithModules {
+        server = [ { lanbat.voiceSatellite.backend = "lva"; } ];
+        pi-storage = [ { lanbat.voiceSatellite.backend = "lva"; } ];
+        pi-voice = [
+          {
+            lanbat.voiceSatellite.backend = "lva";
+            lanbat.roomPresence.irks = irks;
+          }
+        ];
+      };
+    in
+    lanbatLib.mkProfile "example" (
+      deploy
+      // {
+        deployment = deploy.deployment // {
+          voiceRooms = deploy.deployment.voiceRooms // {
+            Kitchen = "pi-voice";
+          };
+          haLlm = {
+            baseUrl = "http://127.0.0.1:8092/v1";
+            model = "assistant";
+          };
+          people = deploy.deployment.people // {
+            alex = {
+              name = "Alex";
+              bleBeacon = "A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90";
+            };
+          };
+        };
+        hosts = deploy.hosts // {
+          pi-voice = deploy.hosts.pi-voice // {
+            plugins = deploy.hosts.pi-voice.plugins ++ [ inputsWithSelf.self.lanbatPlugins.room-presence ];
+          };
+        };
+      }
+    );
+  presence = presenceProfile false;
+  presencePi = presence.configurations.example-pi-voice.config;
+  presenceServer = presence.configurations.example-server.config;
+  presenceIrksPi = (presenceProfile true).configurations.example-pi-voice.config;
   # A server whose Home Assistant agent talks to the assistant router.
   routerServer = serverWith [
     {
@@ -856,6 +901,32 @@ let
     (expect "stackchan: without a room or a router, no body connection" (
       !(stackchan.systemd.services.lva-stackchan.environment ? ROUTER_BODY_URL)
       && stackchan.lanbat.services.stackchan.consumes == [ ]
+    ))
+
+    (expect "room-presence: the Pi scans for the people's phones and reports them to the router alone" (
+      let
+        unit = presencePi.systemd.services.room-presence;
+        env = unit.environment;
+        piIp = presenceServer.lanbat.hosts.pi-voice.networking.ip;
+        serverIp = presenceServer.lanbat.hosts.server.networking.ip;
+      in
+      env.ROOM == "Kitchen"
+      && env.ROUTER_BODY_URL == "ws://${serverIp}:8770/v1/body"
+      && env.PEOPLE == "alex,sam"
+      && env.BEACONS == "alex=A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90"
+      && !(env ? IRK_FILE)
+      && lib.elem serverIp unit.serviceConfig.IPAddressAllow
+      && presencePi.lanbat.services.room-presence.consumes == [ "assistant-router" ]
+      && lib.any (r: lib.hasInfix "--dport 8770 -s ${piIp} -j ACCEPT" r) (
+        lib.splitString "\n" presenceServer.networking.firewall.extraCommands
+      )
+      && failedAssertions presencePi == [ ]
+    ))
+
+    (expect "room-presence: iPhone keys only when asked for" (
+      presenceIrksPi.systemd.services.room-presence.environment.IRK_FILE
+      == presenceIrksPi.lanbat.secrets.room-presence-irks.path
+      && !(presencePi.lanbat.secrets ? room-presence-irks)
     ))
 
     (expect "stackchan: needs the LVA backend" (
