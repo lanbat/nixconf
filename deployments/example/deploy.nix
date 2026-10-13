@@ -104,6 +104,9 @@
       # Merged last, so they override anything core, the role or a plugin set.
       modules = [
         ./frigate.nix
+        # Grafana alerts (disk almost full, Frigate quiet) to the webhook in
+        # grafana-alert-env.age (services/grafana.nix).
+        { lanbat.services.grafana.settings.alerting.enable = true; }
         # Rooms for Home Assistant devices that have none, by the name Home
         # Assistant shows (or an entity id); the generated dashboards group by
         # room (docs/dashboards.md).

@@ -707,6 +707,21 @@ deploy --skip-checks path:.#homelab-server
 Visit `https://grafana.<domain>` — the InfluxDB datasource is provisioned
 automatically. Log in with Authentik or the local `admin` break-glass account.
 
+**Alerts (optional).** `lanbat.services.grafana.settings.alerting.enable = true`
+provisions two rules, disk almost full and Frigate quiet, sent to one webhook.
+To get them as phone notifications through Home Assistant:
+
+1. In Home Assistant, create an automation with a **Webhook** trigger (note its
+   ID, a long random string; allow POST) and the action
+   `notify.mobile_app_<phone>` with message `{{ trigger.json.message }}` and
+   title `{{ trigger.json.title }}`.
+2. Encrypt the URL:
+   `GRAFANA_ALERT_WEBHOOK_URL=http://127.0.0.1:8123/api/webhook/<id>` in
+   `grafana-alert-env.age` (Home Assistant on the same host; use its HTTPS
+   address otherwise).
+3. Set the option in the profile and deploy. In Grafana, Alerting → Contact
+   points → `lanbat-webhook` → **Test** should reach the phone.
+
 ### 3i. Telegraf token check
 
 Telegraf's write-only InfluxDB token is provisioned declaratively from

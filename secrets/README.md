@@ -156,6 +156,10 @@ agenix -e influxdb-admin-token.age
 #   GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=<from Authentik UI>
 #   INFLUXDB_TOKEN=<same value as influxdb-admin-token.age>
 agenix -e grafana-env.age
+# Only with lanbat.services.grafana.settings.alerting.enable. One KEY=value line:
+#   GRAFANA_ALERT_WEBHOOK_URL=<URL alerts are posted to, e.g. a Home Assistant
+#   webhook: https://<ha host>/api/webhook/<random id>>
+agenix -e grafana-alert-env.age
 
 # ---- Vaultwarden ----
 # One KEY=value line:
@@ -287,6 +291,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `influxdb-admin-password.age` | plaintext password | InfluxDB initial setup |
 | `influxdb-admin-token.age` | plaintext token | InfluxDB; shared with Grafana (datasource) |
 | `grafana-env.age` | `KEY=value` × 4 | Grafana |
+| `grafana-alert-env.age` | `GRAFANA_ALERT_WEBHOOK_URL=<value>` | Grafana alerts (disk almost full, Frigate quiet); only with `lanbat.services.grafana.settings.alerting.enable` |
 | `vaultwarden-env.age` | `ADMIN_TOKEN=<value>` | Vaultwarden |
 | `searxng-secret.age` | plaintext value | SearXNG session and image-proxy signing |
 | `homepage-widgets-env.age` | `KEY=value` lines for widget API keys/tokens | Homepage dashboard widgets |
