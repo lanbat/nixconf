@@ -63,7 +63,7 @@ def test_discovery_is_one_device_with_its_entities():
     assert nod["command_topic"] == "lanbat/stackchan/living_room/cmd/gesture" and nod["payload_press"] == "nod"
     speaker = configs["homeassistant/sensor/lanbat_stackchan_living_room/speaker/config"]
     assert speaker["name"] == "Probably speaking"  # a guess, and says so
-    ids = [c["unique_id"] for c in configs.values()]
+    ids = [c["unique_id"] for c in configs.values() if "unique_id" in c]  # a tag scanner has none
     assert len(ids) == len(set(ids))
 
 
@@ -165,3 +165,17 @@ async def test_a_wave_is_its_own_event_and_light_is_published():
     await asyncio.sleep(0.01)
     task.cancel()
     assert broker.last("lanbat/stackchan/living_room/event/wave") == {"event_type": "wave"}
+
+
+async def test_a_tapped_tag_goes_to_home_assistants_tag_scanner():
+    bodies, _, ha, _, _ = setup()
+    configs = dict(robot_discovery("Living room"))
+    assert configs["homeassistant/tag/lanbat_stackchan_living_room/nfc/config"]["topic"] == \
+        "lanbat/stackchan/living_room/tag"
+    broker = Broker()
+    bodies.event("Living room", {"nfc": "0435249AD11290"})
+    bodies.event("Living room", {"nfc": "not hex!"})
+    task = asyncio.create_task(ha.events(broker.publish))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    assert broker.messages == [("lanbat/stackchan/living_room/tag", "0435249AD11290", False)]

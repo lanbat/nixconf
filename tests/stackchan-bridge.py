@@ -895,5 +895,13 @@ class Senses(unittest.TestCase):
         self.assertEqual((on["auto_brightness"], off["auto_brightness"]), (True, False))
 
 
+class Tags(unittest.TestCase):
+    def test_a_tap_goes_to_the_router(self):
+        b = Brain(Config(), now=NOON)
+        self.assertIn(("router", {"event": {"nfc": "0435249AD11290"}}), b.on_device({"nfc": "0435249AD11290"}, NOON))
+        for bad in ("0435249ad11290", "XYZ", "1234", 5):
+            self.assertEqual([a for a in b.on_device({"nfc": bad}, NOON) if a[0] == "router"], [], bad)
+
+
 if __name__ == "__main__":
     unittest.main(argv=[sys.argv[0], "-v"])

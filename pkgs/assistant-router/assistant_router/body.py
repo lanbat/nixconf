@@ -11,6 +11,7 @@ prompt:
                                "mood": "neutral", "brightness": 180, "fw": "1.5.0"}}
                     {"event": {"touch": "tap|stroke", "zone": "front|middle|back|screen|null"}}
                     {"event": {"wave": true}}      a hand waved in front of its screen
+                    {"event": {"nfc": "<UID hex>"}}  a tag or card tapped on it
                     {"face_image": "<base64>"}   a face it was asked to capture
                     {"face_image": null}          it couldn't get one
     router -> body  {"act": {"mood": "happy", "gesture": "nod", "look": "user", "sleep": false}}
@@ -129,10 +130,18 @@ class Bodies:
         return [self._names.get(k, k) for k in self._sockets]
 
     def event(self, room: str, event: Any) -> None:
-        """Something the body felt (a touch), for Home Assistant: fixed fields."""
+        """Something the body felt (a touch, a wave, a tag), for Home
+        Assistant: fixed fields."""
         if self.events is None or not self.has(room) or not isinstance(event, dict):
             return
         touch, zone = event.get("touch"), event.get("zone")
+        tag = event.get("nfc")
+        if isinstance(tag, str) and re.fullmatch(r"[0-9A-F]{8,20}", tag):
+            try:
+                self.events.put_nowait((self._names.get(_key(room), room), {"nfc": tag}))
+            except asyncio.QueueFull:
+                pass
+            return
         if event.get("wave") is True:
             touch, zone = "wave", None
         if touch in ("tap", "stroke", "wave"):

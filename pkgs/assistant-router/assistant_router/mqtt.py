@@ -5,7 +5,8 @@ where who-is-speaking is worked out (people.py), so it is the one place that
 publishes them, with one broker login on the server:
 
 - a device per robot (per room with a body): its battery, link, mood, whether
-  someone is in front of it, napping or night, its touches as events; and
+  someone is in front of it, napping or night, its touches as events, and a
+  tag scanner (Home Assistant's own Tags: an NFC tag tapped on it); and
   controls: gestures, sleep and wake, mood, the screen's brightness, a caption,
   and its LEDs as a notification light;
 - in each robot's room, "probably" who spoke last and who is nearby, labelled
@@ -116,6 +117,8 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
         entity("sensor", "nearby", "Probably nearby", state_topic=f"{base}/identity",
                value_template="{{ value_json.nearby }}", icon="mdi:account-group"),
     ]
+    # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
+    out.append((f"{DISCOVERY}/tag/{uid}/nfc/config", {"topic": f"{base}/tag", "device": device}))
     for gesture in BUTTONS:
         out.append(entity("button", gesture, gesture.replace("_", " ").capitalize(),
                           command_topic=f"{base}/cmd/gesture", payload_press=gesture, icon="mdi:robot-happy"))
@@ -251,6 +254,9 @@ class HomeAssistant:
     async def events(self, publish: Publish) -> None:
         while True:
             room, event = await self.bodies.events.get()
+            if "nfc" in event:
+                await self._send(publish, f"{_base(room)}/tag", event["nfc"], retain=False, force=True)
+                continue
             if event["touch"] == "wave":
                 await self._send(publish, f"{_base(room)}/event/wave", {"event_type": "wave"},
                                  retain=False, force=True)

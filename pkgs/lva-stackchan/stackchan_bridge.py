@@ -511,6 +511,11 @@ class Brain:
             elif self.in_turn:
                 out.append(("lva", {"command": "stop_pipeline"}))
             out.append(("router", {"event": {"wave": True}}))
+        tag = msg.get("nfc")
+        if isinstance(tag, str) and 8 <= len(tag) <= 20 and all(c in "0123456789ABCDEF" for c in tag):
+            # A tag tapped on the robot: Home Assistant's tag scanner, or a
+            # person's card (the router knows which).
+            out.append(("router", {"event": {"nfc": tag}}))
         seen = msg.get("seen")
         if isinstance(seen, list):
             # Phones near the robot, for the router: person keys and strengths.

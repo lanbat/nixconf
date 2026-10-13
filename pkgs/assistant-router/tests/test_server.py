@@ -975,3 +975,19 @@ async def test_a_robot_reports_phones_like_a_room_sensor(aiohttp_client):
         await asyncio.sleep(0.01)
     assert "Kiril is nearby" in line
     await robot.close()
+
+
+async def test_a_persons_card_tapped_on_a_robot_names_them_there(aiohttp_client):
+    import asyncio
+    bodies, people = Bodies("You are Nabu."), People({"kiril": "Kiril"})
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, people=people,
+                                           cards={"0435249AD11290": "kiril"}))
+    robot = await c.ws_connect("/v1/body")
+    await robot.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await robot.send_json({"event": {"nfc": "0435249ad11290"}})
+    for _ in range(50):
+        if people.assess("Kitchen", 100.0).speaker:
+            break
+        await asyncio.sleep(0.01)
+    assert people.assess("Kitchen", 100.0).speaker == "kiril"
+    await robot.close()

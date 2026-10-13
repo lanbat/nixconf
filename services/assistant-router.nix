@@ -53,6 +53,18 @@ let
     )
   ) bodyHosts;
   personaFile = pkgs.writeText "assistant-router-persona.txt" cfg.body.persona;
+  # People's NFC cards, UID -> key (people.<key>.nfcTags): not secret, a hint.
+  cardsFile = pkgs.writeText "assistant-router-cards.json" (
+    builtins.toJSON (
+      lib.listToAttrs (
+        lib.concatLists (
+          lib.mapAttrsToList (key: p: map (uid: lib.nameValuePair (lib.toUpper uid) key) (p.nfcTags or [ ])) (
+            config.lanbat.deployment.people or { }
+          )
+        )
+      )
+    )
+  );
   # Who it may recognise (lanbat.deployment.people): keys and names only.
   peopleFile = pkgs.writeText "assistant-router-people.json" (
     builtins.toJSON (lib.mapAttrs (_: p: p.name) (config.lanbat.deployment.people or { }))
@@ -171,6 +183,7 @@ in
               "--body-port ${toString bodyPort}"
               "--persona-file ${personaFile}"
               "--people-file ${peopleFile}"
+              "--cards-file ${cardsFile}"
               "--people-state /var/lib/assistant-router/people.json"
             ]
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
