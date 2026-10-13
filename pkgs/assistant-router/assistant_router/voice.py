@@ -7,6 +7,11 @@ request by its transcript (normalised the same way on both sides), within
 REPORT_SECONDS. A report may arrive a moment after Home Assistant's request,
 so a request waits up to WAIT_SECONDS for it.
 
+A room whose robot has an ear sends the sentence a second time, as the robot
+heard it (the body socket's voice_sample, scored by voice-id's /embed): the
+request then waits up to EAR_WAIT_SECONDS for both, and the report that
+matches someone better is kept.
+
 The router calls back into voice-id to enrol, refine and forget voiceprints
 (VoiceIdClient). Only person keys and transcripts travel; never audio.
 """
@@ -20,6 +25,7 @@ import aiohttp
 
 REPORT_SECONDS = 10.0
 WAIT_SECONDS = 0.4
+EAR_WAIT_SECONDS = 0.8
 
 
 def normalise_text(text: str) -> str:
@@ -31,31 +37,40 @@ class VoiceReports:
     def __init__(self, clock=time.monotonic) -> None:
         self.clock = clock
         self._reports: dict[str, tuple[float, dict[str, float]]] = {}
+        self._counts: dict[str, int] = {}
         self._arrived = asyncio.Event()
 
     def add(self, text: str, scores: dict) -> None:
         now = self.clock()
         self._reports = {t: v for t, v in self._reports.items() if now - v[0] <= REPORT_SECONDS}
+        self._counts = {t: n for t, n in self._counts.items() if t in self._reports}
         clean = {str(k): float(v) for k, v in (scores or {}).items()
                  if isinstance(k, str) and type(v) in (int, float) and -1 <= v <= 1}
         key = normalise_text(text)
         if key:
             # An empty report (too little speech, nobody enrolled) still
             # arrived: the request stops waiting for it.
-            self._reports[key] = (now, clean)
+            before = self._reports.get(key)
+            if before is None or max(clean.values(), default=-2.0) > max(before[1].values(), default=-2.0):
+                self._reports[key] = (now, clean)
+            self._counts[key] = self._counts.get(key, 0) + 1
             self._arrived.set()
 
     def get(self, text: str) -> dict[str, float] | None:
         hit = self._reports.get(normalise_text(text))
         return hit[1] if hit and self.clock() - hit[0] <= REPORT_SECONDS else None
 
-    async def wait(self, text: str, timeout: float = WAIT_SECONDS) -> dict[str, float] | None:
-        """The scores for `text`, waiting briefly for a report still on its way."""
+    def count(self, text: str) -> int:
+        return self._counts.get(normalise_text(text), 0) if self.get(text) is not None else 0
+
+    async def wait(self, text: str, timeout: float = WAIT_SECONDS, expect: int = 1) -> dict[str, float] | None:
+        """The scores for `text`, waiting briefly for `expect` reports still on
+        their way (two where a robot's ear sends its own)."""
         deadline = time.monotonic() + timeout
         while True:
             found = self.get(text)
             remaining = deadline - time.monotonic()
-            if found is not None or remaining <= 0:
+            if (found is not None and self.count(text) >= expect) or remaining <= 0:
                 return found
             self._arrived.clear()
             try:
@@ -85,6 +100,11 @@ class VoiceIdClient:
 
     async def learn(self, key: str, text: str) -> bool:
         return bool((await self._call("POST", "/learn", {"key": key, "text": text})).get("learned"))
+
+    async def embed(self, text: str, pcm: str) -> bool:
+        """A robot's recording of a sentence (base64 s16le, 16 kHz mono):
+        voice-id scores it and reports to /v1/voice like any other."""
+        return bool((await self._call("POST", "/embed", {"text": text, "pcm": pcm})).get("reported"))
 
     async def forget(self, key: str) -> bool:
         return bool((await self._call("DELETE", f"/people/{key}")).get("forgotten"))

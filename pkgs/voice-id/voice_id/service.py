@@ -11,7 +11,15 @@ The router calls back here (loopback only):
     POST   /enrol   {"key": "alex", "texts": [...]}  -> {"enrolled": bool, "utterances": n, "needed": 3}
     POST   /learn   {"key": "alex", "text": "..."}   -> {"learned": bool}
     DELETE /people/<key>                              -> {"forgotten": bool}
+    POST   /embed   {"text": "...", "pcm": "<base64>"} -> {"reported": bool}
     GET    /status                                    -> {"available": bool, "people": [...]}
+
+/embed is a robot's second ear (docs/people.md): the same sentence as the
+robot heard it, 16-bit 16 kHz mono, sent by the router. It is scored and
+reported like the pipeline's own audio, and then dropped; the router keeps
+the better of the two reports. It is not kept for enrolment or learning,
+which use the pipeline's audio, so every voiceprint comes from one kind of
+microphone.
 
 Enrolment uses the utterances of the conversation the person just had, from
 memory (Recent); if there are too few yet, they wait (in memory, ten minutes)
@@ -20,6 +28,8 @@ for the next call. Nothing about a voice that isn't enrolled is ever written.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import re
 import time
@@ -27,10 +37,12 @@ import time
 import aiohttp
 from aiohttp import web
 
+from .embedder import RATE, levelled, samples
 from .voiceprints import Recent, Store
 
 _LOGGER = logging.getLogger("voice-id")
 _KEY = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
+MAX_EAR_SECONDS = 15  # the robot records no longer than this
 
 
 class VoiceId:
@@ -43,7 +55,16 @@ class VoiceId:
         self._pending: dict[str, tuple[float, list[list[float]]]] = {}
         self._session: aiohttp.ClientSession | None = None
 
-    async def utterance(self, text: str, embedding: list[float] | None) -> dict | None:
+    async def ear(self, text: str, pcm: bytes) -> dict | None:
+        """A robot's recording of a sentence: scored and reported, not kept."""
+        if self.embed is None or not text.strip():
+            return None
+        signal = levelled(samples(pcm[: MAX_EAR_SECONDS * RATE * 2]))
+        embedding = await asyncio.to_thread(self.embed, signal, RATE) if signal is not None else None
+        return await self.utterance(text, embedding, remember=False, source="robot")
+
+    async def utterance(self, text: str, embedding: list[float] | None, remember: bool = True,
+                        source: str = "pipeline") -> dict | None:
         """Score one utterance and tell the router; returns what was sent.
 
         The router waits briefly for each sentence's report, so one is always
@@ -54,14 +75,15 @@ class VoiceId:
         now = self.clock()
         scores: dict[str, float] = {}
         if embedding is not None:
-            self.recent.add(text, embedding, now)
+            if remember:
+                self.recent.add(text, embedding, now)
             if not self.store.available() or not self.store.people():
                 self.store.reload()  # the layer was just unlocked
             scores = self.store.scores(embedding)
         report = {"text": text, "scores": scores, "t": now}
         if scores:
             best = max(scores, key=scores.get)
-            _LOGGER.info("voice: closest %s (%.2f) of %d", best, scores[best], len(scores))
+            _LOGGER.info("voice (%s): closest %s (%.2f) of %d", source, best, scores[best], len(scores))
         if self.router_url:
             try:
                 if self._session is None:
@@ -127,10 +149,23 @@ def make_api(voice: VoiceId) -> web.Application:
             return web.json_response({"error": "key"}, status=400)
         return web.json_response({"forgotten": voice.forget(key)})
 
+    async def embed(request: web.Request) -> web.Response:
+        body = await request.json()
+        text, pcm = body.get("text"), body.get("pcm")
+        if not isinstance(text, str) or not isinstance(pcm, str):
+            return web.json_response({"error": "text and pcm"}, status=400)
+        try:
+            audio = base64.b64decode(pcm, validate=True)
+        except (binascii.Error, ValueError):
+            return web.json_response({"error": "pcm"}, status=400)
+        return web.json_response({"reported": await voice.ear(text, audio) is not None})
+
     async def status(_request: web.Request) -> web.Response:
         return web.json_response({"available": voice.store.available(), "people": voice.store.people()})
 
-    app = web.Application()
+    # A robot's sentence is 15 s at most: 480 KB, 640 KB in base64.
+    app = web.Application(client_max_size=1024 * 1024)
+    app.router.add_post("/embed", embed)
     app.router.add_post("/enrol", enrol)
     app.router.add_post("/learn", learn)
     app.router.add_delete("/people/{key}", forget)

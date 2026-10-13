@@ -7,6 +7,7 @@ and check what comes out.
 Run with: nix build .#checks.x86_64-linux.stackchan-bridge
 """
 import asyncio
+import base64
 import hashlib
 import json
 import math
@@ -326,15 +327,15 @@ class Router(unittest.TestCase):
     def test_presence_is_reported_on_change(self):
         b = Brain(Config(), now=NOON)
         self.assertEqual(self.router(b.on_device({"face": "new"}, NOON)),
-                         [{"state": {"present": True, "present_since_s": 0, "asleep": False, "battery_low": False}}])
+                         [{"state": {"present": True, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}}])
         self.assertEqual(self.router(b.on_device({"face": "new"}, NOON + 1)), [])
         self.assertEqual(self.router(b.on_device({"face": "lost"}, NOON + 90)),
-                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False}}])
+                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}}])
 
     def test_state_on_connect(self):
         b = Brain(Config(), now=NOON)
         b.on_device({"face": "new"}, NOON)
-        self.assertEqual(b.router_state(NOON + 125), {"present": True, "present_since_s": 125, "asleep": False, "battery_low": False})
+        self.assertEqual(b.router_state(NOON + 125), {"present": True, "present_since_s": 125, "asleep": False, "battery_low": False, "ear": False})
 
 
 class Nap(unittest.TestCase):
@@ -353,10 +354,10 @@ class Nap(unittest.TestCase):
     def test_a_nap_is_sleep_to_the_router(self):
         b = Brain(Config(), now=NOON)
         self.assertEqual(self.router(b.on_device({"rest": "nap"}, NOON)),
-                         [{"state": {"present": False, "present_since_s": 0, "asleep": True, "battery_low": False}}])
+                         [{"state": {"present": False, "present_since_s": 0, "asleep": True, "battery_low": False, "ear": False}}])
         self.assertEqual(self.router(b.on_device({"rest": "nap"}, NOON + 1)), [])
         self.assertEqual(self.router(b.on_device({"rest": "awake"}, NOON + 60)),
-                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False}}])
+                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}}])
         self.assertEqual(b.on_device({"rest": "snoring"}, NOON + 61), [])
 
 
@@ -668,6 +669,92 @@ class WifiLinkTest(unittest.TestCase):
         got, connected = self.run_robot({"fw": "1.2.0", "proto": 1, "link": "wifi"})
         self.assertEqual(got, [])
         self.assertFalse(connected)
+
+
+class Ear(unittest.TestCase):
+    """The robot records a sentence for voice-id, only with a router."""
+
+    def brain(self, ear=True, router=True):
+        b = Brain(Config(), now=NOON)
+        b.on_device({"hello": {"fw": "1.3.0", "proto": 1, "ear": ear}}, NOON)
+        b.router = router
+        return b
+
+    def ears(self, actions):
+        return [a[1] for a in actions if a[0] == "ear"]
+
+    def test_from_wake_word_to_transcript(self):
+        b = self.brain()
+        wake = b.on_lva("wake_word_detected", {}, NOON)
+        self.assertIn({"record": True}, device(wake))
+        self.assertEqual(self.ears(wake), ["start"])
+        heard = b.on_lva("stt_text", {"text": "What's the weather?"}, NOON + 3)
+        self.assertIn({"record": False}, device(heard))
+        self.assertEqual(self.ears(heard), ["What's the weather?"])
+
+    def test_nothing_said_is_dropped(self):
+        b = self.brain()
+        b.on_lva("wake_word_detected", {}, NOON)
+        self.assertEqual(self.ears(b.on_lva("idle", {}, NOON + 5)), ["drop"])
+        b.on_lva("wake_word_detected", {}, NOON + 10)
+        self.assertEqual(self.ears(b.on_lva("pipeline_error", {}, NOON + 11)), ["drop"])
+
+    def test_no_ear_or_no_router_no_recording(self):
+        for b in (self.brain(ear=False), self.brain(router=False)):
+            out = b.on_lva("wake_word_detected", {}, NOON)
+            self.assertNotIn({"record": True}, device(out))
+            self.assertEqual(self.ears(out), [])
+
+    def test_the_router_hears_about_the_ear(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"hello": {"fw": "1.3.0", "proto": 1, "ear": True}}, NOON)
+        self.assertIn(("router", {"state": b.router_state(NOON)}), out)
+        self.assertTrue(b.router_state(NOON)["ear"])
+
+
+class EarBridge(unittest.TestCase):
+    """The bridge keeps a sentence's audio only until it hands it over."""
+
+    class Router:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, text):
+            self.sent.append(json.loads(text))
+
+    def run_lines(self, lines, then):
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+        bridge.router_ws = self.Router()
+
+        async def go():
+            await bridge.ear("start")
+            for line in lines:
+                await bridge.on_line(json.dumps(line).encode())
+            await bridge.ear(then)
+
+        asyncio.run(go())
+        return bridge
+
+    def test_a_sentence_goes_to_the_router_and_is_dropped(self):
+        second = base64.b64encode(b"\x01\x00" * 16000).decode()  # one second
+        bridge = self.run_lines([{"audio": second}, {"audio": "not base64!"}], "Good morning")
+        sent = bridge.router_ws.sent
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["voice_sample"]["text"], "Good morning")
+        self.assertEqual(len(base64.b64decode(sent[0]["voice_sample"]["pcm"])), 32000)
+        self.assertEqual(bridge.ear_audio, bytearray())  # nothing kept
+        self.assertFalse(bridge.ear_on)
+
+    def test_too_short_or_dropped_sends_nothing(self):
+        short = base64.b64encode(b"\x01\x00" * 4000).decode()  # a quarter second
+        self.assertEqual(self.run_lines([{"audio": short}], "Hi").router_ws.sent, [])
+        second = base64.b64encode(b"\x01\x00" * 16000).decode()
+        self.assertEqual(self.run_lines([{"audio": second}], "drop").router_ws.sent, [])
+
+    def test_audio_outside_a_recording_is_ignored(self):
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+        asyncio.run(bridge.on_line(json.dumps({"audio": "AQA="}).encode()))
+        self.assertEqual(bridge.ear_audio, bytearray())
 
 
 if __name__ == "__main__":

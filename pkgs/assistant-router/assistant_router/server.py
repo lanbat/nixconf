@@ -27,7 +27,7 @@ from .body import Bodies
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
 from .people import People
-from .voice import VoiceIdClient, VoiceReports
+from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
 from .state import State
 
@@ -407,7 +407,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
         # Who is speaking: voice-id's scores for this sentence (it may still be
         # on its way), with who is in the room. A sure answer refines the voice.
-        voice_scores = (await reports.wait(text) or None) if voice is not None else None
+        robot = bodies.state(room)
+        ear = robot is not None and robot.ear
+        voice_scores = (await reports.wait(text, EAR_WAIT_SECONDS if ear else WAIT_SECONDS, 2 if ear else 1)
+                        or None) if voice is not None else None
         last = last_speaker(device, now)
         assessment = people.assess(room, now, voice_scores, last)
         if assessment.speaker:
@@ -486,7 +489,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
-                  frigate: Frigate | None = None) -> web.Application:
+                  frigate: Frigate | None = None, voice: VoiceIdClient | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -497,11 +500,14 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     (pkgs/room-presence) is not a body: it only reports the phones it sees, and
     gets nothing back. A face source (the frigate person mapper) is also not a
     body: it reports the recognised people for the room ({"faces": [...]}), the
-    full current set each time it changes. A house sensor
+    full current set each time it changes. A robot with an ear sends each
+    sentence as it heard it ({"voice_sample": {"text", "pcm"}}), which goes to
+    voice-id and is dropped. A house sensor
     (pkgs/wifi-presence) reports whose phones are on the home network
     ({"home": [...]}), the full set every minute."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
+    tasks: set[asyncio.Task] = set()
 
     def _b64(value) -> bytes | None:
         if not isinstance(value, str) or not value:
@@ -554,6 +560,14 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock(), source="aimed")
+                elif room and kind not in non_bodies and isinstance(data.get("voice_sample"), dict):
+                    sample = data["voice_sample"]
+                    if voice is not None and isinstance(sample.get("text"), str) \
+                            and isinstance(sample.get("pcm"), str):
+                        # Scored by voice-id, reported to /v1/voice, never kept.
+                        tasks.add(asyncio.create_task(voice.embed(sample["text"], sample["pcm"])))
+                        for t in [t for t in tasks if t.done()]:
+                            tasks.discard(t)
                 elif room and kind not in non_bodies and "face_image" in data:
                     bodies.complete_capture(room, data["face_image"])
                 elif room and kind not in non_bodies and "face_probe" in data:

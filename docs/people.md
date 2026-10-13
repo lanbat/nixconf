@@ -152,6 +152,16 @@ a second of speech gives no scores: "lights off" says too little about who said 
   person it recognises as speaking, and their name if they enrolled themselves; people
   listed in `deploy.nix` keep their name. It does nothing when it isn't sure who is
   asking.
+- **A second ear.** A Stack-chan on a satellite also records each sentence, from the
+  wake word to the transcript, with its own microphone, which is often nearer the
+  speaker than the satellite's. The bridge hands that recording to the router, the
+  router to voice-id (its loopback `/embed`), and voice-id scores it like the
+  satellite's audio and drops it. Of the two reports for a sentence the router keeps
+  the one that matches someone better, waiting up to 0.8 s for both. The robot's
+  recordings are never used to enrol or refine a voiceprint, so voiceprints come from
+  one kind of microphone. The robot's microphone is off except during a sentence
+  (15 s at most); the recording exists only in memory, on the robot, the Pi and the
+  server, until it is scored.
 - **Where it is kept.** Voiceprints are embeddings, never audio, in
   `/mnt/workload/voice-id` on the encrypted workload layer. Until the layer is unlocked
   after a reboot, voice-id recognises nobody and stores nothing. They are not backed up

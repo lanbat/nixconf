@@ -84,6 +84,7 @@ class BodyState:
     since: float | None = None  # when the person in front arrived (router clock)
     asleep: bool = False
     battery_low: bool = False
+    ear: bool = False  # sends its own recording of each sentence (voice_sample)
 
 
 def _key(room: str) -> str:
@@ -136,6 +137,9 @@ class Bodies:
         battery_low = fields.get("battery_low")
         if type(battery_low) is bool:
             state.battery_low = battery_low
+        ear = fields.get("ear")
+        if type(ear) is bool:
+            state.ear = ear
 
     async def act(self, room: str, act: dict[str, Any]) -> bool:
         socket = self._sockets.get(_key(room))
