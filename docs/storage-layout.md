@@ -113,7 +113,9 @@ These paths live on `/dev/lanbat/root` and are accessible at boot without any un
 ├── homepage/          Homepage config (stateless, managed in repo)
 ├── private/assistant-router/  Assistant router request log, a file a day, logDays
 │                      kept: what the microphones heard (personal data; with
-│                      logText = false only tier, route and timing)
+│                      logText = false only tier, route and timing); people
+│                      added at runtime (people.json) and phones learned from
+│                      taps on a robot (phones.json: Wi-Fi address -> person)
 └── containers/<account>/  rootless Podman image storage, one per container account
 
 /var/lib/private/tang/ ← bind mount from /mnt/control/tang (control LUKS);

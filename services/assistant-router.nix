@@ -18,6 +18,12 @@
 # it. For a request from a room with a body, the cloud model answers as
 # settings.body.persona and drives the body (pkgs/assistant-router body.py).
 #
+# With settings.tap and a forward-auth provider, each robot is also an NFC tag
+# holding a link to https://who.<domain> (the "who" service below, on
+# tapPort): a phone held to it opens the page, the provider's login says whose
+# phone it is, and the router counts them in that room and learns the
+# phone's Wi-Fi address for wifi-presence (pkgs/assistant-router tap.py).
+#
 # Always-on: it is in the voice path. Home Assistant's side is loopback only.
 {
   config,
@@ -33,6 +39,7 @@ let
   cfg = config.lanbat.services.assistant-router.settings;
   port = 8092;
   bodyPort = 8770;
+  tapPort = 8772;
   router = pkgs.callPackage ../pkgs/assistant-router { };
 
   # Hosts whose services consume the router: the bodies. The same derivation
@@ -103,6 +110,21 @@ let
       broker login is the mosquitto-assistant-router-pass secret.
     '';
   };
+  routerSettings.options.tap = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      Tap a phone on a robot to say who you are: each robot is an NFC tag
+      holding a link to https://who.<domain>, a new one every minute. Opened
+      on a phone, the page asks the forward-auth provider's login (Authentik),
+      counts that person in the robot's room for two minutes, and learns the
+      phone's Wi-Fi address for wifi-presence. People who tap are added by
+      their username; nothing is listed in the profile. Needs a forward-auth
+      provider on this host; the phone must trust the site's certificate.
+    '';
+  };
+  provider = config.lanbat.authProvider;
+  tapping = cfg.tap && provider != null && provider.userHeader != null;
   # Mosquitto beside it, and Home Assistant wanted: the MQTT publisher.
   mqttHere = cfg.homeAssistant && config.lanbat.hasService "mosquitto";
   routerSettings.options.body.persona = mkOption {
@@ -157,6 +179,14 @@ in
         extraPorts = [ bodyPort ];
         readsSecrets = lib.optional mqttHere "mosquitto-assistant-router-pass";
       };
+      # The page a phone held to a robot opens, behind the login. Declared
+      # with the router, and given a host name only with tapping: whether a
+      # provider runs here is known from the services themselves.
+      lanbat.services.who = {
+        subdomain = lib.mkIf tapping "who";
+        port = lib.mkIf tapping tapPort;
+        auth = lib.mkIf tapping "forward-auth";
+      };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];
       systemd.services.assistant-router = {
         description = "Assistant router: noise gate, local triage, cloud escalation";
@@ -187,6 +217,16 @@ in
               "--people-state /var/lib/assistant-router/people.json"
             ]
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
+            ++ lib.optionals tapping (
+              [
+                "--tap-url https://who.${config.lanbat.deployment.domain}"
+                "--tap-port ${toString tapPort}"
+                "--tap-user-header ${provider.userHeader}"
+                "--phones-state /var/lib/assistant-router/phones.json"
+              ]
+              # Authentik also passes the display name, after its check.
+              ++ lib.optional (provider.userHeader == "X-Authentik-Username") "--tap-name-header X-Authentik-Name"
+            )
             # Co-located on this host (localhost); its API needs no auth. The URL
             # is only rendered when Frigate is present, so its port is read then.
             ++ lib.optionals (config.lanbat.hasService "voice-id") [

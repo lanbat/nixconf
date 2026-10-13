@@ -133,6 +133,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Vaultwarden | Own account system + admin token | Bitwarden clients need direct API access; no forward auth |
 | Grafana | OIDC (Authentik) + local admin | Native generic_oauth support |
 | InfluxDB | Token auth (not exposed publicly) | Accessed by Grafana only; no browser UI needed on LAN |
+| Who tapped (`who`, the assistant router's page, 8772) | Caddy forward-auth (Authentik) | A phone held to a Stack-chan opens it; the login says whose phone it is (docs/people.md) |
 | Syncthing | Caddy forward-auth (Authentik), admins only (`access.groups`) | Sync clients use port 22000 directly, not Caddy; only devices declared in the profile connect |
 | Music Assistant | Caddy forward-auth (Authentik) | No native OIDC; stream port (8097) not exposed on firewall. Its video-channel feeds (`media-feed-bridge`, 8101) listen on loopback only and resolve only the channels the profile lists |
 | Snapcast | Caddy forward-auth (Authentik) | No native auth; streaming and control ports (1704/1705) admit only declared clients (`services/snapcast.nix`) |
@@ -175,6 +176,7 @@ Caddy and Authentik on this one.
 | `sync.<domain>` | Syncthing web UI |
 | `music.<domain>` | Music Assistant web UI |
 | `audio.<domain>` | Snapcast control UI (may merge with `music` when retired) |
+| `who.<domain>` | The page a phone held to a Stack-chan opens (assistant router, `settings.tap`) |
 
 DNS assumption: `*.<domain>` resolves to the server's IPv4 address.
 Either the router answers it, or hosts with the `lanbat-dns` plugin do (below).

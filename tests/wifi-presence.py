@@ -16,10 +16,12 @@ sys.path.insert(0, sys.argv.pop(1))
 from wifi_presence import (  # noqa: E402
     MAX_PHONES,
     Presence,
+    Service,
     arp_request,
     attach_filter,
     bpf_source_macs,
     mac_bytes,
+    merge_phones,
     normalise_mac,
     parse_frame,
     parse_phones,
@@ -146,6 +148,36 @@ class Home(unittest.TestCase):
         self.assertEqual(len(targets), 253)
         self.assertNotIn("192.0.2.10", targets)
         self.assertEqual(len(sweep_targets("10.0.0.0/8", "10.0.0.1")), 4096)
+
+
+class Learned(unittest.TestCase):
+    def test_the_profile_wins_and_junk_is_dropped(self):
+        merged = merge_phones({ALEX: "alex"}, {ALEX.upper(): "sam", "6E-02-11-22-33-44": "sam",
+                                               "nope": "x", OTHER: 5, OTHER_HI: "y" * 41})
+        self.assertEqual(merged, {ALEX: "alex", SAM: "sam"})
+        self.assertEqual(merge_phones({ALEX: "alex"}, "junk"), {ALEX: "alex"})
+        many = {f"02:00:00:00:{i // 256:02x}:{i % 256:02x}": "x" for i in range(100)}
+        self.assertEqual(len(merge_phones({ALEX: "alex"}, many)), MAX_PHONES)
+
+    def test_learned_phones_pass_the_filter(self):
+        service = Service("lo", "192.0.2.0/24", {ALEX: "alex"}, "ws://127.0.0.1:1/v1/body")
+        a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            service.sock = b
+            attach_filter(b, bpf_source_macs([ALEX]))
+            service.learned({SAM: "sam"})
+            self.assertEqual(service.presence.phones, {ALEX: "alex", SAM: "sam"})
+            a.send(frame(SAM))
+            a.send(frame(OTHER))
+            b.setblocking(False)
+            self.assertEqual(parse_frame(b.recv(2048))[0], SAM)
+            with self.assertRaises(BlockingIOError):
+                b.recv(2048)
+            service.learned({})  # forgotten: gone again
+            self.assertEqual(service.presence.phones, {ALEX: "alex"})
+        finally:
+            a.close()
+            b.close()
 
 
 if __name__ == "__main__":

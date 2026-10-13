@@ -1,0 +1,147 @@
+import json
+
+import pytest
+from assistant_router.body import Bodies
+from assistant_router.people import People
+from assistant_router.server import make_body_app
+from assistant_router.tap import Taps, arp_lookup, display_name, make_tap_app, person_key
+
+BASE = "https://who.example.org"
+ARP = """IP address       HW type     Flags       HW address            Mask     Device
+192.168.1.50     0x1         0x2         a2:3b:4c:5d:6e:7f     *        eth0
+192.168.1.51     0x1         0x0         00:00:00:00:00:00     *        eth0
+"""
+
+
+class Clock:
+    def __init__(self, t=1000.0):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def setup(tmp_path):
+    arp = tmp_path / "arp"
+    arp.write_text(ARP)
+    people = People({"kiril": "Kiril"})
+    clock = Clock()
+    taps = Taps(BASE, people, clock, phones_path=str(tmp_path / "phones.json"), arp_path=str(arp))
+    return taps, people, clock, tmp_path
+
+
+def nonce(link):
+    return link.split("?n=")[1]
+
+
+def test_a_link_lasts_one_to_two_minutes_and_one_room(setup):
+    taps, _, clock, _ = setup
+    n = nonce(taps.link("Kitchen"))
+    assert taps.link("Kitchen").startswith(f"{BASE}/tap/kitchen?n=")
+    assert taps.valid("kitchen", n)
+    assert not taps.valid("Bedroom", n)
+    clock.t += 60
+    assert taps.valid("Kitchen", n)
+    clock.t += 60
+    assert not taps.valid("Kitchen", n)
+
+
+def test_a_tap_names_them_there_and_learns_the_phone(setup):
+    taps, people, clock, tmp_path = setup
+    told = []
+    taps.listeners.append(told.append)
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "kiril", "Kiril M", "192.168.1.50", ["Kitchen"])
+    assert got == {"key": "kiril", "name": "Kiril", "room": "Kitchen", "phone": True, "stale": False}
+    a = people.assess("Kitchen", clock())
+    assert a.speaker == "kiril" and a.how == "phone tap"
+    assert json.loads((tmp_path / "phones.json").read_text()) == {"a2:3b:4c:5d:6e:7f": "kiril"}
+    assert told == [{"a2:3b:4c:5d:6e:7f": "kiril"}]
+
+
+def test_someone_new_is_added_by_their_login(setup):
+    taps, people, _, _ = setup
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "Jane.Doe", "Jane <b>Doe</b>", "", ["Kitchen"])
+    assert got["key"] == "jane_doe" and people.names["jane_doe"] == "Jane bDoeb"
+    assert got["phone"] is False
+
+
+def test_a_stale_link_changes_nothing(setup):
+    taps, people, clock, _ = setup
+    old = nonce(taps.link("Kitchen"))
+    clock.t += 180
+    got = taps.tap("kitchen", old, "jane", "Jane", "192.168.1.50", ["Kitchen"])
+    assert got["stale"] and "jane" not in people.names and taps.phones == {}
+    got = taps.tap("garage", nonce(taps.link("Garage")), "kiril", "Kiril", "192.168.1.50", ["Kitchen"])
+    assert got["stale"] and taps.phones == {}
+
+
+def test_names_and_keys_are_clean():
+    assert person_key("  Ä x--y ") == "x_y"
+    assert person_key("!!!") is None
+    assert display_name("Robert'); DROP", "bob") == "Robert' DROP"
+    assert display_name("<>", "bob") == "bob"
+    assert len(display_name("a" * 99, "x")) == 40
+
+
+def test_only_complete_arp_entries(tmp_path):
+    arp = tmp_path / "arp"
+    arp.write_text(ARP)
+    assert arp_lookup("192.168.1.50", str(arp)) == "a2:3b:4c:5d:6e:7f"
+    assert arp_lookup("192.168.1.51", str(arp)) is None
+    assert arp_lookup("10.0.0.1", str(tmp_path / "missing")) is None
+
+
+def test_a_person_keeps_their_newest_phones(setup):
+    taps, _, _, _ = setup
+    for i in range(6):
+        taps.learn(f"02:00:00:00:00:0{i}", "kiril")
+    assert sorted(taps.phones) == [f"02:00:00:00:00:0{i}" for i in range(2, 6)]
+    assert taps.forget_phones("kiril") == 4 and taps.phones == {}
+
+
+def test_learned_phones_survive_a_restart(setup):
+    taps, people, clock, tmp_path = setup
+    taps.learn("02:00:00:00:00:01", "kiril")
+    again = Taps(BASE, people, clock, phones_path=str(tmp_path / "phones.json"))
+    assert again.phones == {"02:00:00:00:00:01": "kiril"}
+
+
+async def test_the_page(aiohttp_client, setup):
+    taps, _, _, _ = setup
+    forgotten = []
+
+    async def forget(key):
+        forgotten.append(key)
+        return False
+
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], forget))
+    me = {"X-Authentik-Username": "kiril", "X-Authentik-Name": "Kiril", "X-Forwarded-For": "192.168.1.50"}
+    r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=me)
+    text = await r.text()
+    assert r.status == 200 and "Hi Kiril!" in text and "in the Kitchen" in text and "Forget my phone" in text
+    r = await c.get("/tap/kitchen?n=nope", headers=me)
+    assert "expired" in await r.text()
+    assert (await c.get("/tap/kitchen?n=x")).status == 403  # not signed in
+
+    r = await c.post("/forget-phone", headers={**me, "Origin": "https://evil.example"})
+    assert r.status == 403 and taps.phones
+    r = await c.post("/forget-phone", headers={**me, "Origin": BASE})
+    assert r.status == 200 and taps.phones == {}
+    r = await c.post("/forget-me", headers={**me, "Referer": f"{BASE}/"})
+    assert r.status == 200 and forgotten == ["kiril"] and "home's settings" in await r.text()
+
+
+async def test_robots_get_links_and_the_house_sensor_gets_phones(aiohttp_client, setup):
+    taps, people, clock, _ = setup
+    c = await aiohttp_client(make_body_app(Bodies(""), clock=clock, people=people, taps=taps))
+    robot = await c.ws_connect("/v1/body")
+    await robot.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    assert "body_hello" in await robot.receive_json()
+    assert await robot.receive_json() == {"tap": {"url": taps.link("Kitchen")}}
+
+    house = await c.ws_connect("/v1/body")
+    await house.send_json({"hello": {"room": "house", "kind": "house-sensor", "proto": 1}})
+    assert await house.receive_json() == {"phones": {}}
+    taps.learn("02:00:00:00:00:01", "kiril")
+    assert await house.receive_json() == {"phones": {"02:00:00:00:00:01": "kiril"}}

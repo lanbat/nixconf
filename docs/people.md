@@ -136,6 +136,30 @@ A kernel filter on the raw socket passes only the listed phones' frames, cut to 
 headers: nothing else on the network is read, and nothing is stored. Only person keys
 go to the router. Keep it a hint: a MAC address is easy to copy.
 
+## Tap your phone
+
+With a Stack-chan and Authentik, there is nothing to list: hold your phone, unlocked, flat
+on top of the robot's head. The robot is an NFC tag holding a link to
+`https://who.<domain>`, and the phone opens it (NFC on; iPhones read tags too). The page
+asks Authentik's login, once per phone, and then:
+
+- you are the likely speaker in that room for two minutes, as strongly as a card;
+- you are a person the assistant knows by your Authentik username (the profile's person
+  when it has that key, else added, with your Authentik name);
+- the server looks up the phone's Wi-Fi address for the address it came from, and
+  `wifi-presence` counts you home whenever that phone is on the network (above). That
+  needs the phone on the home Wi-Fi, in the server's subnet, over IPv4.
+
+The robot perks up and glows when a phone reads it. The link changes every minute and the
+page only acts on this minute's or the last one's, so a photographed link does nothing
+later. The page has **Forget my phone** and **Forget me** (your phones, face and voice; and
+you, unless the profile lists you). Faces, voices and Bluetooth still come from their own
+setup: a browser can't read a phone's Bluetooth keys.
+
+The phone has to trust the site's certificate: install the home CA from
+`https://ca.<domain>` first ([deployment checklist](deployment-checklist.md)). Turn it
+off with `lanbat.services.assistant-router.settings.tap = false`.
+
 ## Cards
 
 A person's NFC card or tag (`people.<key>.nfcTags`), tapped on a Stack-chan, names them
@@ -195,6 +219,8 @@ For a request from a room (`pkgs/assistant-router/assistant_router/people.py`):
 Not by ruling people out, but by weighing them: every enrolled person is a candidate,
 and an extra one stands for someone not enrolled.
 
+- **A tap** of their card or phone on the room's robot (last 2 minutes) names them unless
+  the voice clearly disagrees.
 - **Presence** raises a candidate's weight: their phone in the room (last 2 minutes),
   their face on a room camera (last 10 s), having been the speaker earlier in this
   conversation, and, less, their phone on the home network (last 3 minutes). Absence lowers it but never rules anyone out, so a phone left in another

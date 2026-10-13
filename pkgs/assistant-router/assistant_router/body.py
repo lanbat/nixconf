@@ -12,10 +12,12 @@ prompt:
                     {"event": {"touch": "tap|stroke", "zone": "front|middle|back|screen|null"}}
                     {"event": {"wave": true}}      a hand waved in front of its screen
                     {"event": {"nfc": "<UID hex>"}}  a tag or card tapped on it
-                    {"event": {"tapped": true}}   a phone read its NFC link (ignored for now)
+                    {"event": {"tapped": true}}   a phone read its NFC link (the page says who: tap.py)
                     {"face_image": "<base64>"}   a face it was asked to capture
                     {"face_image": null}          it couldn't get one
     router -> body  {"act": {"mood": "happy", "gesture": "nod", "look": "user", "sleep": false}}
+                    {"tap": {"url": "https://who.<domain>/tap/<room>?n=..."}}
+                                                  the link a phone held to it opens, every minute (tap.py)
                     {"act": {"caption": "...", "brightness": 0-255, "led": {"rgb": [r, g, b]} | null}}
                                                   (from Home Assistant, assistant_router/mqtt.py)
                     {"capture": true}             send me a face of whoever is in front
@@ -207,11 +209,16 @@ class Bodies:
             state.fw = fields["fw"]
 
     async def act(self, room: str, act: dict[str, Any]) -> bool:
+        if not act:
+            return False
+        return await self.send(room, {"act": act})
+
+    async def send(self, room: str, msg: dict[str, Any]) -> bool:
         socket = self._sockets.get(_key(room))
-        if socket is None or not act:
+        if socket is None:
             return False
         try:
-            await socket.send_json({"act": act})
+            await socket.send_json(msg)
         except Exception:  # pylint: disable=broad-except
             return False
         return True
