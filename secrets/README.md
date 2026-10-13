@@ -279,6 +279,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `immich-oidc-env.age` | `KEY=value` × 2 | Immich server container |
 | `mosquitto-ha-pass.age` | plaintext password | Mosquitto (Home Assistant user); shared with Home Assistant |
 | `mosquitto-frigate-pass.age` | plaintext password | Mosquitto (Frigate user); shared with Frigate |
+| `mosquitto-assistant-router-pass.age` | plaintext password | Mosquitto (`assistant-router` user, `lanbat/#` and Home Assistant discovery only); read by the assistant router as a systemd credential, to publish the robots and who is around to Home Assistant. Only with the router and `settings.homeAssistant` (on by default) |
 | `mosquitto-z2m-pass.age` | plaintext password | Mosquitto (Zigbee2MQTT user); shared with Zigbee2MQTT |
 | `bitmagnet-db-pass.age` | `POSTGRES_PASSWORD=<value>` | Bitmagnet PostgreSQL |
 | `frigate-rtsp-env.age` | `FRIGATE_RTSP_USER=<value>`, `FRIGATE_RTSP_PASSWORD=<value>` | Frigate camera RTSP auth |

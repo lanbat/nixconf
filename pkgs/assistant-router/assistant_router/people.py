@@ -86,6 +86,8 @@ class People:
         # person -> (how it was heard, room) -> (signal strength, when): to place
         # a phone heard in several rooms where it is loudest
         self._signal: dict[str, dict[tuple[str, str], tuple[int, float]]] = {}
+        # room -> the last request's speaker: (key or None, posterior, how, when)
+        self._said: dict[str, tuple[str | None, float, str, float]] = {}
         # who is at home, and when the house sensor said so last
         self._home: set[str] = set()
         self._home_at: float | None = None
@@ -124,6 +126,19 @@ class People:
                 if here in recent and recent[here] >= max(recent.values()) - ROOM_MARGIN_DB:
                     out.add(person)
         return out
+
+    def remember(self, room: str, a: "Assessment", now: float) -> None:
+        """Who spoke last in `room` (for Home Assistant's "probably" sensor)."""
+        if room:
+            self._said[_key(room)] = (a.speaker, a.posterior, a.how, now)
+
+    def last_speaker(self, room: str, now: float, within: float = 300.0) -> tuple[str | None, float, str]:
+        """(key or None, posterior, how) of the last request in `room` in the
+        last `within` seconds; (None, 0, "") otherwise."""
+        hit = self._said.get(_key(room))
+        if hit is None or now - hit[3] > within or (hit[0] is not None and hit[0] not in self.names):
+            return None, 0.0, ""
+        return hit[0], hit[1], hit[2]
 
     def observe_home(self, persons, now: float) -> None:
         """The full set of people whose phones are on the home network; it

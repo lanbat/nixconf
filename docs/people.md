@@ -198,6 +198,12 @@ probably talking to Alex (recognised by voice and face). Sam is nearby. Recognit
 guess: use names to be friendly, never to decide or allow anything."* The local model
 never sees it, and device actions are the same whoever asks.
 
+## In Home Assistant
+
+The router publishes its guesses as sensors, named "Probably …": who spoke last to each
+robot and who is nearby it, and who is home ([stackchan.md](stackchan.md#in-home-assistant)).
+They are as uncertain as the line the cloud model gets, and for the same uses.
+
 ## Never authority
 
 Recognition is never used to unlock, disarm, open or allow anything, and never picks the

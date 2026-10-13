@@ -56,6 +56,17 @@ def lva(actions):
     return [a[1] for a in actions if a[0] == "lva"]
 
 
+CORE = ("present", "present_since_s", "asleep", "battery_low", "ear")
+
+
+def core(msg):
+    """A router message with its state cut to what the presence tests check
+    (the rest is for Home Assistant, tested in RobotInHomeAssistant)."""
+    if isinstance(msg, dict) and isinstance(msg.get("state"), dict):
+        return {**msg, "state": {k: v for k, v in msg["state"].items() if k in CORE}}
+    return msg
+
+
 def merged(actions):
     out = {}
     for line in device(actions):
@@ -262,7 +273,7 @@ class Router(unittest.TestCase):
     """The assistant router's side (pkgs/assistant-router body.py)."""
 
     def router(self, actions):
-        return [a[1] for a in actions if a[0] == "router"]
+        return [core(a[1]) for a in actions if a[0] == "router"]
 
     def test_the_routers_mood_wins_over_the_guess(self):
         b = Brain(Config(), now=NOON)
@@ -336,14 +347,14 @@ class Router(unittest.TestCase):
     def test_state_on_connect(self):
         b = Brain(Config(), now=NOON)
         b.on_device({"face": "new"}, NOON)
-        self.assertEqual(b.router_state(NOON + 125), {"present": True, "present_since_s": 125, "asleep": False, "battery_low": False, "ear": False})
+        self.assertEqual(core({"state": b.router_state(NOON + 125)})["state"], {"present": True, "present_since_s": 125, "asleep": False, "battery_low": False, "ear": False})
 
 
 class Nap(unittest.TestCase):
     """The robot naps by itself when nobody has been around (firmware)."""
 
     def router(self, actions):
-        return [a[1] for a in actions if a[0] == "router"]
+        return [core(a[1]) for a in actions if a[0] == "router"]
 
     def test_the_nap_time_goes_to_the_robot(self):
         b = Brain(Config(nap_after_s=600), now=NOON)
@@ -364,7 +375,7 @@ class Nap(unittest.TestCase):
 
 class Battery(unittest.TestCase):
     def router(self, actions):
-        return [a[1] for a in actions if a[0] == "router"]
+        return [core(a[1]) for a in actions if a[0] == "router"]
 
     def test_a_low_battery_reaches_the_router_and_the_journal(self):
         b = Brain(Config(), now=NOON)
@@ -797,6 +808,60 @@ class Phones(unittest.TestCase):
                                     {"person": "sam", "rssi": "loud"}, "junk"]}, NOON)
         self.assertEqual([a[1] for a in out if a[0] == "router"],
                          [{"seen": [{"person": "alex", "rssi": -70, "via": "ble"}]}])
+
+
+class RobotInHomeAssistant(unittest.TestCase):
+    """What the router needs to show the robot, and the commands it sends."""
+
+    def test_the_state_has_the_robot(self):
+        b = Brain(Config(), now=NOON)
+        b.on_device({"hello": {"fw": "1.5.0", "proto": 1, "link": "wifi"}}, NOON)
+        b.on_device({"battery": {"level": 87, "mv": 4100, "charging": True, "low": False}}, NOON)
+        b.on_lva("wake_word_detected", {}, NOON)
+        state = b.router_state(NOON)
+        self.assertEqual({k: state[k] for k in ("battery", "charging", "link", "mood", "fw", "brightness")},
+                         {"battery": 87, "charging": True, "link": "wifi", "mood": "listening",
+                          "fw": "1.5.0", "brightness": 180})
+
+    def test_touches_are_events(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"touch": "stroke", "zone": "back"}, NOON)
+        self.assertIn(("router", {"event": {"touch": "stroke", "zone": "back"}}), out)
+        out = b.on_device({"touch": "tap", "zone": "elsewhere"}, NOON)
+        self.assertIn(("router", {"event": {"touch": "tap", "zone": None}}), out)
+
+    def test_commands_from_home_assistant(self):
+        b = Brain(Config(), now=NOON)
+        lines = device(b.on_router({"act": {"caption": "  Dinner is ready  ", "brightness": 90,
+                                            "led": {"rgb": [0, 0, 255]}}}, NOON))
+        self.assertIn({"caption": {"text": "Dinner is ready", "who": "status", "ms": 15000}}, lines)
+        self.assertIn({"config": {"brightness": 90}}, lines)
+        self.assertIn({"led": {"rgb": [0, 0, 255]}}, lines)
+        self.assertEqual(b.config.brightness, 90)
+        self.assertEqual(device(b.on_router({"act": {"led": None}}, NOON)), [{"led": None}])
+
+    def test_bad_commands_are_dropped(self):
+        b = Brain(Config(), now=NOON)
+        for act in ({"brightness": 300}, {"brightness": "dim"}, {"led": {"rgb": [0, 0]}},
+                    {"led": {"rgb": [0, 0, 999]}}, {"caption": "   "}, {"caption": 5}):
+            self.assertEqual(device(b.on_router({"act": act}, NOON)), [], act)
+
+    def test_the_router_hears_each_change_once(self):
+        class Router:
+            def __init__(self):
+                self.sent = []
+
+            async def send(self, text):
+                self.sent.append(json.loads(text))
+
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+        bridge.router_ws = Router()
+        battery = {"battery": {"level": 50, "mv": 3900, "charging": False, "low": False}}
+        asyncio.run(bridge.act(bridge.brain.on_device(battery, NOON)))
+        asyncio.run(bridge.act(bridge.brain.on_device(battery, NOON)))  # nothing new
+        states = [m["state"] for m in bridge.router_ws.sent if "state" in m]
+        self.assertEqual(len(states), 1)
+        self.assertEqual(states[0]["battery"], 50)
 
 
 if __name__ == "__main__":

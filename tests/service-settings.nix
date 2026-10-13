@@ -944,6 +944,26 @@ let
       )
     )
 
+    (expect
+      "assistant-router: publishes the robots and who is around to Home Assistant, with its own broker login"
+      (
+        let
+          unit = routerServer.systemd.services.assistant-router.serviceConfig;
+          broker = (lib.head routerServer.services.mosquitto.listeners).users.assistant-router;
+        in
+        lib.hasInfix "--mqtt-host 127.0.0.1" unit.ExecStart
+        && lib.hasInfix "--mqtt-password-file %d/mosquitto-assistant-router-pass" unit.ExecStart
+        &&
+          unit.LoadCredential == [
+            "mosquitto-assistant-router-pass:${routerServer.lanbat.secrets.mosquitto-assistant-router-pass.path}"
+          ]
+        && lib.elem "mosquitto-assistant-router-pass" routerServer.lanbat.services.assistant-router.readsSecrets
+        && lib.elem "readwrite lanbat/#" broker.acl
+        && !(lib.elem "readwrite #" broker.acl)
+        && failedAssertions routerServer == [ ]
+      )
+    )
+
     (expect "wifi-presence: beside the router, it listens for the people's phones on the LAN" (
       let
         unit = presenceServer.systemd.services.wifi-presence;

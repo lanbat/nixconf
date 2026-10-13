@@ -49,6 +49,12 @@ void setStatus(bool m, bool o) {
 }
 void setAsleep(bool a) { asleep = a; }
 void setLowBattery(bool low) { lowBattery = low; }
+bool notifyOn = false;
+Rgb notifyColour = {0, 0, 0};
+void setNotify(bool on, uint8_t r, uint8_t g, uint8_t b) {
+  notifyOn = on;
+  notifyColour = {r, g, b};
+}
 
 void update() {
   uint32_t now = millis();
@@ -110,6 +116,11 @@ void update() {
     }
   }
 
+  // Home Assistant's notification light, under the status lights.
+  if (notifyOn && !timerRinging && scene == Scene::Off) {
+    for (auto& c : frame) c = notifyColour;
+  }
+
   // The first LED of each side is a status light: dim red while the
   // microphone is muted, a slow red pulse while the Pi or Home Assistant is
   // out of reach.
@@ -119,7 +130,7 @@ void update() {
     frame[0] = frame[6] = scale({90, 0, 0}, breathe(now, 3000));
   }
 
-  if (asleep && !timerRinging && scene == Scene::Off) {
+  if (asleep && !timerRinging && !notifyOn && scene == Scene::Off) {
     for (auto& c : frame) c = {0, 0, 0};
   }
   if (lowBattery) {

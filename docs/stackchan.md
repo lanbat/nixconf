@@ -197,6 +197,31 @@ How it is kept safe:
 - Turning `wifi.enable` off makes the bridge tell the robot to forget the details the
   next time it is plugged in.
 
+## In Home Assistant
+
+With the assistant router (and Mosquitto beside it), every robot is a device in Home
+Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
+`lanbat.services.assistant-router.settings.homeAssistant = false`. Add the
+`mosquitto-assistant-router-pass` secret ([secrets/README.md](../secrets/README.md)).
+
+- **Sensors:** battery, charging, battery low, link (USB or Wi-Fi), mood, someone in
+  front of it, napping, asleep for the night.
+- **Touch** is an event entity (`tap` or `stroke`, with the zone) for automations: a
+  stroke on its head could dim the lights.
+- **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
+  sleep and wake up, set its mood, its screen brightness, a caption on its screen, and
+  its LEDs as a light: an RGB notification lamp (a reminder, the washing machine) that
+  shows while nothing else is on its LEDs.
+- **Who:** "Probably speaking" (who spoke to it last, with how sure and how it knew, for
+  five minutes) and "Probably nearby" per robot, and "Probably home" on a People
+  device. They are guesses, named as such: use them to personalise, never to unlock,
+  disarm or allow anything ([people.md](people.md#never-authority)).
+
+The router publishes all of it: it is connected to every robot's bridge already, so
+only the server has a broker login. Home Assistant's commands reach a robot over the
+link it uses, checked against fixed lists; MQTT is never a way to hand a robot Wi-Fi
+details or phone keys.
+
 ## 4. Nabu with a body
 
 When the profile runs the assistant router (`services/assistant-router.nix`) and the
@@ -313,6 +338,7 @@ robot is plugged in.
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
 | `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and iPhone keys); `null` forgets them. Over USB only, when the hello's `phones` differs from `id` |
+| `{"led": {"rgb": [r, g, b]}}` | A notification light from Home Assistant, shown while nothing else is on the LEDs; `null` turns it off |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
