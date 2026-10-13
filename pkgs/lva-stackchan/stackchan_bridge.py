@@ -12,7 +12,8 @@ This decides what it should feel and say:
   from it, the mouth following the reply's audio, then back to idle.
 - Touch: a tap on the head starts a conversation (LVA's start_listening), or
   stops one; any touch silences a ringing timer; stroking it just makes it
-  happy.
+  happy. A hand waved in front of its screen silences a ringing timer, or
+  stops the reply.
 - Timers: shown as countdown rings, counted down here between LVA's events.
   LVA reports a cancelled timer only as an idle in the middle of a turn.
 - Night: between NIGHT_START and NIGHT_END it sleeps, dimmed and still,
@@ -114,6 +115,7 @@ class Config:
     night_brightness: int = 10
     notice_guests: bool = True
     nap_after_s: int = 900  # nobody seen this long: the robot naps (0: never)
+    auto_brightness: bool = True  # the screen follows the room's light
     sad_words: tuple[str, ...] = DEFAULT_SAD_WORDS
     sound_direction: bool = True  # the head turns to the voice (the satellite's mics)
     sound_offset_deg: float = 0.0  # the voice's angle as seen from the robot
@@ -137,6 +139,7 @@ class Config:
             night_brightness=int(env.get("NIGHT_BRIGHTNESS", "10")),
             notice_guests=flag("NOTICE_GUESTS", True),
             nap_after_s=int(env.get("NAP_AFTER_S", "900")),
+            auto_brightness=flag("AUTO_BRIGHTNESS", True),
             sad_words=tuple(w.strip().lower() for w in sad.split(",") if w.strip()) if sad else DEFAULT_SAD_WORDS,
             sound_direction=flag("SOUND_DIRECTION", True),
             sound_offset_deg=float(env.get("SOUND_OFFSET_DEG", "0")),
@@ -191,6 +194,8 @@ class Brain:
     charging: bool | None = None
     link: str | None = None  # "usb" or "wifi", from the robot's hello
     firmware: str | None = None
+    lux: int | None = None  # light at the sensor (behind the glass: relative)
+    near: bool = False  # a hand close to its screen
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
@@ -232,7 +237,9 @@ class Brain:
                 "link": self.link,
                 "mood": self.mood,
                 "brightness": self.config.brightness,
-                "fw": self.firmware}
+                "fw": self.firmware,
+                "lux": self.lux,
+                "near": self.near}
 
     def _listening(self) -> bool:
         return self.ear and self.router
@@ -284,6 +291,7 @@ class Brain:
                 "brightness": self.config.night_brightness if self.asleep else self.config.brightness,
                 "notice": self.config.notice_guests,
                 "nap_after_s": self.config.nap_after_s,
+                "auto_brightness": self.config.auto_brightness,
             }}),
             self._status(),
             ("device", {"sleep": self.asleep and not self.in_turn}),
@@ -490,6 +498,19 @@ class Brain:
                 out.append(("device", {"wifi": self.wifi}))
                 out.append(("log", "giving the robot the Wi-Fi details" if self.wifi
                             else "telling the robot to forget its Wi-Fi details"))
+        senses = msg.get("senses")
+        if isinstance(senses, dict):
+            if type(senses.get("lux")) is int and senses["lux"] >= 0:
+                self.lux = senses["lux"]
+            if type(senses.get("near")) is bool:
+                self.near = senses["near"]
+        if msg.get("wave") is True:
+            # A wave: hush. A ringing timer first, else the reply.
+            if any(t.ringing for t in self.timers.values()):
+                out.append(("lva", {"command": "stop_timer_ringing"}))
+            elif self.in_turn:
+                out.append(("lva", {"command": "stop_pipeline"}))
+            out.append(("router", {"event": {"wave": True}}))
         seen = msg.get("seen")
         if isinstance(seen, list):
             # Phones near the robot, for the router: person keys and strengths.

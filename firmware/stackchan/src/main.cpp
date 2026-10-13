@@ -25,6 +25,7 @@
 //   {"hello": 1}                     asks for a hello (the bridge just started)
 //   {"phones": {...} | null}        whose phones to look for (over USB only)
 //   {"led": {"rgb": [r, g, b]} | null}  a notification light (Home Assistant)
+//   {"config": {..., "auto_brightness": bool}}  the screen follows the room's light
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
 //
@@ -39,6 +40,8 @@
 //   {"face_image": "base64 JPEG, or empty"}     a capture's answer
 //   {"audio": "base64 s16le, 16 kHz mono"}       while recording, every 100 ms
 //   {"seen": [{"person", "rssi"}]}  phones near it, every 15 s (phones.h)
+//   {"senses": {"lux", "prox", "near"}}  light and a hand near it, on change (senses.h)
+//   {"wave": true}                   a hand waved in front of the screen
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -55,6 +58,7 @@
 #include "ear.h"
 #include "lights.h"
 #include "phones.h"
+#include "senses.h"
 #include "pilink.h"
 #include "vision.h"
 
@@ -62,7 +66,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.5.0";
+constexpr const char* kFirmware = "1.6.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -96,6 +100,9 @@ bool muted = false;
 bool haOnline = true;
 bool noticeGuests = true;
 uint8_t brightness = 180;
+bool autoBrightness = true;  // the screen follows the room's light (senses.h)
+bool hasSenses = false;
+uint32_t sensesDebugUntil = 0, nextSensesDebug = 0;
 
 String caption;
 uint32_t captionUntil = 0;
@@ -158,6 +165,18 @@ const Keyframe kDance[] = {{-200, 80, 250}, {200, 0, 250}, {-200, 80, 250}, {200
                            {300, 40, 450}, {0, 0, 350}};
 const Keyframe kStretch[] = {{0, 220, 600}, {0, 220, 700}, {0, 0, 500}};
 const Keyframe kLookAround[] = {{-450, 60, 700}, {-450, 60, 600}, {450, 60, 1100}, {450, 60, 600}, {0, 0, 700}};
+
+// The day's brightness, dimmed in a dim room: a bright face in the dark is
+// glaring, a dim one in daylight unreadable. Relative to the brightest light
+// this robot has seen lately (it fades over about half a day), since the
+// sensor behind the glass reads only a few lux in a lit room.
+float luxPeak = 0;
+uint8_t dayBrightness() {
+  if (!autoBrightness || !hasSenses || !senses::latest().ok) return brightness;
+  float l = senses::latest().lux;
+  float k = luxPeak > 1 ? constrain(0.3f + 0.7f * l / luxPeak, 0.3f, 1.0f) : 1.0f;
+  return (uint8_t)(brightness * k);
+}
 
 // Both eyes the same way (Avatar's own saccades move them again in a while).
 void gaze(float vertical, float horizontal) {
@@ -298,7 +317,7 @@ void endNap() {
   vision::setFramePeriod(150);
   sendEvent("rest", "awake");
   if (asleep) return;
-  M5.Display.setBrightness(brightness);
+  M5.Display.setBrightness(dayBrightness());
   setMood("neutral");
   pointHead(0, kPitchRest, 300);
   GESTURE(kStretch);
@@ -325,7 +344,7 @@ void setAsleep(bool a) {
     drowsy = false;
     setMood("neutral");
     pointHead(0, kPitchRest, 300);
-    M5.Display.setBrightness(brightness);
+    M5.Display.setBrightness(dayBrightness());
   }
 }
 
@@ -472,7 +491,9 @@ void handle(JsonDocument& doc, pilink::Via via) {
     showText();
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
-  if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "phones") {
+  if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "senses") {
+    sensesDebugUntil = millis() + 30000;
+  } else if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "phones") {
     phones::debug(120000);
   } else if (doc["debug"].is<const char*>()) {
     // {"debug": "camera"} shows what the camera sees; {"debug": "off"} ends it.
@@ -494,9 +515,13 @@ void handle(JsonDocument& doc, pilink::Via via) {
   if (doc["config"].is<JsonObject>()) {
     if (doc["config"]["brightness"].is<int>()) {
       brightness = doc["config"]["brightness"];
-      M5.Display.setBrightness(brightness);
+      M5.Display.setBrightness(dayBrightness());
     }
     if (doc["config"]["notice"].is<bool>()) noticeGuests = doc["config"]["notice"];
+    if (doc["config"]["auto_brightness"].is<bool>()) {
+      autoBrightness = doc["config"]["auto_brightness"];
+      if (!asleep && !napping) M5.Display.setBrightness(dayBrightness());
+    }
     if (doc["config"]["nap_after_s"].is<int>()) napAfterMs = (uint32_t)doc["config"]["nap_after_s"].as<int>() * 1000;
   }
 }
@@ -548,6 +573,60 @@ void captureTask(void*) {
     doc["face_image"] = ok ? base64Encode(out, size).c_str() : "";
     send(doc);
   }
+}
+
+// The proximity and light sensor: a hand near wakes it or makes it perk up,
+// a wave goes to the Pi (it stops a ringing timer or a reply), and the screen
+// follows the room's light.
+void runSenses() {
+  if (!hasSenses) return;
+  if (sensesDebugUntil && millis() < sensesDebugUntil && millis() >= nextSensesDebug) {
+    nextSensesDebug = millis() + 200;
+    uint16_t ch0, ch1, prox;
+    uint8_t status;
+    float rest;
+    senses::raw(ch0, ch1, status, prox, rest);
+    char line[120];
+    snprintf(line, sizeof line, "senses: ch0 %u ch1 %u status 0x%02X prox %u resting %.0f lux %.1f", ch0, ch1,
+             status, prox, rest, senses::latest().lux);
+    JsonDocument d;
+    d["log"] = line;
+    send(d);
+  }
+  senses::Reading r;
+  bool waved = false;
+  bool wasNear = senses::latest().near;
+  bool changed = senses::update(r, waved);
+  if (senses::latest().ok) {
+    static uint32_t lastPeak = millis();
+    uint32_t now = millis();
+    luxPeak *= powf(0.5f, (now - lastPeak) / (12.0f * 3600000.0f));  // half-life 12 h
+    lastPeak = now;
+    luxPeak = max(luxPeak, senses::latest().lux);
+  }
+  if (!changed) return;
+  JsonDocument doc;
+  doc["senses"]["lux"] = (int)roundf(r.lux);
+  doc["senses"]["prox"] = r.prox;
+  doc["senses"]["near"] = r.near;
+  send(doc);
+  if (waved) {
+    JsonDocument w;
+    w["wave"] = true;
+    send(w);
+  }
+  if (r.near && !wasNear && !asleep) {
+    if (napping) {
+      endNap();
+    } else if (drowsy) {
+      drowsy = false;
+      setMood("neutral");
+      pointHead(0, kPitchRest, 300);
+    } else if (!gesture && mood == "neutral") {
+      GESTURE(kPerk);
+    }
+  }
+  if (!asleep && !napping) M5.Display.setBrightness(dayBrightness());
 }
 
 void readBattery() {
@@ -723,10 +802,11 @@ void setup() {
   M5.Speaker.begin();
   M5.Speaker.end();
   hasEar = ear::begin();
+  hasSenses = senses::begin();
   // The bridge sends its whole state in a burst when it connects.
   Serial.setRxBufferSize(4096);
   Serial.begin(115200);
-  M5.Display.setBrightness(brightness);
+  M5.Display.setBrightness(dayBrightness());
 
   avatar.init();
   avatar.setSpeechFont(&fonts::efontCN_12);
@@ -745,6 +825,7 @@ void loop() {
   readLink();
   runEar();
   phones::update();
+  runSenses();
   readTouch();
   readBattery();
   follow();

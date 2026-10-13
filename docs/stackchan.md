@@ -23,6 +23,13 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
   (`lanbat.stackchan.napAfter`) it naps: screen dark, eyes closed, LEDs off, head down,
   the camera slowed to a frame a second. Someone walking in, a tap or the wake word wakes
   it with a stretch, and Nabu knows it was napping.
+- **A hand near its face.** The proximity sensor beside the camera notices a hand (or a
+  fingertip 1-2 cm away): it wakes from a nap or a doze, or perks up. **A wave** across
+  it hushes it: a ringing timer stops, or the reply being spoken does.
+- **The room's light.** By day the screen dims in a dim room and brightens in a bright
+  one (`lanbat.stackchan.autoBrightness`), relative to the brightest light it has seen
+  in the last half day: behind its dark front glass the sensor reads only a few lux in a
+  lit room, so it compares rather than measures.
 - **Battery.** The robot reads its battery every 30 s. Below 15 % and not charging it
   stops moving its head (a servo's current surge on a weak supply makes its power chip
   cut it off, and then only the power button brings it back), pulses amber and asks to
@@ -205,9 +212,10 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
 `mosquitto-assistant-router-pass` secret ([secrets/README.md](../secrets/README.md)).
 
 - **Sensors:** battery, charging, battery low, link (USB or Wi-Fi), mood, someone in
-  front of it, napping, asleep for the night.
-- **Touch** is an event entity (`tap` or `stroke`, with the zone) for automations: a
-  stroke on its head could dim the lights.
+  front of it, a hand near it, light at its sensor (relative, see above), napping,
+  asleep for the night.
+- **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
+  for automations: a stroke on its head could dim the lights, a wave skip a song.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
   sleep and wake up, set its mood, its screen brightness, a caption on its screen, and
   its LEDs as a light: an RGB notification lamp (a reminder, the washing machine) that
@@ -332,13 +340,14 @@ robot is plugged in.
 | `{"timers": [{"id", "name", "remaining_s", "total_s", "ringing"}]}` | All timers, soonest first |
 | `{"sleep": bool}` | Night: dim, still, camera off |
 | `{"status": {"muted", "online"}}` | Muted microphone; Home Assistant reachable |
-| `{"config": {"brightness", "notice"}}` | Screen brightness; whether to greet newcomers |
+| `{"config": {"brightness", "notice", "nap_after_s", "auto_brightness"}}` | Screen brightness; whether to greet newcomers; when to nap; whether the screen follows the room's light |
 | `{"ping": 1}` | Heartbeat every 3 s. After 10 s without any line the robot shows "No Pi" |
 | `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
 | `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and iPhone keys); `null` forgets them. Over USB only, when the hello's `phones` differs from `id` |
 | `{"led": {"rgb": [r, g, b]}}` | A notification light from Home Assistant, shown while nothing else is on the LEDs; `null` turns it off |
+| `{"debug": "senses"}` | For 30 s, the light and proximity sensor's raw readings in the journal, 5 a second |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
@@ -353,6 +362,8 @@ robot is plugged in.
 | `{"log": "..."}` | Shown in the bridge's journal |
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
 | `{"audio": "<base64>"}` | While recording, 100 ms of 16-bit 16 kHz mono each |
+| `{"senses": {"lux", "prox", "near"}}` | Light at the sensor and the proximity echo, when the hand near it comes or goes or the light changes |
+| `{"wave": true}` | A hand waved across the proximity sensor (near and gone within 0.6 s) |
 | `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
 
 `face_image` is the only line that can be large (a full-frame JPEG, base64). The robot

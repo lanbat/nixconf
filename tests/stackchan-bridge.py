@@ -864,5 +864,36 @@ class RobotInHomeAssistant(unittest.TestCase):
         self.assertEqual(states[0]["battery"], 50)
 
 
+class Senses(unittest.TestCase):
+    """The proximity and light sensor: a wave hushes, the rest is for Home Assistant."""
+
+    def test_a_wave_stops_a_ringing_timer_first(self):
+        b = Brain(Config(), now=NOON)
+        b.on_lva("timer_ringing", {"id": "t1", "name": "Tea", "total_seconds": 60, "seconds_left": 0}, NOON)
+        out = b.on_device({"wave": True}, NOON)
+        self.assertEqual(lva(out), [{"command": "stop_timer_ringing"}])
+        self.assertIn(("router", {"event": {"wave": True}}), out)
+
+    def test_a_wave_stops_the_reply(self):
+        b = Brain(Config(), now=NOON)
+        b.on_lva("wake_word_detected", {}, NOON)
+        self.assertEqual(lva(b.on_device({"wave": True}, NOON)), [{"command": "stop_pipeline"}])
+        idle = Brain(Config(), now=NOON)
+        self.assertEqual(lva(idle.on_device({"wave": True}, NOON)), [])  # nothing to stop
+
+    def test_light_and_hand_go_to_the_router(self):
+        b = Brain(Config(), now=NOON)
+        b.on_device({"senses": {"lux": 37, "prox": 1883, "near": True}}, NOON)
+        state = b.router_state(NOON)
+        self.assertEqual((state["lux"], state["near"]), (37, True))
+        b.on_device({"senses": {"lux": -4, "near": "yes"}}, NOON)  # nonsense: kept as it was
+        self.assertEqual((b.router_state(NOON)["lux"], b.router_state(NOON)["near"]), (37, True))
+
+    def test_auto_brightness_goes_to_the_robot(self):
+        on = merged(Brain(Config(), now=NOON).full_state(NOON))["config"]
+        off = merged(Brain(Config(auto_brightness=False), now=NOON).full_state(NOON))["config"]
+        self.assertEqual((on["auto_brightness"], off["auto_brightness"]), (True, False))
+
+
 if __name__ == "__main__":
     unittest.main(argv=[sys.argv[0], "-v"])

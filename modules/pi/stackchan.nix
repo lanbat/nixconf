@@ -136,6 +136,15 @@ in
       default = 180;
       description = "Screen brightness by day.";
     };
+    autoBrightness = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        By day, dim the screen in a dim room and brighten it in a bright one
+        (its light sensor, relative to the brightest light it has seen in the
+        last half day), between 30 % and `brightness`.
+      '';
+    };
     nightBrightness = mkOption {
       type = types.ints.between 0 255;
       default = 10;
@@ -317,6 +326,7 @@ in
         NIGHT_START = if cfg.nightHours.start == null then "" else cfg.nightHours.start;
         NIGHT_END = if cfg.nightHours.end == null then "" else cfg.nightHours.end;
         BRIGHTNESS = toString cfg.brightness;
+        AUTO_BRIGHTNESS = flag cfg.autoBrightness;
         NIGHT_BRIGHTNESS = toString cfg.nightBrightness;
         NAP_AFTER_S = toString (if cfg.napAfter == null then 0 else cfg.napAfter * 60);
         SOUND_DIRECTION = flag cfg.soundDirection;
