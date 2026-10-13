@@ -395,7 +395,6 @@ let
               name = "Alex";
               bleBeacon = "A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90";
               wifiMacs = [ "3A-1F-00-AA-BB-01" ];
-              nfcTags = [ "0435249ad11290" ];
             };
           };
         };
@@ -989,7 +988,7 @@ let
       && unit.environment.ROUTER_BODY_URL == "ws://127.0.0.1:8770/v1/body"
       && unit.serviceConfig.AmbientCapabilities == [ "CAP_NET_RAW" ]
       && unit.serviceConfig.IPAddressAllow == [ "localhost" ]
-      && lib.hasInfix "--cards-file" presenceServer.systemd.services.assistant-router.serviceConfig.ExecStart
+      && lib.hasInfix "--cards-state /var/lib/assistant-router/cards.json" presenceServer.systemd.services.assistant-router.serviceConfig.ExecStart
       # Without the router, or without anyone's wifiMacs or taps, it stays off.
       && !(base.systemd.services ? wifi-presence)
       && !(routerNoTap.systemd.services ? wifi-presence)

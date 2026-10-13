@@ -12,6 +12,7 @@ from aiohttp import web
 import json
 
 from .body import Bodies
+from .cards import Cards
 from .frigate import Frigate
 from .people import People
 from .voice import VoiceIdClient
@@ -36,6 +37,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     frigate = Frigate(a.frigate_url) if a.frigate_url else None
     voice = VoiceIdClient(a.voice_id_url) if a.voice_id_url else None
     taps = None
+    cards = Cards(a.cards_state)
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -44,19 +46,15 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 people.add(key, name)
 
         async def forget(key: str) -> bool:
-            return await forget_person(key, people_store, voice, frigate)
+            return await forget_person(key, people_store, voice, frigate, cards)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     user_header=a.tap_user_header, name_header=a.tap_name_header)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
-                                      capture_face=bodies.capture, voice=voice))]
+                                      capture_face=bodies.capture, voice=voice, cards=cards))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
-        cards = {}
-        if a.cards_file:
-            with open(a.cards_file, encoding="utf-8") as f:
-                cards = {str(k).upper(): str(v) for k, v in json.load(f).items()}
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
                                                    cards=cards, taps=taps)))
         await runners[-1].setup()
@@ -102,7 +100,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--people-file", help="JSON {key: name}: the people it may recognise (people.py)")
     p.add_argument("--people-state", help="JSON {key: name} in the state dir: people enrolled at runtime, merged over --people-file (people_store.py)")
     p.add_argument("--voice-id-url", help="voice-id's API (services/voice-id.nix): enrol, refine and forget voices")
-    p.add_argument("--cards-file", help="JSON {UID: key}: people's NFC cards, tapped on a robot (people.py)")
+    p.add_argument("--cards-state", help="JSON {UID: key} in the state dir: people's NFC cards, learned by "
+                   "\"remember this card\" (cards.py)")
     p.add_argument("--tap-url", help="https://who.<domain>: the page a phone held to a robot opens (tap.py); unset: none")
     p.add_argument("--tap-port", type=int, default=8772, help="where the tap page listens, on the loopback, for Caddy")
     p.add_argument("--tap-user-header", default="X-Authentik-Username",
