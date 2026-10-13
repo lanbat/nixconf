@@ -50,6 +50,19 @@ let
   routerUrl = "ws://${routerAddress}:${toString config.lanbat.endpoints.assistant-router.endpoint.port}/v1/body";
   hhmm = types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";
   wifi = cfg.wifi;
+
+  # Whose phones the robot looks for: the people's beacons, and the iPhone
+  # keys where room-presence has them on this host (the same condition as its
+  # secret requirement, modules/pi/room-presence.nix).
+  people = config.lanbat.deployment.people or { };
+  phonesHere = cfg.phones && routerHere && people != { };
+  beacons = lib.concatStringsSep "," (
+    lib.mapAttrsToList (key: p: "${key}=${p.bleBeacon}") (
+      lib.filterAttrs (_: p: (p.bleBeacon or null) != null) people
+    )
+  );
+  roomPresence = config.lanbat.roomPresence or { };
+  irksHere = phonesHere && (roomPresence.enable or false) && (roomPresence.irks or false);
   wifiPort = toString wifi.port;
   wifiRules = map (net: "INPUT -p tcp --dport ${wifiPort} -s ${net} -j ACCEPT") wifi.allowFrom;
 in
@@ -182,6 +195,18 @@ in
         records the four channels, you clap three times, and prints the string.
       '';
     };
+    phones = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        The robot scans Bluetooth for the people's phones too, like the
+        room-presence plugin, and tells the assistant router who is near it
+        (useful where it stands away from the Pi, on Wi-Fi). Beacons come from
+        people.<key>.bleBeacon; iPhone keys from the room-presence-irks secret
+        when room-presence has `irks` on this host. Handed to the robot over
+        USB only. docs/people.md.
+      '';
+    };
     wifi = {
       enable = mkOption {
         type = types.bool;
@@ -245,6 +270,8 @@ in
         enable = wifi.enable;
         owner = "root";
       };
+      # The iPhone keys, for the robot's own scan (LoadCredential below).
+      readsSecrets = lib.optional irksHere "room-presence-irks";
     };
 
     # Only the robot's networks reach the Wi-Fi port; the robot is the only
@@ -308,6 +335,9 @@ in
       // lib.optionalAttrs wifi.enable {
         WIFI_HOST = wifi.address;
         WIFI_PORT = wifiPort;
+      }
+      // lib.optionalAttrs (phonesHere && beacons != "") {
+        BEACONS = beacons;
       };
       serviceConfig = {
         ExecStart = lib.getExe bridge;
@@ -340,7 +370,12 @@ in
         # The Wi-Fi link's certificate, key and token, made on first start.
         StateDirectory = "lva-stackchan";
         StateDirectoryMode = "0700";
-        LoadCredential = [ "stackchan-wifi:${config.lanbat.secrets.stackchan-wifi.path}" ];
+      }
+      // lib.optionalAttrs (wifi.enable || irksHere) {
+        # Root-owned secrets for a dynamic user ($CREDENTIALS_DIRECTORY).
+        LoadCredential =
+          lib.optional wifi.enable "stackchan-wifi:${config.lanbat.secrets.stackchan-wifi.path}"
+          ++ lib.optional irksHere "room-presence-irks:${config.lanbat.secrets.room-presence-irks.path}";
       };
     };
   };

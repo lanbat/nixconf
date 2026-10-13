@@ -35,6 +35,7 @@ from stackchan_bridge import (  # noqa: E402
     MicWindow,
     WifiLink,
     _angle_moved,
+    phones_payload,
     ensure_identity,
     envelope_level,
     estimate_direction,
@@ -755,6 +756,47 @@ class EarBridge(unittest.TestCase):
         bridge = Bridge(Config(), device="/nonexistent", lva_url="")
         asyncio.run(bridge.on_line(json.dumps({"audio": "AQA="}).encode()))
         self.assertEqual(bridge.ear_audio, bytearray())
+
+
+class Phones(unittest.TestCase):
+    """The robot as a room sensor: keys over USB, sightings to the router."""
+
+    PHONES = phones_payload("alex=A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90,bad=xyz",
+                            "sam ec0234a357c8ad05341010a60a397d9b  # Sam's iPhone\nsam nothex\n")
+
+    def test_payload(self):
+        p = self.PHONES
+        self.assertEqual(p["beacons"], {"a1b2c3d4e5f60718293a4b5c6d7e8f90": "alex"})
+        self.assertEqual(p["irks"], {"sam": ["ec0234a357c8ad05341010a60a397d9b"]})
+        self.assertEqual(len(p["id"]), 12)
+        self.assertIsNone(phones_payload("", ""))
+        self.assertNotEqual(phones_payload("alex=a1b2c3d4e5f60718293a4b5c6d7e8f91", "")["id"], p["id"])
+
+    def lines(self, actions, key):
+        return [line[key] for line in device(actions) if key in line]
+
+    def test_given_over_usb_when_they_differ(self):
+        b = Brain(Config(), now=NOON, phones=self.PHONES)
+        hello = {"fw": "1.4.0", "proto": 1, "link": "usb", "phones": ""}
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [self.PHONES])
+        hello["phones"] = self.PHONES["id"]
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])
+        hello.update(link="wifi", phones="")
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])  # never over Wi-Fi
+
+    def test_forgotten_when_there_are_none(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"hello": {"fw": "1.4.0", "proto": 1, "link": "usb", "phones": "abc"}}, NOON)
+        self.assertEqual(self.lines(out, "phones"), [None])
+        out = b.on_device({"hello": {"fw": "1.3.0", "proto": 1, "link": "usb"}}, NOON)  # older firmware
+        self.assertEqual(self.lines(out, "phones"), [])
+
+    def test_sightings_go_to_the_router_cleaned(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"seen": [{"person": "alex", "rssi": -70}, {"person": "x" * 41, "rssi": -60},
+                                    {"person": "sam", "rssi": "loud"}, "junk"]}, NOON)
+        self.assertEqual([a[1] for a in out if a[0] == "router"],
+                         [{"seen": [{"person": "alex", "rssi": -70, "via": "ble"}]}])
 
 
 if __name__ == "__main__":

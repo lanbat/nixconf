@@ -500,7 +500,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     (pkgs/room-presence) is not a body: it only reports the phones it sees, and
     gets nothing back. A face source (the frigate person mapper) is also not a
     body: it reports the recognised people for the room ({"faces": [...]}), the
-    full current set each time it changes. A robot with an ear sends each
+    full current set each time it changes. A robot may report phones too,
+    as a room sensor does ({"seen": [...]}). A robot with an ear sends each
     sentence as it heard it ({"voice_sample": {"text", "pcm"}}), which goes to
     voice-id and is dropped. A house sensor
     (pkgs/wifi-presence) reports whose phones are on the home network
@@ -585,7 +586,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         await ws.send_json({"face_result": {
                             "person": people.names[person] if known else None,
                             "confidence": hit.get("confidence") if hit else None}})
-                elif room and kind == "room-sensor" and isinstance(data.get("seen"), list):
+                elif room and kind != "face-source" and kind != "house-sensor" \
+                        and isinstance(data.get("seen"), list):
+                    # A room sensor's phones, or a robot's (it scans too).
                     for seen in data["seen"][:32]:
                         if isinstance(seen, dict) and type(seen.get("rssi")) is int and seen["rssi"] >= -85:
                             via = seen.get("via") if seen.get("via") in ("ble", "wifi") else "ble"

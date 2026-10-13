@@ -312,12 +312,14 @@ robot is plugged in.
 | `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
+| `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and iPhone keys); `null` forgets them. Over USB only, when the hello's `phones` differs from `id` |
+| `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
 
 | Robot → Pi | Meaning |
 |---|---|
-| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
+| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear", "phones"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works, `phones` the id of the phones it looks for (`""` for none). Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
 | `{"touch": "tap\|stroke", "zone": "front\|middle\|back\|screen"}` | Head tap or stroke, or a tap on the face |
 | `{"face": "new\|lost"}` | Someone came into view, or left it |
 | `{"rest": "nap\|awake"}` | It started or ended a nap |
@@ -325,6 +327,7 @@ robot is plugged in.
 | `{"log": "..."}` | Shown in the bridge's journal |
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
 | `{"audio": "<base64>"}` | While recording, 100 ms of 16-bit 16 kHz mono each |
+| `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
 
 `face_image` is the only line that can be large (a full-frame JPEG, base64). The robot
 only sends it in answer to a `capture`, never on its own. The bridge sends it on to the

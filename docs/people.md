@@ -89,6 +89,12 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   ([secrets/README.md](../secrets/README.md)). It is a secret: anyone with it can follow
   that phone.
 
+A **Stack-chan** scans too (`lanbat.stackchan.phones`, on by default): the bridge hands
+it the same beacons, and the iPhone keys where room-presence has `irks` on that Pi, over
+USB only, and the robot reports the phones near it every 15 s like a room sensor. That
+places phones where the robot stands, also when it is away from its Pi on Wi-Fi. It
+listens a slice of every second, so Wi-Fi keeps the radio most of the time.
+
 The Pi 3's own Bluetooth chip works but is flaky (it shares a UART and sometimes starts
 without a controller; `hosts/pi3/hardware.nix` retries). The scanner restarts on its own;
 if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth adapter

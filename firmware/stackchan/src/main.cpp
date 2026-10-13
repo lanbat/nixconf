@@ -23,19 +23,21 @@
 //   {"ping": 1}                       a heartbeat, every 3 s
 //   {"wifi": {...} | null}          Wi-Fi details to keep (over USB only)
 //   {"hello": 1}                     asks for a hello (the bridge just started)
+//   {"phones": {...} | null}        whose phones to look for (over USB only)
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
 //
 // and hears back:
 //
 //   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool,
-//              "ear": bool}}
+//              "ear": bool, "phones": "<id>"}}
 //                                    when a link comes up; the Pi answers
 //                                    with the whole state
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
 //   {"face": "new|lost"}
 //   {"face_image": "base64 JPEG, or empty"}     a capture's answer
 //   {"audio": "base64 s16le, 16 kHz mono"}       while recording, every 100 ms
+//   {"seen": [{"person", "rssi"}]}  phones near it, every 15 s (phones.h)
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -51,6 +53,7 @@
 
 #include "ear.h"
 #include "lights.h"
+#include "phones.h"
 #include "pilink.h"
 #include "vision.h"
 
@@ -58,7 +61,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.3.0";
+constexpr const char* kFirmware = "1.4.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -198,6 +201,15 @@ void sendHello() {
   JsonDocument doc;
   helloLine(doc);
   send(doc);
+  static bool tested = false;
+  if (!tested && pilink::active() != pilink::Via::None) {
+    tested = true;
+    if (!phones::selfTest()) {
+      JsonDocument log;
+      log["log"] = "phones: the address check fails Bluetooth's own sample; iPhones won't be recognised";
+      send(log);
+    }
+  }
 }
 
 void sendEvent(const char* key, const char* value, const char* zone = nullptr) {
@@ -344,6 +356,20 @@ void runEar() {
 
 void handle(JsonDocument& doc, pilink::Via via) {
   if (!doc["hello"].isUnbound()) sendHello();
+  if (!doc["phones"].isUnbound()) {
+    // Whose phones to look for: like the Wi-Fi details, from the Pi it is
+    // plugged into only.
+    JsonDocument reply;
+    if (via != pilink::Via::Usb) {
+      reply["log"] = "phones: refused, they only come over USB";
+    } else if (phones::provision(doc["phones"])) {
+      reply["log"] = doc["phones"].isNull() ? "phones: forgotten" : "phones: kept, listening";
+    } else {
+      reply["log"] = "phones: malformed or empty, not kept";
+    }
+    send(reply);
+    sendHello();
+  }
   if (doc["record"].is<bool>() && hasEar) {
     if (doc["record"].as<bool>()) {
       ear::start();
@@ -438,7 +464,9 @@ void handle(JsonDocument& doc, pilink::Via via) {
     showText();
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
-  if (doc["debug"].is<const char*>()) {
+  if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "phones") {
+    phones::debug(120000);
+  } else if (doc["debug"].is<const char*>()) {
     // {"debug": "camera"} shows what the camera sees; {"debug": "off"} ends it.
     debugCamera = hasCamera && String(doc["debug"].as<const char*>()) == "camera";
     debugUntil = millis() + kDebugMs;
@@ -674,6 +702,7 @@ void helloLine(JsonDocument& doc) {
   doc["hello"]["wifi"] = pilink::configId();
   doc["hello"]["camera"] = hasCamera;
   doc["hello"]["ear"] = hasEar;
+  doc["hello"]["phones"] = phones::configId();
 }
 
 void setup() {
@@ -695,6 +724,7 @@ void setup() {
   avatar.setSpeechFont(&fonts::efontCN_12);
 
   pilink::begin();
+  phones::begin();
   hasCamera = vision::begin();
   pointHead(0, kPitchRest, 300);
   randomSeed(esp_random());
@@ -706,6 +736,7 @@ void loop() {
   M5StackChan.update();  // touch sensor (and M5.update)
   readLink();
   runEar();
+  phones::update();
   readTouch();
   readBattery();
   follow();
