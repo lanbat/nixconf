@@ -6,6 +6,8 @@ anything else is dropped, so no free text from a satellite or a robot reaches
 a prompt. The sources:
 
 - "phone": a person's phone heard in the room (pkgs/room-presence), last 2 min;
+  heard by sensors in several rooms (through walls), it counts only where it
+  is loudest, or in each room within ROOM_MARGIN_DB of that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
 - home: a person's phone on the home network (pkgs/wifi-presence), for the
@@ -39,6 +41,7 @@ PRIOR_UNKNOWN = 0.1     # someone not enrolled
 PHONE = 4.0             # × prior: their phone is in the room
 HOME = 2.0              # × prior: their phone is on the home network
 HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
+ROOM_MARGIN_DB = 6      # a phone this much quieter than in its loudest room isn't there
 FACE = 6.0              # × prior: their face is in the room
 CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
 VOICE_SHARPNESS = 10.0  # likelihood exp(k·cosine)
@@ -80,6 +83,9 @@ class People:
         self.names = dict(names)
         # room -> source -> person -> evidence
         self._seen: dict[str, dict[str, dict[str, Evidence]]] = {}
+        # person -> (how it was heard, room) -> (signal strength, when): to place
+        # a phone heard in several rooms where it is loudest
+        self._signal: dict[str, dict[tuple[str, str], tuple[int, float]]] = {}
         # who is at home, and when the house sensor said so last
         self._home: set[str] = set()
         self._home_at: float | None = None
@@ -97,6 +103,27 @@ class People:
             return
         self._seen.setdefault(_key(room), {}).setdefault(source, {})[person] = Evidence(
             person, float(confidence), now)
+
+    def observe_phone(self, room: str, person: str, rssi, now: float, via: str = "ble") -> None:
+        """A room sensor heard `person`'s phone at `rssi` dBm. Signal
+        strengths are only compared between sensors of one kind (`via`):
+        Bluetooth and Wi-Fi are on different scales."""
+        if person not in self.names or not room or type(rssi) is not int:
+            return
+        self._signal.setdefault(person, {})[(str(via), _key(room))] = (rssi, now)
+
+    def _placed(self, room: str, now: float) -> set[str]:
+        """Whose phones are in `room`: heard there recently, and not much
+        quieter there than in their loudest room."""
+        here = _key(room)
+        out = set()
+        for person, heard in self._signal.items():
+            for via in {v for v, _ in heard}:
+                recent = {r: s for (v, r), (s, at) in heard.items()
+                          if v == via and now - at <= WINDOW["phone"]}
+                if here in recent and recent[here] >= max(recent.values()) - ROOM_MARGIN_DB:
+                    out.add(person)
+        return out
 
     def observe_home(self, persons, now: float) -> None:
         """The full set of people whose phones are on the home network; it
@@ -124,6 +151,7 @@ class People:
         """Who is speaking in `room`, given this request's voice scores and the
         speaker earlier in the conversation."""
         phones = self._recent(room, "phone", now)
+        phones.update({p: 1.0 for p in self._placed(room, now)})
         faces = self._recent(room, "face", now)
         aimed = self._recent(room, "aimed", now)
         home = self.home(now)

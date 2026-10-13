@@ -62,7 +62,10 @@ library.
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on a
 satellite Pi that has a room, and every 15 s tells the router whose phones it heard in the
 last minute, with their signal strength. The router counts a phone as *nearby* for two
-minutes; a phone never names the speaker. Enable it next to the voice plugin:
+minutes; a phone never names the speaker. A phone heard by sensors in several rooms (a
+wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
+room within 6 dB of that, a doorway say. Bluetooth and Wi-Fi strengths are on different
+scales, so each is compared only with its own kind. Enable it next to the voice plugin:
 
 ```nix
 plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.room-presence ];
