@@ -10,7 +10,7 @@ a prompt. The sources:
   is loudest, or in each room within ROOM_MARGIN_DB of that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
-- "card": a person's NFC card tapped on the room's robot (people.<key>.nfcTags),
+- "card": a person's NFC card tapped on the room's robot (cards.py),
   last 2 min: strong, it names them unless the voice clearly disagrees;
 - "tap": a person's phone held to the room's robot, and their login on its
   page (tap.py), last 2 min: as strong as a card;

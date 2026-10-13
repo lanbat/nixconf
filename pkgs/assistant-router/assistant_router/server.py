@@ -22,8 +22,9 @@ from typing import Awaitable, Callable
 import aiohttp
 from aiohttp import web
 
-from . import actions, body as body_mod, gate as gate_mod, honesty, triage
+from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, triage
 from .body import Bodies
+from .cards import Cards
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
 from .people import People
@@ -103,9 +104,11 @@ def _person_key(name: str) -> str | None:
 
 
 async def forget_person(key: str, people_store: PeopleStore | None, voice: VoiceIdClient | None,
-                        frigate: Frigate | None) -> bool:
-    """Forget `key`'s voice and face; and them, when they were added at
+                        frigate: Frigate | None, cards: Cards | None = None) -> bool:
+    """Forget `key`'s voice, face and cards; and them, when they were added at
     runtime (True). One the profile declares stays (False)."""
+    if cards is not None:
+        cards.forget(key)
     if voice is not None:
         await voice.forget(key)
     if frigate is not None:
@@ -182,7 +185,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              bodies: Bodies | None = None, people: People | None = None,
              people_store: PeopleStore | None = None, frigate: Frigate | None = None,
              capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
-             voice: VoiceIdClient | None = None) -> web.Application:
+             voice: VoiceIdClient | None = None, cards: Cards | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -351,10 +354,27 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             return finish(device, "I'm not sure who you are, so I can't forget you.", tool_results)
         name = people.names.get(key, key)
         speakers.pop(device, None)
-        if await forget_person(key, people_store, voice, frigate):
+        if await forget_person(key, people_store, voice, frigate, cards):
             return finish(device, f"Okay, {name}, I've forgotten you: your face and your voice.", tool_results)
         return finish(device, f"Okay, {name}, I've forgotten your recordings. "
                               "Your name is in the house settings, so it stays.", tool_results)
+
+    async def _card(device: str, room: str, what: str, key: str | None, now: float) -> dict:
+        # "Remember this card" / "forget my card", from someone recognised.
+        if key is None:
+            if what == "remember":
+                return finish(device, "I'm not sure who you are yet. Hold your phone on my head first, "
+                                      "then ask me again.", [])
+            return finish(device, "I'm not sure who you are, so I can't forget your card.", [])
+        name = people.names.get(key, key)
+        if what == "forget":
+            n = cards.forget(key)
+            return finish(device, f"Okay, {name}, I've forgotten your card." if n else
+                          f"I don't have a card of yours, {name}.", [])
+        cards.expect(room, key, now)
+        await bodies.send(room, {"nfc_read": cards_mod.READ_S})
+        await bodies.act(room, {"mood": "curious"})
+        return finish(device, f"Okay, {name}, hold your card on top of my head.", [])
 
     async def from_cloud(device: str, ctx: Context | None, data: dict | None, tool_results: list[str],
                          texts: list[str] | None = None) -> dict:
@@ -439,6 +459,13 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(finish(device, cmd[1], []))
 
+        card = cards_mod.command(text) if cards is not None and bodies.has(room) else None
+        if card is not None:
+            resp = await _card(device, room, card, last, now)
+            log({"conv": conv, "device": device, "room": room, "text": text, "tier": "body", "route": f"card-{card}",
+                 "ms": int((time.monotonic() - started) * 1000)})
+            return web.json_response(resp)
+
         verdict = gate_mod.gate(text, state.last_reply(device, now)) if ctx else "escalate"
         tier, route = "gate", verdict
         if verdict == "reject":
@@ -501,7 +528,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
-                  cards: dict[str, str] | None = None, taps: Taps | None = None) -> web.Application:
+                  cards: Cards | None = None, taps: Taps | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -516,7 +543,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     as a room sensor does ({"seen": [...]}). A robot with an ear sends each
     sentence as it heard it ({"voice_sample": {"text", "pcm"}}), which goes to
     voice-id and is dropped. A tag tapped on a robot that is a person's card
-    (`cards`: UID -> person key) is that person, there, for two minutes. A house sensor
+    (`cards`, cards.py) is that person, there, for two minutes; one tapped after
+    they said "remember this card" becomes theirs. A house sensor
     (pkgs/wifi-presence) reports whose phones are on the home network
     ({"home": [...]}), the full set every minute; it is told the phones
     learned from taps ({"phones": {mac: key}}), now and on each change. With
@@ -606,8 +634,16 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
                     bodies.event(room, data["event"])
                     tag = data["event"].get("nfc")
-                    if isinstance(tag, str) and tag.upper() in (cards or {}):
-                        people.observe(room, "card", cards[tag.upper()], 1.0, clock())
+                    if cards is not None and isinstance(tag, str):
+                        key, learned = cards.tapped(room, tag, clock())
+                        if key is not None:
+                            people.observe(room, "card", key, 1.0, clock())
+                        if learned:
+                            LOG.info(json.dumps({"card": "learned", "room": room, "person": key}))
+                            name = people.names.get(key, key)
+                            await bodies.send(room, {"nfc_read": 0})  # a tag for phones again
+                            await bodies.act(room, {"mood": "happy", "gesture": "nod",
+                                                    "caption": f"Got it, {name}! That's your card now."})
                     if data["event"].get("tapped") is True:
                         LOG.info(json.dumps({"body": "phone tapped", "room": room}))
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):

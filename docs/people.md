@@ -162,18 +162,21 @@ off with `lanbat.services.assistant-router.settings.tap = false`.
 
 ## Cards
 
-A person's NFC card or tag (`people.<key>.nfcTags`), tapped on a Stack-chan, names them
-as the likely speaker in that room for two minutes, unless their voice clearly says
-otherwise:
+A card or tag of yours (a transport card, a building fob, an NFC sticker), tapped on a
+Stack-chan, names you as the likely speaker in that room for two minutes, unless your
+voice clearly says otherwise. Nothing is listed in the profile: once Nabu recognises
+you (a phone tap, your voice or your face), say **"Remember this card"** to the robot
+and hold the card on top of its head within 30 seconds. It nods and shows "Got it". From
+then on that card works on any robot. **"Forget my card"** drops yours, and so does
+*Forget me*.
 
-```nix
-people.alex = { name = "Alex"; nfcTags = [ "0435249AD11290" ]; };
-```
+Bank cards and phones show a new random UID (four bytes starting `08`) on every tap, so
+they can't be used. A card's UID is easy to copy: it personalises, it never allows
+anything. Cards are kept in `/var/lib/assistant-router/cards.json`.
 
-Tap it on the robot with `journalctl -u lva-stackchan -f` open, or look in Home
-Assistant under *Settings → Tags*, to read its UID. Bank cards and phones show a new
-random UID (four bytes starting `08`) on every tap, so they can't be used. A card's UID
-is easy to copy: it personalises, it never allows anything.
+While the robot holds the "who tapped" link it is a tag for phones, and reads cards only
+for those 30 seconds. With `settings.tap = false` it reads cards all the time, and each
+tap also goes to Home Assistant's tag scanner (*Settings → Tags*).
 
 ## Voices
 
