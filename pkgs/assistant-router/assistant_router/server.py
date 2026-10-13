@@ -574,7 +574,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 elif room and kind == "room-sensor" and isinstance(data.get("seen"), list):
                     for seen in data["seen"][:32]:
                         if isinstance(seen, dict) and type(seen.get("rssi")) is int and seen["rssi"] >= -85:
-                            people.observe(room, "phone", seen.get("person"), 1.0, clock())
+                            via = seen.get("via") if seen.get("via") in ("ble", "wifi") else "ble"
+                            people.observe_phone(room, seen.get("person"), seen["rssi"], clock(), via=via)
                 elif room and kind == "face-source" and isinstance(data.get("faces"), list):
                     observe_faces(room, data["faces"], clock())
                 elif room and kind == "house-sensor" and isinstance(data.get("home"), list):

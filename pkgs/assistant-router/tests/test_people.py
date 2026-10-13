@@ -162,3 +162,32 @@ def test_home_is_replaced_and_expires():
     assert p.home(now=60.0 + 181) == set()  # the house sensor went quiet
     p.observe_home("kiril", now=300.0)  # not a list: ignored
     assert p.home(now=300.0) == set()
+
+
+def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
+    p = People(NAMES)
+    p.observe_phone("Kitchen", "kiril", -60, now=0.0)
+    p.observe_phone("Bedroom 1", "kiril", -80, now=0.0)  # the same phone, through the wall
+    assert "Kiril" in p.line("Kitchen", now=10.0)
+    assert p.line("Bedroom 1", now=10.0) is None
+    # Close enough in both: in both (a doorway, a thin wall).
+    p.observe_phone("Bedroom 1", "kiril", -64, now=20.0)
+    assert "Kiril" in p.line("Bedroom 1", now=30.0)
+    # Gone quiet in the kitchen: the bedroom alone has it.
+    assert "Kiril" in p.line("Bedroom 1", now=125.0)
+    assert p.line("Kitchen", now=125.0) is None
+
+
+def test_bluetooth_and_wifi_strengths_are_not_compared():
+    p = People(NAMES)
+    p.observe_phone("Kitchen", "maria", -85, now=0.0, via="wifi")
+    p.observe_phone("Bedroom 1", "maria", -55, now=0.0, via="ble")
+    assert "Maria" in p.line("Kitchen", now=1.0)
+    assert "Maria" in p.line("Bedroom 1", now=1.0)
+
+
+def test_strength_must_be_a_number_and_a_person():
+    p = People(NAMES)
+    p.observe_phone("Kitchen", "kiril", "loud", now=0.0)
+    p.observe_phone("Kitchen", "ghost", -50, now=0.0)
+    assert p.line("Kitchen", now=1.0) is None
