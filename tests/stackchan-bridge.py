@@ -902,6 +902,31 @@ class Tags(unittest.TestCase):
         for bad in ("0435249ad11290", "XYZ", "1234", 5):
             self.assertEqual([a for a in b.on_device({"nfc": bad}, NOON) if a[0] == "router"], [], bad)
 
+    def test_a_phone_tap_goes_to_the_router(self):
+        b = Brain(Config(), now=NOON)
+        self.assertIn(("router", {"event": {"tapped": True}}), b.on_device({"tapped": True}, NOON))
+        self.assertEqual([a for a in b.on_device({"tapped": 1}, NOON) if a[0] == "router"], [])
+
+    def test_the_link_goes_to_the_robot_and_back_after_a_restart(self):
+        b = Brain(Config(), now=NOON)
+        url = "https://who.example.org/tap/kitchen?n=abc"
+        self.assertEqual(b.on_router({"tap": {"url": url}}, NOON), [("device", {"tap": {"url": url}})])
+        hello = {"hello": {"fw": "1.8.0", "proto": 1, "link": "usb", "nfc": True}}
+        self.assertIn(("device", {"tap": {"url": url}}), b.on_device(hello, NOON))
+        self.assertEqual(b.on_router({"tap": None}, NOON), [("device", {"tap": {"url": ""}})])
+        self.assertNotIn("tap", merged(b.on_device(hello, NOON)))
+
+    def test_only_https_links_fit_for_a_tag(self):
+        b = Brain(Config(), now=NOON)
+        for bad in ({"url": "http://who.example.org/"}, {"url": "https://" + "x" * 120}, {"url": 5}, "x"):
+            self.assertEqual(b.on_router({"tap": bad}, NOON), [], bad)
+
+    def test_a_card_window(self):
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(b.on_router({"nfc_read": 30}, NOON), [("device", {"nfc_read": 30})])
+        for bad in (-1, 121, "30", True):
+            self.assertEqual(b.on_router({"nfc_read": bad}, NOON), [], bad)
+
 
 if __name__ == "__main__":
     unittest.main(argv=[sys.argv[0], "-v"])

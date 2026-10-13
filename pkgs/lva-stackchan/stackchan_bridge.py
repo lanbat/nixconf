@@ -197,6 +197,7 @@ class Brain:
     lux: int | None = None  # light at the sensor (behind the glass: relative)
     near: bool = False  # a hand close to its screen
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
+    tap_url: str = ""  # the link the robot is a tag with, from the router; it keeps nothing
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -403,6 +404,18 @@ class Brain:
         self.now = now
         if msg.get("capture"):
             return [("device", {"capture": True})]
+        if "tap" in msg:
+            # The link a phone held to the robot opens (the router's "who
+            # tapped" page); "" or null: none, the robot then reads cards.
+            tap = msg["tap"]
+            url = tap.get("url", "") if isinstance(tap, dict) else "" if tap is None else None
+            if isinstance(url, str) and (url == "" or (url.startswith("https://") and len(url) <= 120)):
+                self.tap_url = url
+                return [("device", {"tap": {"url": url}})]
+            return []
+        if type(msg.get("nfc_read")) is int and 0 <= msg["nfc_read"] <= 120:
+            # Read cards for a while instead ("remember this card").
+            return [("device", {"nfc_read": msg["nfc_read"]})]
         act = msg.get("act")
         if not isinstance(act, dict):
             return []
@@ -485,6 +498,8 @@ class Brain:
                 self.ear = ear
                 out.append(("router", {"state": self.router_state(now)}))
             out += self.full_state(now)
+            if hello.get("nfc") is True and self.tap_url:
+                out.append(("device", {"tap": {"url": self.tap_url}}))
             # Whose phones to look for, likewise: over USB, when they differ.
             want_phones = self.phones["id"] if self.phones else ""
             if link == "usb" and "phones" in hello and hello["phones"] != want_phones:
@@ -516,6 +531,9 @@ class Brain:
             # A tag tapped on the robot: Home Assistant's tag scanner, or a
             # person's card (the router knows which).
             out.append(("router", {"event": {"nfc": tag}}))
+        if msg.get("tapped") is True:
+            # A phone read the robot's link: the router learns who from its page.
+            out.append(("router", {"event": {"tapped": True}}))
         seen = msg.get("seen")
         if isinstance(seen, list):
             # Phones near the robot, for the router: person keys and strengths.

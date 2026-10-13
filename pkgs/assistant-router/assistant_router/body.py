@@ -12,6 +12,7 @@ prompt:
                     {"event": {"touch": "tap|stroke", "zone": "front|middle|back|screen|null"}}
                     {"event": {"wave": true}}      a hand waved in front of its screen
                     {"event": {"nfc": "<UID hex>"}}  a tag or card tapped on it
+                    {"event": {"tapped": true}}   a phone read its NFC link (ignored for now)
                     {"face_image": "<base64>"}   a face it was asked to capture
                     {"face_image": null}          it couldn't get one
     router -> body  {"act": {"mood": "happy", "gesture": "nod", "look": "user", "sleep": false}}

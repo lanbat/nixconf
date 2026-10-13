@@ -25,6 +25,8 @@
 //   {"hello": 1}                     asks for a hello (the bridge just started)
 //   {"phones": {...} | null}        whose phones to look for (over USB only)
 //   {"led": {"rgb": [r, g, b]} | null}  a notification light (Home Assistant)
+//   {"tap": {"url": "https://..."}}  the link it is a tag with, for phones (nfc.h)
+//   {"nfc_read": seconds}           read cards instead, for a while
 //   {"config": {..., "auto_brightness": bool}}  the screen follows the room's light
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
@@ -43,6 +45,7 @@
 //   {"senses": {"lux", "prox", "near"}}  light and a hand near it, on change (senses.h)
 //   {"wave": true}                   a hand waved in front of the screen
 //   {"nfc": "<UID hex>"}            a tag or card tapped on it (nfc.h)
+//   {"tapped": true}                 a phone read its link (its tag, nfc.h)
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -68,7 +71,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.7.0";
+constexpr const char* kFirmware = "1.8.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -105,6 +108,7 @@ uint8_t brightness = 180;
 bool autoBrightness = true;  // the screen follows the room's light (senses.h)
 bool hasSenses = false;
 bool hasNfc = false;
+uint32_t nfcDebugUntil = 0;  // {"debug": "nfc"}: its state in the log
 uint32_t sensesDebugUntil = 0, nextSensesDebug = 0;
 
 String caption;
@@ -494,7 +498,19 @@ void handle(JsonDocument& doc, pilink::Via via) {
     showText();
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
-  if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "senses") {
+  if (doc["nfc_read"].is<int>() && hasNfc) {
+    // {"nfc_read": seconds}: read cards for a while ("remember this card").
+    nfc::readFor((uint32_t)constrain(doc["nfc_read"].as<int>(), 0, 120) * 1000);
+  }
+  if (doc["tap"].is<JsonObject>() && hasNfc) {
+    // {"tap": {"url": "https://..."}}: the link to be a tag with (the
+    // router's "who tapped" page, a fresh one every minute); "" stops it.
+    String url = doc["tap"]["url"] | "";
+    nfc::setLink(url.startsWith("https://") && url.length() <= 120 ? url : String(""));
+  }
+  if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "nfc") {
+    nfcDebugUntil = millis() + 30000;
+  } else if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "senses") {
     sensesDebugUntil = millis() + 30000;
   } else if (doc["debug"].is<const char*>() && String(doc["debug"].as<const char*>()) == "phones") {
     phones::debug(120000);
@@ -636,11 +652,21 @@ void runSenses() {
 // card for the router), with a little perk and a glow so the tap shows.
 void runNfc() {
   if (!hasNfc) return;
-  String uid = nfc::update(asleep || napping);
-  if (!uid.length()) return;
+  if (nfcDebugUntil && millis() < nfcDebugUntil) {
+    static uint32_t nextLog = 0;
+    if (millis() >= nextLog) {
+      nextLog = millis() + 2000;
+      JsonDocument d;
+      d["log"] = String("nfc: ") + nfc::status();
+      send(d);
+    }
+  }
+  nfc::Event e = nfc::update(asleep || napping);
+  if (!e.uid.length() && !e.phoneRead) return;
   endNap();
   JsonDocument doc;
-  doc["nfc"] = uid;
+  if (e.uid.length()) doc["nfc"] = e.uid;
+  if (e.phoneRead) doc["tapped"] = true;  // a phone read its link (the router learns who from the page)
   send(doc);
   lights::setScene(lights::Scene::Greeting);
   if (!gesture) GESTURE(kPerk);

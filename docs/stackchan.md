@@ -216,7 +216,7 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   asleep for the night.
 - **Tags:** an NFC tag tapped on the robot fires Home Assistant's own tag scanner
   (*Settings → Tags*; "when a tag is scanned" automations), and a person's card names
-  them ([people.md](people.md#cards)). It reads from a small spot on its body; it
+  them ([people.md](people.md#cards)). It reads from the top of its head; it
   perks up and glows when it has read one, also from a nap.
 - **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
   for automations: a stroke on its head could dim the lights, a wave skip a song.
@@ -351,14 +351,17 @@ robot is plugged in.
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
 | `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and iPhone keys); `null` forgets them. Over USB only, when the hello's `phones` differs from `id` |
 | `{"led": {"rgb": [r, g, b]}}` | A notification light from Home Assistant, shown while nothing else is on the LEDs; `null` turns it off |
+| `{"tap": {"url"}}` | The link it is an NFC tag with, for phones (`https://`, 120 characters at most), from the router; `""` for none, then it reads cards. The bridge gives it again after the robot restarts |
+| `{"nfc_read": seconds}` | Read cards instead of being a tag, for up to 120 s ("remember this card") |
 | `{"debug": "senses"}` | For 30 s, the light and proximity sensor's raw readings in the journal, 5 a second |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
+| `{"debug": "nfc"}` | For 30 s, what its NFC is doing (tag or reader, reads, field) in the bridge's journal every 2 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
 
 | Robot → Pi | Meaning |
 |---|---|
-| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear", "phones"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works, `phones` the id of the phones it looks for (`""` for none). Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
+| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear", "phones", "nfc"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works, `phones` the id of the phones it looks for (`""` for none), `nfc` whether its NFC started. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
 | `{"touch": "tap\|stroke", "zone": "front\|middle\|back\|screen"}` | Head tap or stroke, or a tap on the face |
 | `{"face": "new\|lost"}` | Someone came into view, or left it |
 | `{"rest": "nap\|awake"}` | It started or ended a nap |
@@ -367,7 +370,8 @@ robot is plugged in.
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
 | `{"audio": "<base64>"}` | While recording, 100 ms of 16-bit 16 kHz mono each |
 | `{"senses": {"lux", "prox", "near"}}` | Light at the sensor and the proximity echo, when the hand near it comes or goes or the light changes |
-| `{"nfc": "<UID hex>"}` | A tag or card tapped on it, once per tap |
+| `{"nfc": "<UID hex>"}` | A tag or card tapped on it, once per tap (phones' random IDs are left out) |
+| `{"tapped": true}` | A phone read its link, once per tap |
 | `{"wave": true}` | A hand waved across the proximity sensor (near and gone within 0.6 s) |
 | `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
 
