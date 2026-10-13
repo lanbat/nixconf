@@ -6,10 +6,15 @@ values from fixed lists, so nothing a body sends ever becomes free text in a
 prompt:
 
     body -> router  {"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}}
-                    {"state": {"present": true, "present_since_s": 130, "asleep": false, "battery_low": false}}
+                    {"state": {"present": true, "present_since_s": 130, "asleep": false, "battery_low": false,
+                               "night": false, "nap": false, "battery": 87, "charging": false, "link": "usb",
+                               "mood": "neutral", "brightness": 180, "fw": "1.5.0"}}
+                    {"event": {"touch": "tap|stroke", "zone": "front|middle|back|screen|null"}}
                     {"face_image": "<base64>"}   a face it was asked to capture
                     {"face_image": null}          it couldn't get one
     router -> body  {"act": {"mood": "happy", "gesture": "nod", "look": "user", "sleep": false}}
+                    {"act": {"caption": "...", "brightness": 0-255, "led": {"rgb": [r, g, b]} | null}}
+                                                  (from Home Assistant, assistant_router/mqtt.py)
                     {"capture": true}             send me a face of whoever is in front
 
 A face comes over only when the room's body is asked for one (enrolment); the
@@ -85,6 +90,15 @@ class BodyState:
     asleep: bool = False
     battery_low: bool = False
     ear: bool = False  # sends its own recording of each sentence (voice_sample)
+    # For Home Assistant (assistant_router/mqtt.py); None until the body says.
+    night: bool = False
+    nap: bool = False
+    battery: int | None = None
+    charging: bool | None = None
+    link: str | None = None
+    mood: str | None = None
+    brightness: int | None = None
+    fw: str | None = None
 
 
 def _key(room: str) -> str:
@@ -99,10 +113,29 @@ class Bodies:
         self._sockets: dict[str, Any] = {}
         self._states: dict[str, BodyState] = {}
         self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
+        self._names: dict[str, str] = {}  # room key -> the room as the body named it
+        self.events: asyncio.Queue | None = None  # (room, event) for Home Assistant, when it listens
 
     def connect(self, room: str, socket: Any) -> None:
         self._sockets[_key(room)] = socket
         self._states[_key(room)] = BodyState()
+        self._names[_key(room)] = room.strip()
+
+    def rooms(self) -> list[str]:
+        """The rooms with a body, as the bodies named them."""
+        return [self._names.get(k, k) for k in self._sockets]
+
+    def event(self, room: str, event: Any) -> None:
+        """Something the body felt (a touch), for Home Assistant: fixed fields."""
+        if self.events is None or not self.has(room) or not isinstance(event, dict):
+            return
+        touch, zone = event.get("touch"), event.get("zone")
+        if touch in ("tap", "stroke"):
+            try:
+                self.events.put_nowait((self._names.get(_key(room), room), {
+                    "touch": touch, "zone": zone if zone in ("front", "middle", "back", "screen") else None}))
+            except asyncio.QueueFull:
+                pass  # Home Assistant is not keeping up: drop the touch
 
     def disconnect(self, room: str, socket: Any) -> None:
         if self._sockets.get(_key(room)) is socket:
@@ -140,6 +173,19 @@ class Bodies:
         ear = fields.get("ear")
         if type(ear) is bool:
             state.ear = ear
+        for name in ("night", "nap", "charging"):
+            if type(fields.get(name)) is bool:
+                setattr(state, name, fields[name])
+        if type(fields.get("battery")) is int and 0 <= fields["battery"] <= 100:
+            state.battery = fields["battery"]
+        if fields.get("link") in ("usb", "wifi"):
+            state.link = fields["link"]
+        if fields.get("mood") in MOODS + ("listening", "confused"):
+            state.mood = fields["mood"]
+        if type(fields.get("brightness")) is int and 0 <= fields["brightness"] <= 255:
+            state.brightness = fields["brightness"]
+        if isinstance(fields.get("fw"), str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,16}", fields["fw"]):
+            state.fw = fields["fw"]
 
     async def act(self, room: str, act: dict[str, Any]) -> bool:
         socket = self._sockets.get(_key(room))

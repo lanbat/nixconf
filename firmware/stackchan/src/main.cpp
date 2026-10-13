@@ -24,6 +24,7 @@
 //   {"wifi": {...} | null}          Wi-Fi details to keep (over USB only)
 //   {"hello": 1}                     asks for a hello (the bridge just started)
 //   {"phones": {...} | null}        whose phones to look for (over USB only)
+//   {"led": {"rgb": [r, g, b]} | null}  a notification light (Home Assistant)
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
 //
@@ -61,7 +62,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.4.0";
+constexpr const char* kFirmware = "1.5.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -356,6 +357,13 @@ void runEar() {
 
 void handle(JsonDocument& doc, pilink::Via via) {
   if (!doc["hello"].isUnbound()) sendHello();
+  if (doc["led"].is<JsonObject>() && doc["led"]["rgb"].is<JsonArray>()) {
+    JsonArray rgb = doc["led"]["rgb"];
+    lights::setNotify(true, constrain(rgb[0] | 0, 0, 255), constrain(rgb[1] | 0, 0, 255),
+                      constrain(rgb[2] | 0, 0, 255));
+  } else if (doc["led"].isNull() && !doc["led"].isUnbound()) {
+    lights::setNotify(false);
+  }
   if (!doc["phones"].isUnbound()) {
     // Whose phones to look for: like the Wi-Fi details, from the Pi it is
     // plugged into only.

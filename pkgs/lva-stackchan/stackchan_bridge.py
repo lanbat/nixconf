@@ -32,10 +32,12 @@ This decides what it should feel and say:
   people's phone beacons (BEACONS) and iPhone keys (the room-presence-irks
   credential) over USB only, and passes the phones it hears to the router.
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
-  the robot tells it whether someone is in front of it; it sends the mood
-  and gesture the cloud model chose for a reply, and body commands ("nod",
-  "dance", "go to sleep"). Its mood wins over the guess from the reply's
-  words.
+  the robot tells it whether someone is in front of it, its battery, link
+  and mood, and its touches (the router shows them in Home Assistant); it
+  sends the mood and gesture the cloud model chose for a reply, and body
+  commands ("nod", "dance", "go to sleep", and from Home Assistant a caption,
+  the screen's brightness, a notification light). Its mood wins over the
+  guess from the reply's words.
 
 Brain holds the decisions and no I/O, so tests/stackchan-bridge.py drives it
 with scripted events.
@@ -185,6 +187,10 @@ class Brain:
     sound_angle: float = 0.0  # the direction the head last turned to (degrees)
     wifi: dict | None = None  # the Wi-Fi details for the robot (wifi_payload), None: none
     phones: dict | None = None  # whose phones the robot looks for (phones_payload), None: nobody
+    battery_level: int | None = None
+    charging: bool | None = None
+    link: str | None = None  # "usb" or "wifi", from the robot's hello
+    firmware: str | None = None
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
@@ -217,7 +223,16 @@ class Brain:
                 "present_since_s": int(now - self.present_at) if self.present else 0,
                 "asleep": self.asleep or self.napping,
                 "battery_low": self.battery_low,
-                "ear": self.ear}
+                "ear": self.ear,
+                # For Home Assistant (the router publishes the robot there).
+                "night": self.asleep,
+                "nap": self.napping,
+                "battery": self.battery_level,
+                "charging": self.charging,
+                "link": self.link,
+                "mood": self.mood,
+                "brightness": self.config.brightness,
+                "fw": self.firmware}
 
     def _listening(self) -> bool:
         return self.ear and self.router
@@ -401,6 +416,22 @@ class Brain:
             self.asleep = sleep
             if not self.in_turn:
                 out += self._sleep(sleep) + [self._mood("sleepy" if sleep else "neutral")]
+        caption = act.get("caption")
+        if isinstance(caption, str) and caption.strip():
+            out.append(("device", {"caption": {"text": caption.strip()[:200], "who": "status", "ms": 15000}}))
+        brightness = act.get("brightness")
+        if type(brightness) is int and 0 <= brightness <= 255:
+            # The day's brightness until the bridge restarts; at night it stays dim.
+            self.config.brightness = brightness
+            if not self.asleep:
+                out.append(("device", {"config": {"brightness": brightness}}))
+        if "led" in act:
+            led = act["led"]
+            rgb = led.get("rgb") if isinstance(led, dict) else None
+            if led is None:
+                out.append(("device", {"led": None}))
+            elif isinstance(rgb, list) and len(rgb) == 3 and all(type(c) is int and 0 <= c <= 255 for c in rgb):
+                out.append(("device", {"led": {"rgb": rgb}}))
         return out
 
     def on_device(self, msg: dict, now: float) -> list:
@@ -416,6 +447,11 @@ class Brain:
             self.present_at = now
             out.append(("router", {"state": self.router_state(now)}))
         battery = msg.get("battery")
+        if isinstance(battery, dict):
+            if type(battery.get("level")) is int:
+                self.battery_level = max(0, min(100, battery["level"]))
+            if type(battery.get("charging")) is bool:
+                self.charging = battery["charging"]
         if isinstance(battery, dict) and type(battery.get("low")) is bool and battery["low"] != self.battery_low:
             self.battery_low = battery["low"]
             level = battery.get("level")
@@ -429,6 +465,8 @@ class Brain:
         if "hello" in msg:
             hello = msg["hello"] if isinstance(msg["hello"], dict) else {}
             link = hello.get("link", "usb")  # firmware before 1.2 had USB only
+            self.link = link if link in ("usb", "wifi") else None
+            self.firmware = str(hello.get("fw"))[:16] if hello.get("fw") else None
             out.append(("log", f"robot firmware {hello.get('fw', '?')}, protocol {hello.get('proto', '?')}, over {link}"))
             if hello.get("proto") != PROTOCOL:
                 out.append(("log", f"the robot speaks protocol {hello.get('proto')}, this bridge {PROTOCOL}: reflash it (docs/stackchan.md)"))
@@ -461,6 +499,10 @@ class Brain:
             if clean:
                 out.append(("router", {"seen": clean}))
         touch = msg.get("touch")
+        if touch in ("tap", "stroke"):
+            zone = msg.get("zone")
+            out.append(("router", {"event": {"touch": touch,
+                                             "zone": zone if zone in ("front", "middle", "back", "screen") else None}}))
         if touch:
             if any(t.ringing for t in self.timers.values()):
                 out.append(("lva", {"command": "stop_timer_ringing"}))
@@ -813,6 +855,7 @@ class Bridge:
         self.mic_window: MicWindow | None = None
         self.router_faces = False  # the router has a face library to probe
         self.face_waiter: asyncio.Future | None = None  # a capture in flight
+        self.router_sent: dict | None = None  # the last state the router got
         self.ear_audio = bytearray()  # the sentence the robot is recording
         self.ear_on = False
         self.capture_task: asyncio.Task | None = None
@@ -875,6 +918,15 @@ class Bridge:
         await self.act(self.brain.on_device(msg, time.time()))
 
     async def act(self, actions: list) -> None:
+        await self._act(actions)
+        # The router shows the robot in Home Assistant: its state whenever it
+        # changed (a mood, the battery), not only when the brain says so.
+        state = self.brain.router_state(time.time())
+        state.pop("present_since_s", None)
+        if self.router_ws is not None and state != self.router_sent:
+            await self._act([("router", {"state": self.brain.router_state(time.time())})])
+
+    async def _act(self, actions: list) -> None:
         for kind, value in actions:
             if kind == "device":
                 await self.send_device(value)
@@ -889,6 +941,8 @@ class Bridge:
                     self.mouth_task = None
             elif kind == "router":
                 if self.router_ws is not None:
+                    if "state" in value:
+                        self.router_sent = {k: v for k, v in value["state"].items() if k != "present_since_s"}
                     try:
                         await self.router_ws.send(json.dumps(value))
                     except Exception as err:  # pylint: disable=broad-except
@@ -997,6 +1051,7 @@ class Bridge:
                 async with websockets.connect(self.router_url, max_size=2**22) as ws:
                     self.router_ws, delay = ws, 1
                     self.brain.router = True
+                    self.router_sent = None
                     await ws.send(json.dumps({"hello": {"room": self.room, "kind": "stackchan", "proto": PROTOCOL}}))
                     await ws.send(json.dumps({"state": self.brain.router_state(time.time())}))
                     log(f"body of {self.room} at {self.router_url}")

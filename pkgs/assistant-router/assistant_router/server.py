@@ -413,6 +413,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                         or None) if voice is not None else None
         last = last_speaker(device, now)
         assessment = people.assess(room, now, voice_scores, last)
+        people.remember(room, assessment, now)
         if assessment.speaker:
             speakers[device] = (assessment.speaker, now)
             last = assessment.speaker
@@ -558,6 +559,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         except Exception:  # pylint: disable=broad-except
                             pass
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
+                elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
+                    bodies.event(room, data["event"])
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock(), source="aimed")

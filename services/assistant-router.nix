@@ -80,6 +80,19 @@ let
     default = true;
     description = "Whether the request log keeps what was said, or only the tier, route and timing.";
   };
+  routerSettings.options.homeAssistant = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      Publish the robots (each a device with its sensors, touches and
+      controls), who probably spoke last and is nearby in each robot's room,
+      and who is home, to Home Assistant over MQTT discovery
+      (pkgs/assistant-router mqtt.py). Needs Mosquitto on this host; the
+      broker login is the mosquitto-assistant-router-pass secret.
+    '';
+  };
+  # Mosquitto beside it, and Home Assistant wanted: the MQTT publisher.
+  mqttHere = cfg.homeAssistant && config.lanbat.hasService "mosquitto";
   routerSettings.options.body.persona = mkOption {
     type = types.str;
     default = ''
@@ -130,6 +143,7 @@ in
           port = bodyPort;
         };
         extraPorts = [ bodyPort ];
+        readsSecrets = lib.optional mqttHere "mosquitto-assistant-router-pass";
       };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];
       systemd.services.assistant-router = {
@@ -168,6 +182,12 @@ in
             ++ lib.optionals (config.lanbat.hasService "frigate") [
               "--frigate-url http://127.0.0.1:${toString config.lanbat.services.frigate.port}/"
             ]
+            ++ lib.optionals mqttHere [
+              "--mqtt-host 127.0.0.1"
+              "--mqtt-port 1883"
+              "--mqtt-user assistant-router"
+              "--mqtt-password-file %d/mosquitto-assistant-router-pass"
+            ]
           );
           DynamicUser = true;
           StateDirectory = "assistant-router";
@@ -175,6 +195,8 @@ in
           RestartSec = 2;
           IPAddressDeny = "any";
           IPAddressAllow = [ "localhost" ] ++ bodyAddresses;
+          # The broker password, root-owned, for a dynamic user.
+          LoadCredential = lib.optional mqttHere "mosquitto-assistant-router-pass:${config.lanbat.secrets.mosquitto-assistant-router-pass.path}";
         };
       };
     })

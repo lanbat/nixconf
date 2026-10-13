@@ -5,6 +5,7 @@
 # Used by:
 #   - Frigate → publishes detection events
 #   - Home Assistant → subscribes to Frigate events, publishes automations
+#   - The assistant router → the robots and who is around, by discovery
 #   - Any future IoT devices on the LAN
 #
 # Auth model
@@ -24,6 +25,15 @@
   ...
 }:
 
+let
+  hostLib = import ../lib/host.nix { inherit lib; };
+  # The assistant router beside it, publishing to Home Assistant
+  # (services/assistant-router.nix, settings.homeAssistant).
+  routerMqtt =
+    config.lanbat.hasService "assistant-router"
+    && hostLib.haLlmIsRouter (config.lanbat.deployment.haLlm or null)
+    && config.lanbat.services.assistant-router.settings.homeAssistant;
+in
 {
   lanbat.services.mosquitto = {
     endpoint = {
@@ -46,6 +56,11 @@
       # The person mapper's broker password, read by its unit from a root
       # ExecStartPre. Declared only while that service is present.
       mosquitto-person-mapper-pass = { };
+    }
+    // lib.optionalAttrs routerMqtt {
+      # The assistant router's, which publishes the robots and who is around
+      # to Home Assistant (services/assistant-router.nix, LoadCredential).
+      mosquitto-assistant-router-pass = { };
     };
   };
 
@@ -102,6 +117,17 @@
               "read frigate/#"
               "write homeassistant/#"
               "write homelab/#"
+            ];
+          };
+        }
+        // lib.optionalAttrs routerMqtt {
+          # Its own topics, and Home Assistant's discovery and status.
+          "assistant-router" = {
+            passwordFile = config.lanbat.secrets.mosquitto-assistant-router-pass.path;
+            acl = [
+              "readwrite lanbat/#"
+              "write homeassistant/#"
+              "read homeassistant/status"
             ];
           };
         }

@@ -25,6 +25,10 @@ void setStatus(bool muted, bool online);
 void setAsleep(bool asleep);
 // A slow amber pulse on the first LED of each side: the battery is low.
 void setLowBattery(bool low);
+// A notification light from Home Assistant: the whole body in one colour
+// while nothing else is showing (a conversation or a ringing timer wins; the
+// mute and battery lights stay). Shown at night too: someone asked for it.
+void setNotify(bool on, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
 
 // Call from loop(): renders at about 30 fps.
 void update();

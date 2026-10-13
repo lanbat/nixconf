@@ -15,6 +15,7 @@ from .frigate import Frigate
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
+from .mqtt import HomeAssistant, run_mqtt
 from .server import Config, make_app, make_body_app
 
 
@@ -40,9 +41,21 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice)))
         await runners[1].setup()
         await web.TCPSite(runners[1], a.body_host, a.body_port).start()
+    mqtt = None
+    if a.mqtt_host:
+        password = None
+        if a.mqtt_password_file:
+            with open(a.mqtt_password_file, encoding="utf-8") as f:
+                password = f.read().strip()
+        import time
+
+        ha = HomeAssistant(bodies, people, time.monotonic)
+        mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     try:
         await asyncio.Event().wait()
     finally:
+        if mqtt is not None:
+            mqtt.cancel()
         for runner in runners:
             await runner.cleanup()
 
@@ -67,6 +80,10 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--people-file", help="JSON {key: name}: the people it may recognise (people.py)")
     p.add_argument("--people-state", help="JSON {key: name} in the state dir: people enrolled at runtime, merged over --people-file (people_store.py)")
     p.add_argument("--voice-id-url", help="voice-id's API (services/voice-id.nix): enrol, refine and forget voices")
+    p.add_argument("--mqtt-host", help="the MQTT broker: publish the robots and who is around to Home Assistant (mqtt.py)")
+    p.add_argument("--mqtt-port", type=int, default=1883)
+    p.add_argument("--mqtt-user")
+    p.add_argument("--mqtt-password-file", help="the broker password, one line (a systemd credential)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,
