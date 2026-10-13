@@ -18,7 +18,7 @@ echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 - [ ] Clone this repo and open the dev shell, which provides `deploy`, `agenix` and
   `nixos-anywhere`:
   ```bash
-  git clone <your-repo-url> nixos && cd nixos
+  git clone <your-repo-url> nixconf && cd nixconf
   nix develop
   ```
 - [ ] Generate your SSH keypair if you don't have one: `ssh-keygen -t ed25519`
