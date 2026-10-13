@@ -26,6 +26,8 @@
 #   ping          — settings.pingTargets: by default the storage Pi, the
 #                   default gateway and 1.1.1.1
 #   redis         — shared Redis instance (loopback, no auth), when it runs here
+#   http          — frigate_events: when Frigate last created an event, when
+#                   it runs here
 #
 # InfluxDB
 # --------
@@ -208,6 +210,31 @@ in
       # CoreDNS metrics, on a host with the lanbat-dns plugin.
       inputs.prometheus = lib.optionals config.services.coredns.enable [
         { urls = [ "http://127.0.0.1:9153/metrics" ]; }
+      ];
+
+      # When Frigate last created an event (frigate_events.newest_start, Unix
+      # seconds). Frigate can stay up with its event pipeline dead, as when a
+      # full disk kills its detected_frames_processor thread; this goes stale
+      # then, and Grafana's "Frigate quiet" alert reads it.
+      inputs.http = lib.optionals (lanbat.hasService "frigate") [
+        {
+          urls = [ "http://127.0.0.1:${toString lanbat.services.frigate.port}/api/events?limit=1" ];
+          interval = "60s";
+          timeout = "5s";
+          name_override = "frigate_events";
+          data_format = "json_v2";
+          json_v2 = [
+            {
+              field = [
+                {
+                  path = "0.start_time";
+                  rename = "newest_start";
+                  type = "float";
+                }
+              ];
+            }
+          ];
+        }
       ];
 
       inputs.redis = lib.optionals (lanbat.hasService "redis") [

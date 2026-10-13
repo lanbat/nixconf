@@ -20,6 +20,16 @@
 #   GF_SECURITY_ADMIN_PASSWORD      — local break-glass admin password
 #   GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET — OIDC client secret from Authentik
 #   INFLUXDB_TOKEN is injected at service start from influxdb-admin-token.age.
+#   GRAFANA_ALERT_WEBHOOK_URL       — grafana-alert-env.age, only with
+#                                     settings.alerting.enable
+#
+# Alerting (settings.alerting, off by default)
+# --------
+# Provisioned rules on the Telegraf metrics, all sent to one webhook: a
+# filesystem on any host fuller than diskUsedPercent, and, with Frigate on this
+# host, no Frigate event for frigateQuietHours (its event pipeline can die
+# while the container runs on). Rules, contact point and policy are read-only
+# in the UI; change them here.
 #
 # OIDC setup (chicken-and-egg, same pattern as Nextcloud/Immich)
 # -----
@@ -46,9 +56,153 @@ let
   # dashboards and its OIDC login; it just has no metrics datasource.
   hasInflux = config.lanbat.hasService "influxdb";
   dashboards = pkgs.callPackage ../pkgs/grafana-dashboards { };
+
+  cfg = config.lanbat.services.grafana.settings;
+  alerting = cfg.alerting.enable;
+
+  grafanaSettings = {
+    options.alerting = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Provision alert rules on the Telegraf metrics in InfluxDB, sent to one
+          webhook whose URL is GRAFANA_ALERT_WEBHOOK_URL in the
+          grafana-alert-env secret (a Home Assistant webhook automation, ntfy,
+          and so on). Needs InfluxDB on this host.
+        '';
+      };
+      diskUsedPercent = lib.mkOption {
+        type = lib.types.ints.between 1 100;
+        default = 85;
+        description = "Alert when a filesystem on any host is fuller than this, in percent, for 10 minutes.";
+      };
+      frigateQuietHours = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 3;
+        description = ''
+          Alert when Frigate on this host has created no event for this many
+          hours: its event pipeline can die while the container keeps running.
+          Set it above the longest quiet spell the cameras normally see.
+        '';
+      };
+    };
+  };
+
+  # A Flux query on the metrics bucket over the rule's time range.
+  fluxQuery = refId: query: {
+    inherit refId;
+    relativeTimeRange = {
+      from = 900;
+      to = 0;
+    };
+    datasourceUid = "influxdb-homelab";
+    model = {
+      inherit refId query;
+    };
+  };
+
+  # A rule that fires when the last value of query A is above limit. The
+  # templates use .Labels and .Values: Grafana expands $ in provisioning files.
+  thresholdRule =
+    {
+      uid,
+      title,
+      query,
+      limit,
+      for,
+      summary,
+    }:
+    {
+      inherit uid title for;
+      condition = "C";
+      data = [
+        (fluxQuery "A" query)
+        {
+          refId = "B";
+          datasourceUid = "__expr__";
+          model = {
+            refId = "B";
+            type = "reduce";
+            expression = "A";
+            reducer = "last";
+          };
+        }
+        {
+          refId = "C";
+          datasourceUid = "__expr__";
+          model = {
+            refId = "C";
+            type = "threshold";
+            expression = "B";
+            conditions = [
+              {
+                evaluator = {
+                  type = "gt";
+                  params = [ limit ];
+                };
+              }
+            ];
+          };
+        }
+      ];
+      noDataState = "NoData";
+      execErrState = "Error";
+      annotations.summary = summary;
+    };
+
+  alertRules = [
+    (thresholdRule {
+      uid = "lanbat-disk-full";
+      title = "Disk almost full";
+      for = "10m";
+      limit = cfg.alerting.diskUsedPercent;
+      summary = ''{{ .Labels.path }} on {{ .Labels.host }} is {{ printf "%.0f" .Values.B.Value }}% full'';
+      # One series per filesystem, named by its shortest mount path: bind
+      # mounts repeat a device, and NFS mounts repeat the storage Pi's drives.
+      query = ''
+        from(bucket: "metrics")
+          |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+          |> filter(fn: (r) => r._measurement == "disk" and r._field == "used_percent")
+          |> filter(fn: (r) => r.fstype != "nfs" and r.fstype != "nfs4" and r.fstype != "efivarfs")
+          |> last()
+          |> group(columns: ["host", "device"])
+          |> sort(columns: ["path"])
+          |> first()
+          |> group(columns: ["host", "path"])
+      '';
+    })
+  ]
+  ++ lib.optional (config.lanbat.hasService "frigate") (thresholdRule {
+    uid = "lanbat-frigate-quiet";
+    title = "Frigate quiet";
+    for = "0s";
+    limit = cfg.alerting.frigateQuietHours;
+    summary = ''Frigate on {{ .Labels.host }} has created no event for {{ printf "%.1f" .Values.B.Value }} hours'';
+    # Hours since the newest event's start (services/telegraf.nix).
+    query = ''
+      from(bucket: "metrics")
+        |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+        |> filter(fn: (r) => r._measurement == "frigate_events" and r._field == "newest_start")
+        |> group(columns: ["host"])
+        |> last()
+        |> map(fn: (r) => ({r with _value: (float(v: int(v: now())) / 1000000000.0 - r._value) / 3600.0}))
+    '';
+  });
 in
 
 {
+  # The schema is merged into lanbat.services.grafana.settings; checks.nix
+  # rejects any key it does not declare.
+  lanbat.settingsSchema.grafana = grafanaSettings;
+
+  assertions = [
+    {
+      assertion = alerting -> hasInflux;
+      message = "lanbat.services.grafana.settings.alerting needs InfluxDB on the same host: its rules query the Telegraf metrics there.";
+    }
+  ];
+
   lanbat.services.grafana = {
     consumes = lib.optional hasInflux "influxdb";
     # The datasource token, which influxdb.nix declares.
@@ -56,7 +210,11 @@ in
     subdomain = "grafana";
     port = 3030;
     oidc.redirectPaths = [ "/login/generic_oauth" ];
-    secrets.grafana-env = { };
+    secrets = {
+      grafana-env = { };
+      # GRAFANA_ALERT_WEBHOOK_URL=<where alerts are posted>
+      grafana-alert-env.enable = alerting;
+    };
     dashboard = {
       group = "Monitoring";
       name = "Grafana";
@@ -117,7 +275,8 @@ in
       EnvironmentFile = [
         config.lanbat.secrets.grafana-env.path
       ]
-      ++ lib.optional hasInflux "/run/grafana-datasource/influxdb-token.env";
+      ++ lib.optional hasInflux "/run/grafana-datasource/influxdb-token.env"
+      ++ lib.optional alerting config.lanbat.secrets.grafana-alert-env.path;
     };
   };
 
@@ -241,6 +400,48 @@ in
             allowUiUpdates = false;
             updateIntervalSeconds = 30;
             options.path = dashboards;
+          }
+        ];
+      };
+
+      # settings.alerting: the rules above, all to one webhook.
+      alerting = lib.mkIf alerting {
+        rules.settings.groups = [
+          {
+            orgId = 1;
+            name = "homelab";
+            folder = "Homelab";
+            interval = "1m";
+            rules = alertRules;
+          }
+        ];
+
+        contactPoints.settings.contactPoints = [
+          {
+            orgId = 1;
+            name = "lanbat-webhook";
+            receivers = [
+              {
+                uid = "lanbat-webhook";
+                type = "webhook";
+                settings = {
+                  url = "$__env{GRAFANA_ALERT_WEBHOOK_URL}";
+                  httpMethod = "POST";
+                };
+              }
+            ];
+          }
+        ];
+
+        policies.settings.policies = [
+          {
+            orgId = 1;
+            receiver = "lanbat-webhook";
+            group_by = [
+              "grafana_folder"
+              "alertname"
+            ];
+            repeat_interval = "12h";
           }
         ];
       };

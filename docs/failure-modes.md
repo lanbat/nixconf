@@ -205,7 +205,8 @@ traffic is unaffected: it uses addresses fixed at evaluation time.
 | Normal server reboot | Yes — SSH in, run `unlock-all` |
 | Server NIC failure | No (Pi retries) |
 | Tang key rotation | Yes — re-bind Clevis on Pi |
-| Drives fill up | Yes — cleanup or expand |
+| Drives fill up | Yes — cleanup or expand; with Grafana alerting on (`settings.alerting`), "Disk almost full" warns first |
+| Frigate's event pipeline dies (e.g. the root disk filled) | Yes — `systemctl restart podman-frigate` once there is space. The container keeps running with no events, recordings or live frame; with Grafana alerting on, "Frigate quiet" fires |
 | NixOS package upgrades | Yes — `nix flake update`, then deploy each host (hosts never rebuild on their own) |
 | Server new kernel | Yes — manual reboot required, then unlock both layers |
 | Pi new kernel | Yes — reboot the Pi when convenient; Clevis/Tang unlocks its drives |
