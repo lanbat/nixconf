@@ -4,6 +4,8 @@
 [![nightly](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+**[Take the interactive tour →](https://lanbat.github.io/nixconf/)** · part of [LAN BAT](https://lanbat.github.io/), open home infrastructure
+
 **A complete, production-grade homelab written in Nix** — two machines, one identity
 provider, 20+ self-hosted services, and zero Kubernetes.
 
