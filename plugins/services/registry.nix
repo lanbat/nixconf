@@ -43,6 +43,7 @@
   telegraf = ../../services/telegraf.nix;
   vaultwarden = ../../services/vaultwarden.nix;
   voice-id = ../../services/voice-id.nix;
+  wifi-presence = ../../services/wifi-presence.nix;
   wyoming = ../../services/wyoming.nix;
   zigbee2mqtt = ../../services/zigbee2mqtt.nix;
 }

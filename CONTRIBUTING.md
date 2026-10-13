@@ -211,7 +211,7 @@ availability requirements:
 **Always-on** (the default; start at boot, data on the unencrypted host root):
 - The service starts without any LUKS unlock and NixOS manages `/var/lib/<name>` normally.
 - Current members: Caddy, PostgreSQL (always-on instance), Redis, Authentik, Home Assistant, Grafana, InfluxDB,
-  Mosquitto, Zigbee2MQTT, Frigate, Music Assistant, Snapcast, Wyoming pipeline, speaker identification (voice-id), assistant router, LLM gateway, SearXNG, Telegraf, Homepage,
+  Mosquitto, Zigbee2MQTT, Frigate, Music Assistant, Snapcast, Wyoming pipeline, speaker identification (voice-id), assistant router, who is home (wifi-presence), LLM gateway, SearXNG, Telegraf, Homepage,
   CoreDNS (`lanbat-dns` plugin)
 
 **Workload-gated** (start only after `unlock-workload`, data on encrypted LUKS):

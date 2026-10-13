@@ -906,3 +906,20 @@ async def test_forget_me_needs_to_know_who_you_are(aiohttp_client, fakes):
     cloud_reply["v"] = _tool_call("forget_person")
     said = (await post(c, req("Forget me")))["message"]["content"]
     assert "not sure who you are" in said and voice.forgotten == []
+
+
+async def test_a_house_sensor_reports_who_is_home(aiohttp_client):
+    import asyncio
+    bodies, people = Bodies("You are Nabu."), People({"kiril": "Kiril", "maria": "Maria"})
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, people=people))
+    house = await c.ws_connect("/v1/body")
+    await house.send_json({"hello": {"room": "house", "kind": "house-sensor", "proto": 1}})
+    await house.send_json({"home": [{"person": "maria"}, {"person": "ghost"}, "kiril"]})
+    for _ in range(50):
+        if people.home(100.0):
+            break
+        await asyncio.sleep(0.01)
+    assert people.home(100.0) == {"maria"}
+    # Not a body: no room gets a persona from it.
+    assert not bodies.has("house")
+    await house.close()

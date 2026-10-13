@@ -84,6 +84,7 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
 | Wyoming pipeline | — | STT/TTS/wake word — model files managed by NixOS module |
 | Speaker identification (`voice-id`) | `/mnt/workload/voice-id` (voiceprints, a `workloadDirs` entry) | Speech-to-text proxy, in the voice path, so always-on; while the layer is locked it knows nobody and stores nothing, and it restarts when the layer comes online |
 | Assistant router (`assistant-router`) | — | Between Home Assistant's agent and the models, in the voice path; its only state is the request log in `/var/lib/assistant-router` (`logDays` days, what the microphones heard: personal data on the host root — set `logText = false` to keep only tier, route and timing) |
+| Who is home (`wifi-presence`) | — | Listens for the people's phones on the LAN for the assistant router; no state |
 | LLM gateway (`llm-gateway`) | — | LiteLLM in front of cloud LLM APIs; no state; keys from `llm-gateway-env` |
 | llama.cpp (`llama-cpp`) | — | Local conversation model — pinned in the Nix store, no state; runs only when `haLlm` is on the loopback |
 | SearXNG | — | Search proxy — stateless |

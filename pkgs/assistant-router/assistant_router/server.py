@@ -497,9 +497,11 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     (pkgs/room-presence) is not a body: it only reports the phones it sees, and
     gets nothing back. A face source (the frigate person mapper) is also not a
     body: it reports the recognised people for the room ({"faces": [...]}), the
-    full current set each time it changes."""
+    full current set each time it changes. A house sensor
+    (pkgs/wifi-presence) reports whose phones are on the home network
+    ({"home": [...]}), the full set every minute."""
     people = people or People({})
-    non_bodies = ("room-sensor", "face-source")
+    non_bodies = ("room-sensor", "face-source", "house-sensor")
 
     def _b64(value) -> bytes | None:
         if not isinstance(value, str) or not value:
@@ -575,6 +577,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             people.observe(room, "phone", seen.get("person"), 1.0, clock())
                 elif room and kind == "face-source" and isinstance(data.get("faces"), list):
                     observe_faces(room, data["faces"], clock())
+                elif room and kind == "house-sensor" and isinstance(data.get("home"), list):
+                    people.observe_home([h.get("person") for h in data["home"][:64] if isinstance(h, dict)],
+                                        clock())
         finally:
             if room and kind not in non_bodies:
                 bodies.disconnect(room, ws)
