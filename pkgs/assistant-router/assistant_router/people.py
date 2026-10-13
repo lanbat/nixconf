@@ -8,6 +8,8 @@ a prompt. The sources:
 - "phone": a person's phone heard in the room (pkgs/room-presence), last 2 min;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
+- home: a person's phone on the home network (pkgs/wifi-presence), for the
+  whole house, last 3 min;
 - and, per request, the voice: a score for every enrolled person (voice-id).
 
 Rather than eliminate people outright, each enrolled person is a candidate
@@ -35,6 +37,8 @@ MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5}
 PRIOR = 0.05            # every enrolled person
 PRIOR_UNKNOWN = 0.1     # someone not enrolled
 PHONE = 4.0             # × prior: their phone is in the room
+HOME = 2.0              # × prior: their phone is on the home network
+HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
 FACE = 6.0              # × prior: their face is in the room
 CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
 VOICE_SHARPNESS = 10.0  # likelihood exp(k·cosine)
@@ -76,6 +80,9 @@ class People:
         self.names = dict(names)
         # room -> source -> person -> evidence
         self._seen: dict[str, dict[str, dict[str, Evidence]]] = {}
+        # who is at home, and when the house sensor said so last
+        self._home: set[str] = set()
+        self._home_at: float | None = None
 
     def add(self, key: str, name: str) -> None:
         self.names[str(key)] = str(name)
@@ -90,6 +97,19 @@ class People:
             return
         self._seen.setdefault(_key(room), {}).setdefault(source, {})[person] = Evidence(
             person, float(confidence), now)
+
+    def observe_home(self, persons, now: float) -> None:
+        """The full set of people whose phones are on the home network; it
+        replaces the last one."""
+        if not isinstance(persons, (list, tuple, set)):
+            return
+        self._home = {p for p in persons if isinstance(p, str) and p in self.names}
+        self._home_at = now
+
+    def home(self, now: float) -> set[str]:
+        if self._home_at is None or now - self._home_at > HOME_WINDOW:
+            return set()
+        return set(self._home)
 
     def forget_faces(self, room: str) -> None:
         self._seen.get(_key(room), {}).pop("face", None)
@@ -106,6 +126,7 @@ class People:
         phones = self._recent(room, "phone", now)
         faces = self._recent(room, "face", now)
         aimed = self._recent(room, "aimed", now)
+        home = self.home(now)
         voice = {k: float(v) for k, v in (voice or {}).items()
                  if k in self.names and type(v) in (int, float)}
 
@@ -114,6 +135,8 @@ class People:
             w = PRIOR
             if person in phones:
                 w *= PHONE
+            if person in home:
+                w *= HOME
             if person in faces:
                 w *= FACE
             if person == last:

@@ -135,3 +135,30 @@ def test_who_to_learn_from():
     q = People(NAMES)
     q.observe("Kitchen", "phone", "kiril", 1.0, now=0.0)
     assert q.assess("Kitchen", now=1.0, voice=scores(kiril=0.62, ivo=0.6)).learn is None
+
+
+def test_being_home_tips_a_close_call_but_never_overrules():
+    # Kiril sounds a little more like himself than Ivo does: too close to
+    # call alone; Kiril's phone on the home network tips it. Home is weaker
+    # than a phone in the room (test_presence_narrows_a_close_voice_call).
+    close = scores(kiril=0.68, ivo=0.6)
+    assert People(NAMES).assess("Kitchen", now=10.0, voice=close).speaker is None
+    p = People(NAMES)
+    p.observe_home(["kiril", "ghost"], now=0.0)
+    assert p.home(now=10.0) == {"kiril"}  # unknown keys are dropped
+    a = p.assess("Kitchen", now=10.0, voice=close)
+    assert a.speaker == "kiril"
+    # Home is not nearby: it says nothing about this room.
+    assert a.nearby == []
+    # A clear voice of someone whose phone is away still wins.
+    assert p.assess("Kitchen", now=10.0, voice=scores(ivo=0.75)).speaker == "ivo"
+
+
+def test_home_is_replaced_and_expires():
+    p = People(NAMES)
+    p.observe_home(["kiril", "maria"], now=0.0)
+    p.observe_home(["maria"], now=60.0)
+    assert p.home(now=61.0) == {"maria"}
+    assert p.home(now=60.0 + 181) == set()  # the house sensor went quiet
+    p.observe_home("kiril", now=300.0)  # not a list: ignored
+    assert p.home(now=300.0) == set()

@@ -1,13 +1,14 @@
 # People: who the assistant is talking to
 
 The assistant can know who it is talking to, as a **hint** for what it says ("Good
-morning, Alex!"), from up to three signals:
+morning, Alex!"), from these signals:
 
 | Signal | Where | Status |
 |---|---|---|
 | **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
 | **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
+| **Home** | The server hears a person's phone on the home network (`services/wifi-presence.nix`) | live |
 | **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | live |
 
 This page describes the part they share: the people list and how the assistant router
@@ -91,6 +92,41 @@ if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth a
 fixes it. Phones and their signal strengths go to the router and nowhere else, and only
 as person keys.
 
+## Phones at home
+
+`wifi-presence` on the router's host works out who is home from the household's phones
+on the LAN. It needs nothing from the router or the access point: it listens on the
+server's network interface for the phones' own broadcasts (ARP, DHCP, mDNS), and every
+minute asks each phone's last address with ARP, which a sleeping phone still answers
+(many ignore ping). Every five minutes it asks the whole subnet, to find a phone that got
+a new address. A phone heard in the last 10 minutes is home.
+
+Being home is weaker evidence than a phone in the room: it can tip a close voice call,
+it never names anyone by itself, and a phone that is away rules nobody out. It doesn't
+say anything about rooms ("nearby" is still Bluetooth, faces and the robot).
+
+Add each phone's Wi-Fi address for the home network to its person, and run the service
+on the router's host:
+
+```nix
+people.alex = { name = "Alex"; wifiMacs = [ "3a:1f:00:aa:bb:01" ]; };
+# hosts.server.services: add "wifi-presence" when the host lists its services
+```
+
+Phones use a private address per network, which stays the same for that network, so
+that is the one to list:
+
+- **Android:** *Settings → Network & internet → Internet → (your network) → ⚙ →
+  Privacy*: keep "Use randomized MAC" and read the address under *Network details*
+  (or pick "Use device MAC").
+- **iPhone:** *Settings → Wi-Fi → (i)* next to your network: *Private Wi-Fi Address* set
+  to **Fixed** (iOS 18; "Rotating" changes it every two weeks), and copy the address
+  shown under it.
+
+A kernel filter on the raw socket passes only the listed phones' frames, cut to their
+headers: nothing else on the network is read, and nothing is stored. Only person keys
+go to the router. Keep it a hint: a MAC address is easy to copy.
+
 ## Voices
 
 Every sentence said to any satellite passes through `voice-id` on its way to
@@ -127,7 +163,7 @@ and an extra one stands for someone not enrolled.
 
 - **Presence** raises a candidate's weight: their phone in the room (last 2 minutes),
   their face on a room camera (last 10 s), having been the speaker earlier in this
-  conversation. Absence lowers it but never rules anyone out, so a phone left in another
+  conversation, and, less, their phone on the home network (last 3 minutes). Absence lowers it but never rules anyone out, so a phone left in another
   room doesn't overrule a clear voice.
 - **Evidence** multiplies in: the voice scores of this sentence, and above all the face
   the robot saw after turning to the voice.

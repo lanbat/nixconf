@@ -423,6 +423,18 @@ in
                 their IRK instead (docs/people.md).
               '';
             };
+            options.wifiMacs = mkOption {
+              type = types.listOf (types.strMatching "([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}");
+              default = [ ];
+              example = [ "3a:1f:00:aa:bb:01" ];
+              description = ''
+                This person's phones' Wi-Fi addresses on the home network, for
+                the wifi-presence service: the fixed private address the phone
+                keeps for this network (Android: Wi-Fi → network → Privacy;
+                iPhone: Wi-Fi → (i) → Private Wi-Fi Address set to Fixed).
+                docs/people.md.
+              '';
+            };
           }
         );
         default = { };
@@ -432,7 +444,8 @@ in
         };
         description = ''
           The people the assistant may recognise (by voice, by face at a robot,
-          by phone over Bluetooth), keyed by a short identifier. The keys are the
+          by phone over Bluetooth or on the home network), keyed by a short
+          identifier. The keys are the
           only identities that travel between the satellites, the robot and the
           assistant router; names, never secrets or voiceprints. Recognition is a
           hint for what the assistant says, never authority over anything
