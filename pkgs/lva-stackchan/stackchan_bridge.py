@@ -28,6 +28,9 @@ This decides what it should feel and say:
 - The robot's ear: with the router, the robot records each sentence from the
   wake word to the transcript and the bridge hands it to the router, for
   voice-id to score as a second opinion on who spoke; then it is dropped.
+- Phones: the robot is a Bluetooth room sensor too. The bridge hands it the
+  people's phone beacons (BEACONS) and iPhone keys (the room-presence-irks
+  credential) over USB only, and passes the phones it hears to the router.
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
   the robot tells it whether someone is in front of it; it sends the mood
   and gesture the cloud model chose for a reply, and body commands ("nod",
@@ -181,6 +184,7 @@ class Brain:
     battery_low: bool = False
     sound_angle: float = 0.0  # the direction the head last turned to (degrees)
     wifi: dict | None = None  # the Wi-Fi details for the robot (wifi_payload), None: none
+    phones: dict | None = None  # whose phones the robot looks for (phones_payload), None: nobody
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
@@ -435,6 +439,12 @@ class Brain:
                 self.ear = ear
                 out.append(("router", {"state": self.router_state(now)}))
             out += self.full_state(now)
+            # Whose phones to look for, likewise: over USB, when they differ.
+            want_phones = self.phones["id"] if self.phones else ""
+            if link == "usb" and "phones" in hello and hello["phones"] != want_phones:
+                out.append(("device", {"phones": self.phones}))
+                out.append(("log", "telling the robot whose phones to look for" if self.phones
+                            else "telling the robot to forget the phones"))
             # The Wi-Fi details, when the robot's differ from ours: over USB
             # only, and only to firmware that knows them (it says "wifi").
             want = self.wifi["id"] if self.wifi else ""
@@ -442,6 +452,14 @@ class Brain:
                 out.append(("device", {"wifi": self.wifi}))
                 out.append(("log", "giving the robot the Wi-Fi details" if self.wifi
                             else "telling the robot to forget its Wi-Fi details"))
+        seen = msg.get("seen")
+        if isinstance(seen, list):
+            # Phones near the robot, for the router: person keys and strengths.
+            clean = [{"person": s["person"], "rssi": s["rssi"], "via": "ble"} for s in seen[:32]
+                     if isinstance(s, dict) and isinstance(s.get("person"), str) and len(s["person"]) <= 40
+                     and type(s.get("rssi")) is int]
+            if clean:
+                out.append(("router", {"seen": clean}))
         touch = msg.get("touch")
         if touch:
             if any(t.ringing for t in self.timers.values()):
@@ -687,6 +705,35 @@ def read_wifi_credentials(path: str) -> tuple[str, str] | None:
     return (ssid, values.get("password", "")) if ssid else None
 
 
+def phones_payload(beacons: str, irks: str) -> dict | None:
+    """The robot's {"phones": ...} line from BEACONS ("alex=<uuid>,...") and
+    the room-presence-irks lines ("<key> <32 hex>"), or None when there are
+    none. As pkgs/room-presence reads them."""
+    found: dict = {"beacons": {}, "irks": {}}
+    for item in (beacons or "").split(","):
+        key, _, uuid = item.strip().partition("=")
+        uuid = uuid.replace("-", "").strip().lower()
+        if key.strip() and len(uuid) == 32 and all(c in "0123456789abcdef" for c in uuid):
+            found["beacons"][uuid] = key.strip()
+    for line in (irks or "").splitlines():
+        parts = line.split("#", 1)[0].split()
+        if len(parts) == 2 and len(parts[1]) == 32 and all(c in "0123456789abcdefABCDEF" for c in parts[1]):
+            found["irks"].setdefault(parts[0], []).append(parts[1].lower())
+    if not found["beacons"] and not found["irks"]:
+        return None
+    found["id"] = hashlib.sha256(json.dumps(found, sort_keys=True).encode()).hexdigest()[:12]
+    return found
+
+
+def read_phones(env=os.environ) -> dict | None:
+    irks = ""
+    path = os.path.join(env.get("CREDENTIALS_DIRECTORY", ""), "room-presence-irks")
+    if env.get("CREDENTIALS_DIRECTORY") and os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            irks = f.read()
+    return phones_payload(env.get("BEACONS", ""), irks)
+
+
 def wifi_payload(ssid: str, password: str, host: str, port: int, fingerprint: str, token: str) -> dict:
     """The robot's {"wifi": ...} line; "id" changes whenever anything does,
     so the robot's hello tells whether it has these."""
@@ -749,8 +796,9 @@ def setup_wifi(env=os.environ) -> tuple[WifiLink | None, dict | None]:
 # ── I/O ────────────────────────────────────────────────────────────────────
 class Bridge:
     def __init__(self, config: Config, device: str, lva_url: str, router_url: str = "", room: str = "",
-                 wifi: WifiLink | None = None, wifi_details: dict | None = None) -> None:
-        self.brain = Brain(config, now=time.time(), wifi=wifi_details)
+                 wifi: WifiLink | None = None, wifi_details: dict | None = None,
+                 phones: dict | None = None) -> None:
+        self.brain = Brain(config, now=time.time(), wifi=wifi_details, phones=phones)
         self.device = device
         self.lva_url = lva_url
         self.router_url = router_url
@@ -771,9 +819,9 @@ class Bridge:
 
     async def send_device(self, line: dict) -> None:
         """A line for the robot, over USB when it is plugged in, else over
-        Wi-Fi. The Wi-Fi details themselves go over USB or not at all."""
+        Wi-Fi. The Wi-Fi details and the phones' keys go over USB or not at all."""
         writer = self.serial_writer
-        if writer is None and "wifi" not in line:
+        if writer is None and "wifi" not in line and "phones" not in line:
             writer = self.wifi_writer
         if writer is None:
             return
@@ -1083,6 +1131,7 @@ def main() -> None:
         room=os.environ.get("ROOM", ""),
         wifi=wifi,
         wifi_details=wifi_details,
+        phones=read_phones(),
     )
     asyncio.run(bridge.run())
 

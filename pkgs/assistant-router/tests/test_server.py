@@ -958,3 +958,20 @@ async def test_a_robots_ear_goes_to_voice_id(aiohttp_client):
     assert len(voice.samples) == 1
     await sensor.close()
     await robot.close()
+
+
+async def test_a_robot_reports_phones_like_a_room_sensor(aiohttp_client):
+    import asyncio
+    bodies, people = Bodies("You are Nabu."), People({"kiril": "Kiril"})
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, people=people))
+    robot = await c.ws_connect("/v1/body")
+    await robot.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await robot.send_json({"seen": [{"person": "kiril", "rssi": -70, "via": "ble"}]})
+    line = None
+    for _ in range(50):
+        line = people.line("Kitchen", now=100.0)
+        if line:
+            break
+        await asyncio.sleep(0.01)
+    assert "Kiril is nearby" in line
+    await robot.close()

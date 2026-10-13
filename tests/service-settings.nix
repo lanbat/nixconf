@@ -400,7 +400,10 @@ let
         };
         hosts = deploy.hosts // {
           pi-voice = deploy.hosts.pi-voice // {
-            plugins = deploy.hosts.pi-voice.plugins ++ [ inputsWithSelf.self.lanbatPlugins.room-presence ];
+            plugins = deploy.hosts.pi-voice.plugins ++ [
+              inputsWithSelf.self.lanbatPlugins.room-presence
+              inputsWithSelf.self.lanbatPlugins.stackchan
+            ];
           };
         };
       }
@@ -920,6 +923,26 @@ let
       && failedAssertions bodyServer == [ ]
       && failedAssertions bodyPi == [ ]
     ))
+
+    (expect
+      "stackchan: the robot looks for the people's phones, with the iPhone keys where room-presence has them"
+      (
+        let
+          unit = presencePi.systemd.services.lva-stackchan;
+          irksUnit = presenceIrksPi.systemd.services.lva-stackchan;
+        in
+        unit.environment.BEACONS == "alex=A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90"
+        && !(unit.serviceConfig ? LoadCredential)
+        && presencePi.lanbat.services.stackchan.readsSecrets == [ ]
+        &&
+          irksUnit.serviceConfig.LoadCredential == [
+            "room-presence-irks:${presenceIrksPi.lanbat.secrets.room-presence-irks.path}"
+          ]
+        && presenceIrksPi.lanbat.services.stackchan.readsSecrets == [ "room-presence-irks" ]
+        && failedAssertions presencePi == [ ]
+        && failedAssertions presenceIrksPi == [ ]
+      )
+    )
 
     (expect "wifi-presence: beside the router, it listens for the people's phones on the LAN" (
       let
