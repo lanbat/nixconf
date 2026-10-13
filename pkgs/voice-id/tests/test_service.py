@@ -103,3 +103,50 @@ async def test_the_api(tmp_path, aiohttp_client):
     assert (await (await c.post("/learn", json={"key": "alex", "text": "one two three"})).json()) == {"learned": True}
     assert (await c.post("/enrol", json={"key": "../etc", "texts": []})).status == 400
     assert (await (await c.delete("/people/alex")).json()) == {"forgotten": True}
+
+
+async def test_a_robots_ear_is_scored_and_reported_but_not_kept(tmp_path, aiohttp_server, aiohttp_client):
+    import base64
+    import struct
+
+    seen, url = await fake_router(aiohttp_server)
+    store = Store(str(tmp_path))
+    store.enrol("alex", [ALEX, ALEX, ALEX])
+    heard = []
+
+    def embed(signal, rate):
+        heard.append((len(signal), rate))
+        return ALEX_ISH
+
+    clock = Clock()
+    v = VoiceId(store, embed=embed, router_url=url, clock=clock)
+    c = await aiohttp_client(make_api(v))
+    # A quiet robot microphone: two seconds of silence and a second of voice.
+    import math
+    voice = [int(150 * math.sin(i / 7)) for i in range(16000)]
+    pcm = struct.pack("<48000h", *([3] * 16000 + voice + [3] * 16000))
+    r = await c.post("/embed", json={"text": "good morning", "pcm": base64.b64encode(pcm).decode()})
+    assert (await r.json()) == {"reported": True}
+    assert heard == [(48000, 16000)]
+    assert seen[0]["text"] == "good morning" and seen[0]["scores"]["alex"] > 0.9
+    # Not kept: nothing to enrol or learn from.
+    assert v.recent.get("good morning", clock()) is None
+    assert (await c.post("/embed", json={"text": "hi", "pcm": "not base64!"})).status == 400
+    assert (await c.post("/embed", json={"text": "hi"})).status == 400
+    await v.close()
+
+
+
+def test_levelling_a_quiet_microphone():
+    import math
+
+    from voice_id.embedder import levelled, speech_seconds
+
+    quiet_voice = [0.0001] * 16000 + [0.005 * math.sin(i / 7) for i in range(16000)]
+    out = levelled(quiet_voice)
+    assert out is not None and speech_seconds(out) >= 0.9  # the voice now counts
+    assert speech_seconds(quiet_voice) == 0  # and did not before
+    # The background stays background: only the voice's second counts.
+    assert speech_seconds(out) <= 1.05
+    assert levelled([0.003 * math.sin(i / 7) for i in range(32000)]) is None  # a hum: no contrast
+    assert levelled([0.0] * 100) is None

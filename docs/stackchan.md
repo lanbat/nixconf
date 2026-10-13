@@ -33,13 +33,23 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
   pulse means Home Assistant is unreachable. "No Pi" means the bridge has stopped
   talking to it, over USB and over Wi-Fi.
 
-Nothing leaves the host, with one narrow exception. Frames are analysed on the robot and
-dropped; only a face's position is used, to move the head. The one thing that does leave
-the robot is a photo of someone who asks to be remembered, and it goes straight to
-Frigate's recognition library on the server (see [people.md](people.md)); a remembered
-face only personalises the assistant and is never used to unlock, disarm, open or allow
-anything. The bridge on the Pi reaches LVA on the loopback and the robot over USB, or,
-with [Wi-Fi](#unplugged-wi-fi) on, over TLS on the LAN when the robot isn't plugged in.
+Frames are analysed on the robot and dropped; only a face's position is used, to move
+the head. With the assistant router, three things leave the robot, each to the server
+and nowhere else:
+
+- **A photo to remember someone**, when they ask: it goes to Frigate's recognition
+  library ([people.md](people.md)).
+- **A frame to recognise the speaker**, after the robot has turned to a voice (with
+  Frigate's face library): Frigate matches it against the library, and the router
+  keeps only the name it gets back.
+- **The sentence as the robot heard it**, from the wake word to the end of the
+  sentence: voice-id scores it as a second opinion on who spoke, and drops it
+  ([people.md](people.md#voices)). The robot's microphone is off at all other times.
+
+A recognised face or voice only personalises the assistant and is never used to unlock,
+disarm, open or allow anything. The bridge on the Pi reaches LVA on the loopback and the
+robot over USB, or, with [Wi-Fi](#unplugged-wi-fi) on, over TLS on the LAN when the robot
+isn't plugged in.
 
 ## Requirements
 
@@ -302,17 +312,19 @@ robot is plugged in.
 | `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
+| `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
 
 | Robot → Pi | Meaning |
 |---|---|
-| `{"hello": {"fw", "proto", "link", "wifi", "camera"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
+| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
 | `{"touch": "tap\|stroke", "zone": "front\|middle\|back\|screen"}` | Head tap or stroke, or a tap on the face |
 | `{"face": "new\|lost"}` | Someone came into view, or left it |
 | `{"rest": "nap\|awake"}` | It started or ended a nap |
 | `{"battery": {"level", "mv", "charging", "low"}}` | On a change, and every 5 minutes |
 | `{"log": "..."}` | Shown in the bridge's journal |
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
+| `{"audio": "<base64>"}` | While recording, 100 ms of 16-bit 16 kHz mono each |
 
 `face_image` is the only line that can be large (a full-frame JPEG, base64). The robot
 only sends it in answer to a `capture`, never on its own. The bridge sends it on to the

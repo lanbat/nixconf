@@ -923,3 +923,38 @@ async def test_a_house_sensor_reports_who_is_home(aiohttp_client):
     # Not a body: no room gets a persona from it.
     assert not bodies.has("house")
     await house.close()
+
+
+async def test_a_robots_ear_goes_to_voice_id(aiohttp_client):
+    import asyncio
+
+    class FakeVoice:
+        def __init__(self):
+            self.samples = []
+
+        async def embed(self, text, pcm):
+            self.samples.append((text, pcm))
+            return True
+
+    voice = FakeVoice()
+    bodies = Bodies("You are Nabu.")
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, voice=voice))
+    robot = await c.ws_connect("/v1/body")
+    await robot.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await robot.send_json({"state": {"present": True, "ear": True}})
+    await robot.send_json({"voice_sample": {"text": "good morning", "pcm": "AAAA"}})
+    await robot.send_json({"voice_sample": {"text": 3, "pcm": "AAAA"}})  # malformed: dropped
+    for _ in range(50):
+        if voice.samples:
+            break
+        await asyncio.sleep(0.01)
+    assert voice.samples == [("good morning", "AAAA")]
+    assert bodies.state("Kitchen").ear
+    # A room sensor's sample is not a body's: ignored.
+    sensor = await c.ws_connect("/v1/body")
+    await sensor.send_json({"hello": {"room": "Kitchen", "kind": "room-sensor", "proto": 1}})
+    await sensor.send_json({"voice_sample": {"text": "hi", "pcm": "AAAA"}})
+    await asyncio.sleep(0.05)
+    assert len(voice.samples) == 1
+    await sensor.close()
+    await robot.close()

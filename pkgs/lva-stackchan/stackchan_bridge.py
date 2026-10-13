@@ -25,6 +25,9 @@ This decides what it should feel and say:
   Wi-Fi (WIFI_HOST): the robot dials a TLS port here, pinned to this
   bridge's own certificate, and gets in with a token. The Wi-Fi details
   travel only over USB; USB wins when both are up.
+- The robot's ear: with the router, the robot records each sentence from the
+  wake word to the transcript and the bridge hands it to the router, for
+  voice-id to score as a second opinion on who spoke; then it is dropped.
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
   the robot tells it whether someone is in front of it; it sends the mood
   and gesture the cloud model chose for a reply, and body commands ("nod",
@@ -37,6 +40,8 @@ with scripted events.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import collections
 import hashlib
 import hmac
@@ -153,6 +158,8 @@ class Brain:
     ("lva", {...})     a command for LVA's peripheral API
     ("mouth", bool)    start or stop following the reply's audio
     ("log", str)       something worth a line in the journal
+    ("ear", "start"|"drop"|text)  the robot's recording: begin, discard, or
+                       send as the sentence `text` to the router
     """
 
     config: Config
@@ -174,6 +181,8 @@ class Brain:
     battery_low: bool = False
     sound_angle: float = 0.0  # the direction the head last turned to (degrees)
     wifi: dict | None = None  # the Wi-Fi details for the robot (wifi_payload), None: none
+    ear: bool = False  # the robot has a microphone (its hello), and a router listens
+    router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
         self.asleep = self.night_seen = self._is_night(self.now)
@@ -203,7 +212,19 @@ class Brain:
         return {"present": self.present,
                 "present_since_s": int(now - self.present_at) if self.present else 0,
                 "asleep": self.asleep or self.napping,
-                "battery_low": self.battery_low}
+                "battery_low": self.battery_low,
+                "ear": self.ear}
+
+    def _listening(self) -> bool:
+        return self.ear and self.router
+
+    def _record(self) -> list:
+        return [("device", {"record": True}), ("ear", "start")] if self._listening() else []
+
+    def _stop_recording(self, text: str | None = None) -> list:
+        if not self._listening():
+            return []
+        return [("device", {"record": False}), ("ear", text if text else "drop")]
 
     def _sleep(self, asleep: bool) -> list:
         return [
@@ -253,8 +274,11 @@ class Brain:
         ]
 
     def _end_turn(self, now: float) -> list:
+        listening = self.in_turn and not self.heard
         self.in_turn = self.heard = self.replied = False
         out: list = [("mouth", False), ("device", {"mouth": 0}), self._mood("neutral"), ("device", {"look": "track"})]
+        if listening:
+            out += self._stop_recording()  # nothing was said: discard it
         if self.asleep:
             out += self._sleep(True)
         return out
@@ -273,9 +297,11 @@ class Brain:
                 # Continued conversation: the microphone reopened after a question.
                 self.heard = self.replied = False
             out += [("mouth", False), ("device", {"mouth": 0}), self._mood("listening"), ("device", {"look": "user"})]
+            out += self._record()
         elif event == "stt_text":
             self.heard = True
             out += self._caption(data.get("text", ""), "user")
+            out += self._stop_recording(data.get("text", ""))
         elif event == "thinking":
             out += [self._mood("thinking"), ("device", {"look": "up"})]
         elif event == "tts_text":
@@ -308,6 +334,8 @@ class Brain:
                 return out
             out += self._end_turn(now)
         elif event == "pipeline_error":
+            if self.in_turn and not self.heard:
+                out += self._stop_recording()
             out += [self._mood("confused"), ("device", {"gesture": "shake"})]
             out += self._caption("Sorry, I didn't catch that.", "status")
         elif event == "disconnected":
@@ -402,6 +430,10 @@ class Brain:
                 out.append(("log", f"the robot speaks protocol {hello.get('proto')}, this bridge {PROTOCOL}: reflash it (docs/stackchan.md)"))
             if hello.get("camera") is False:
                 out.append(("log", "the robot has no camera: it won't look at people"))
+            ear = hello.get("ear") is True
+            if ear != self.ear:
+                self.ear = ear
+                out.append(("router", {"state": self.router_state(now)}))
             out += self.full_state(now)
             # The Wi-Fi details, when the robot's differ from ours: over USB
             # only, and only to firmware that knows them (it says "wifi").
@@ -632,6 +664,12 @@ WIFI_CREDENTIAL = "stackchan-wifi"
 WIFI_HELLO_TIMEOUT_S = 10.0
 LINE_LIMIT = 256 * 1024  # a face's picture is the longest line
 
+# The robot's ear: 16-bit 16 kHz mono, a sentence at most 15 s; shorter than
+# half a second is not worth scoring (voice-id wants a second of speech).
+EAR_BYTES_PER_S = 32000
+EAR_MAX_BYTES = 15 * EAR_BYTES_PER_S
+EAR_MIN_BYTES = EAR_BYTES_PER_S // 2
+
 
 def read_wifi_credentials(path: str) -> tuple[str, str] | None:
     """(ssid, password) from "ssid=..." and "password=..." lines, or None."""
@@ -727,6 +765,8 @@ class Bridge:
         self.mic_window: MicWindow | None = None
         self.router_faces = False  # the router has a face library to probe
         self.face_waiter: asyncio.Future | None = None  # a capture in flight
+        self.ear_audio = bytearray()  # the sentence the robot is recording
+        self.ear_on = False
         self.capture_task: asyncio.Task | None = None
 
     async def send_device(self, line: dict) -> None:
@@ -747,6 +787,21 @@ class Bridge:
             elif writer is self.wifi_writer:
                 self.wifi_writer = None
 
+    async def ear(self, what: str) -> None:
+        """The robot's recording: start it, drop it, or send it to the router
+        as the sentence `what` (then drop it): it is never kept here."""
+        if what == "start":
+            self.ear_audio, self.ear_on = bytearray(), True
+            return
+        audio, self.ear_audio, self.ear_on = bytes(self.ear_audio), bytearray(), False
+        if what == "drop" or len(audio) < EAR_MIN_BYTES or self.router_ws is None:
+            return
+        try:
+            await self.router_ws.send(json.dumps({"voice_sample": {
+                "text": what, "pcm": base64.b64encode(audio).decode("ascii")}}))
+        except Exception as err:  # pylint: disable=broad-except
+            log(f"router write failed: {err}")
+
     async def on_line(self, raw: bytes) -> None:
         """A line from the robot, on either link."""
         try:
@@ -754,6 +809,14 @@ class Bridge:
         except ValueError:
             return  # boot noise from the ROM before the firmware speaks
         if not isinstance(msg, dict):
+            return
+        if "audio" in msg:
+            # The ear's audio, kept only until the sentence's transcript.
+            if self.ear_on and isinstance(msg["audio"], str) and len(self.ear_audio) < EAR_MAX_BYTES:
+                try:
+                    self.ear_audio += base64.b64decode(msg["audio"], validate=True)
+                except (binascii.Error, ValueError):
+                    pass
             return
         img = msg.get("face_image")
         if isinstance(img, str) and self.face_waiter is not None:
@@ -782,6 +845,8 @@ class Bridge:
                         await self.router_ws.send(json.dumps(value))
                     except Exception as err:  # pylint: disable=broad-except
                         log(f"router write failed: {err}")
+            elif kind == "ear":
+                await self.ear(value)
             elif kind == "log":
                 log(value)
 
@@ -881,8 +946,9 @@ class Bridge:
         delay = 1
         while True:
             try:
-                async with websockets.connect(self.router_url) as ws:
+                async with websockets.connect(self.router_url, max_size=2**22) as ws:
                     self.router_ws, delay = ws, 1
+                    self.brain.router = True
                     await ws.send(json.dumps({"hello": {"room": self.room, "kind": "stackchan", "proto": PROTOCOL}}))
                     await ws.send(json.dumps({"state": self.brain.router_state(time.time())}))
                     log(f"body of {self.room} at {self.router_url}")
@@ -905,6 +971,7 @@ class Bridge:
             except (OSError, websockets.exceptions.WebSocketException) as err:
                 log(f"router unreachable ({err}); retrying")
             self.router_ws = None
+            self.brain.router = False
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
 

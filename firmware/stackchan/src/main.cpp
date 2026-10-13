@@ -23,15 +23,19 @@
 //   {"ping": 1}                       a heartbeat, every 3 s
 //   {"wifi": {...} | null}          Wi-Fi details to keep (over USB only)
 //   {"hello": 1}                     asks for a hello (the bridge just started)
+//   {"record": true|false}          the microphone on from the wake word to the
+//                                    end of the sentence (ear.h), 15 s at most
 //
 // and hears back:
 //
-//   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool}}
+//   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool,
+//              "ear": bool}}
 //                                    when a link comes up; the Pi answers
 //                                    with the whole state
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
 //   {"face": "new|lost"}
 //   {"face_image": "base64 JPEG, or empty"}     a capture's answer
+//   {"audio": "base64 s16le, 16 kHz mono"}       while recording, every 100 ms
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -45,6 +49,7 @@
 
 #include <freertos/idf_additions.h>
 
+#include "ear.h"
 #include "lights.h"
 #include "pilink.h"
 #include "vision.h"
@@ -53,7 +58,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.2.0";
+constexpr const char* kFirmware = "1.3.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -117,6 +122,13 @@ uint32_t nextWander = 0;
 uint32_t touchDownZone = 0;
 
 int targetYaw = 0, targetPitch = kPitchRest;
+
+// The microphone, as a second ear for voice-id: on from the Pi's
+// {"record": true} to {"record": false}, never longer than kRecordMaxMs.
+bool hasEar = false;
+constexpr uint32_t kRecordMaxMs = 15000;
+constexpr size_t kAudioChunk = ear::kRate / 10;  // 100 ms per line
+uint32_t recordUntil = 0;
 
 // One frame as a JPEG, on request (the server's face library): the Pi asks,
 // a task encodes the frame and sends it, the answer is one line.
@@ -313,8 +325,33 @@ String clock(int seconds) {
   return buf;
 }
 
+void sendAudio(size_t most) {
+  static int16_t samples[kAudioChunk];
+  size_t n = ear::take(samples, min(most, kAudioChunk));
+  if (!n) return;
+  JsonDocument doc;
+  doc["audio"] = base64Encode((const uint8_t*)samples, n * 2).c_str();
+  send(doc);
+}
+
+// The ear's audio to the Pi as it comes; what is left once it stops.
+void runEar() {
+  if (!hasEar) return;
+  if (ear::recording() && millis() > recordUntil) ear::stop();
+  while (ear::available() >= kAudioChunk) sendAudio(kAudioChunk);
+  if (!ear::recording() && ear::available()) sendAudio(ear::available());
+}
+
 void handle(JsonDocument& doc, pilink::Via via) {
   if (!doc["hello"].isUnbound()) sendHello();
+  if (doc["record"].is<bool>() && hasEar) {
+    if (doc["record"].as<bool>()) {
+      ear::start();
+      recordUntil = millis() + kRecordMaxMs;
+    } else {
+      ear::stop();
+    }
+  }
   if (!doc["wifi"].isUnbound()) {
     // Wi-Fi details: only from the Pi it is plugged into, never over Wi-Fi.
     JsonDocument reply;
@@ -636,17 +673,19 @@ void helloLine(JsonDocument& doc) {
   doc["hello"]["link"] = pilink::name(pilink::active() == pilink::Via::None ? pilink::Via::Wifi : pilink::active());
   doc["hello"]["wifi"] = pilink::configId();
   doc["hello"]["camera"] = hasCamera;
+  doc["hello"]["ear"] = hasEar;
 }
 
 void setup() {
   M5StackChan.begin();  // M5Unified, servo power, touch, LEDs
-  // The Pi speaks and listens; the robot's own speaker and microphone stay
-  // off. The speaker's amplifier keeps whatever state the last firmware left
-  // it in (the stock one leaves it on), and on with no signal it amplifies
-  // noise: switching it on and off through M5Unified powers it down.
+  // The Pi speaks and listens; the robot's own speaker stays off. Its
+  // amplifier keeps whatever state the last firmware left it in (the stock
+  // one leaves it on), and on with no signal it amplifies noise: switching it
+  // on and off through M5Unified powers it down. The microphone is off too,
+  // except while the Pi asks for a sentence (ear.h).
   M5.Speaker.begin();
   M5.Speaker.end();
-  M5.Mic.end();
+  hasEar = ear::begin();
   // The bridge sends its whole state in a burst when it connects.
   Serial.setRxBufferSize(4096);
   Serial.begin(115200);
@@ -666,6 +705,7 @@ void setup() {
 void loop() {
   M5StackChan.update();  // touch sensor (and M5.update)
   readLink();
+  runEar();
   readTouch();
   readBattery();
   follow();
