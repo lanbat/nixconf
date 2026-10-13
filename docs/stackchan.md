@@ -31,14 +31,15 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
   wake word or a tap wakes it for the conversation.
 - **Status.** One dim red LED on each side means the microphone is muted. A slow red
   pulse means Home Assistant is unreachable. "No Pi" means the bridge has stopped
-  talking to it.
+  talking to it, over USB and over Wi-Fi.
 
 Nothing leaves the host, with one narrow exception. Frames are analysed on the robot and
 dropped; only a face's position is used, to move the head. The one thing that does leave
 the robot is a photo of someone who asks to be remembered, and it goes straight to
 Frigate's recognition library on the server (see [people.md](people.md)); a remembered
 face only personalises the assistant and is never used to unlock, disarm, open or allow
-anything. The bridge on the Pi reaches LVA on the loopback and the robot over USB.
+anything. The bridge on the Pi reaches LVA on the loopback and the robot over USB, or,
+with [Wi-Fi](#unplugged-wi-fi) on, over TLS on the LAN when the robot isn't plugged in.
 
 ## Requirements
 
@@ -141,6 +142,51 @@ The robot can be plugged in and out at any time.
   head silences the ring.
 - Walk out of view for a minute and come back: it should turn to you and nod.
 
+## Unplugged: Wi-Fi
+
+The robot can live away from the Pi, on its own charger, and still be its face: when it
+isn't plugged into the Pi it joins the Wi-Fi and dials the bridge. It also keeps the
+robot's charger off the Pi's USB, which matters on a Pi 3 with an analog speaker: a
+robot on the Pi and a separate charger at once share a ground, and the speaker hisses.
+
+```nix
+lanbat.stackchan.wifi = {
+  enable = true;
+  # address = "192.168.1.12";          # where the robot dials; the host's IP by default
+  # allowFrom = [ "192.168.20.0/24" ]; # the Wi-Fi's subnet, when it isn't the LAN's
+};
+```
+
+1. Add the `stackchan-wifi` secret, encrypted to the Pi:
+   ```
+   ssid=Home
+   password=the Wi-Fi password
+   ```
+2. Deploy, and plug the robot into the Pi once. The bridge hands it the network, its own
+   address and port (8771), its certificate's fingerprint and a token, and the robot
+   keeps them in flash. The journal says `giving the robot the Wi-Fi details`.
+3. Unplug it (keep its charger). After 10 s without the Pi on USB it joins the network
+   and dials; `journalctl -u lva-stackchan` says `robot connected over Wi-Fi from …`,
+   and conversations go on as before.
+
+USB always wins: plugged back in, the robot talks over USB at once and switches Wi-Fi
+off 10 s later. A robot running on Wi-Fi does less than one on USB in one way: the head
+turns toward the voice only on USB, since the Pi's microphones are only beside a robot
+that is plugged into it.
+
+How it is kept safe:
+
+- The Wi-Fi details only ever travel over USB. A robot refuses them over Wi-Fi, and the
+  bridge never sends them there.
+- The robot checks the bridge's certificate by its SHA-256 fingerprint, so a machine
+  pretending to be the Pi gets nothing. The bridge makes the certificate and the token
+  on first start (in `/var/lib/private/lva-stackchan`); deleting them makes new ones,
+  and the next time the robot is plugged in it gets those.
+- The bridge drops a connection whose first line isn't a hello with the token, and its
+  port is only open to `allowFrom` (the LAN by default).
+- Turning `wifi.enable` off makes the bridge tell the robot to forget the details the
+  next time it is plugged in.
+
 ## 4. Nabu with a body
 
 When the profile runs the assistant router (`services/assistant-router.nix`) and the
@@ -237,7 +283,9 @@ conversations.
 
 ### Serial protocol (version 1)
 
-One JSON object per line, 115200 baud over the CoreS3's USB port.
+One JSON object per line, 115200 baud over the CoreS3's USB port, or over TLS when the
+robot is on [Wi-Fi](#unplugged-wi-fi). The bridge sends on one link: USB when the
+robot is plugged in.
 
 | Pi → robot | Meaning |
 |---|---|
@@ -253,10 +301,12 @@ One JSON object per line, 115200 baud over the CoreS3's USB port.
 | `{"ping": 1}` | Heartbeat every 3 s. After 10 s without any line the robot shows "No Pi" |
 | `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
+| `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
+| `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
 
 | Robot → Pi | Meaning |
 |---|---|
-| `{"hello": {"fw", "proto"}}` | At boot and when the Pi comes back; the bridge answers with the whole state |
+| `{"hello": {"fw", "proto", "link", "wifi", "camera"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
 | `{"touch": "tap\|stroke", "zone": "front\|middle\|back\|screen"}` | Head tap or stroke, or a tap on the face |
 | `{"face": "new\|lost"}` | Someone came into view, or left it |
 | `{"rest": "nap\|awake"}` | It started or ended a nap |
@@ -276,8 +326,14 @@ robot has turned to the speaker, which the router runs against Frigate.
   differently: flash the firmware first.
 - **The bridge warns about the protocol.** The robot runs older firmware than the bridge
   expects. Flash `firmware/stackchan` from the same commit as the Pi's configuration.
-- **It never looks at anyone.** The robot logs `no camera: not looking at people` when
-  the camera didn't start; everything else still works. Power-cycle it with the button.
+- **It never looks at anyone.** The bridge logs `the robot has no camera` when the
+  camera didn't start; everything else still works. Power-cycle it with the button.
+- **It doesn't come back on Wi-Fi.** Plug it into the Pi and check the journal for
+  `giving the robot the Wi-Fi details` (or nothing, when it has them already). On the
+  robot's next USB session the bridge logs `robot: wifi: the bridge's certificate did not
+  match` if something else answered on the Pi's address. `refused a robot on Wi-Fi`
+  means a wrong token: plugging it in once gives it the current one. Nothing at all:
+  check the robot can reach the Pi's address from its Wi-Fi, and `allowFrom`.
 - **The mouth doesn't move.** The bridge records the default speaker's monitor through
   PipeWire. `journalctl -u lva-stackchan` shows `pw-record` errors, and
   `pw-cli ls Node | grep lva-stackchan-mouth` shows the stream while a reply plays.

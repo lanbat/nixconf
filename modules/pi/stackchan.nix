@@ -10,6 +10,11 @@
 # The robot runs firmware/stackchan; pkgs/lva-stackchan follows LVA's
 # peripheral WebSocket on the loopback and drives it. Nothing leaves the host:
 # the camera is processed on the robot and no picture is ever sent.
+#
+# With `wifi.enable` the robot works unplugged too: it joins the network and
+# dials the bridge over TLS (port 8771, open to `wifi.allowFrom` only), with
+# the network's details and the bridge's certificate fingerprint and token
+# handed over USB the first time it is plugged in.
 {
   config,
   lib,
@@ -44,6 +49,9 @@ let
   routerAddress = config.lanbat.endpointHost "assistant-router" routerHost;
   routerUrl = "ws://${routerAddress}:${toString config.lanbat.endpoints.assistant-router.endpoint.port}/v1/body";
   hhmm = types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";
+  wifi = cfg.wifi;
+  wifiPort = toString wifi.port;
+  wifiRules = map (net: "INPUT -p tcp --dport ${wifiPort} -s ${net} -j ACCEPT") wifi.allowFrom;
 in
 {
   options.lanbat.stackchan = {
@@ -174,6 +182,40 @@ in
         records the four channels, you clap three times, and prints the string.
       '';
     };
+    wifi = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Let the robot fall back to Wi-Fi when it isn't plugged into this Pi
+          (on a charger elsewhere in the room, say). USB wins whenever it is
+          there. Needs the stackchan-wifi secret ("ssid=" and "password="
+          lines), which the bridge reads as a systemd credential and hands to
+          the robot over USB only. See docs/stackchan.md.
+        '';
+      };
+      port = mkOption {
+        type = types.port;
+        default = 8771;
+        description = "The TLS port the robot dials on this Pi.";
+      };
+      address = mkOption {
+        type = types.str;
+        default = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
+        defaultText = lib.literalExpression "config.lanbat.hosts.<this host>.networking.ip";
+        description = "Where the robot dials this Pi: an address it can reach from its Wi-Fi.";
+      };
+      allowFrom = mkOption {
+        type = types.listOf types.str;
+        default = [ config.lanbat.deployment.lanSubnet ];
+        defaultText = lib.literalExpression "[ config.lanbat.deployment.lanSubnet ]";
+        example = [ "192.168.20.0/24" ];
+        description = ''
+          Networks (CIDR) the robot may dial from; the port is closed to
+          everything else. Add the Wi-Fi's subnet when it isn't the LAN's.
+        '';
+      };
+    };
     soundSource = mkOption {
       type = types.str;
       default = "lanbat_ps_eye_capture";
@@ -194,7 +236,26 @@ in
     ];
 
     lanbat.voiceSatellite.lva.peripheralApiUsers = [ "lva-stackchan" ];
-    lanbat.services.stackchan.consumes = lib.optional routerHere "assistant-router";
+    lanbat.services.stackchan = {
+      consumes = lib.optional routerHere "assistant-router";
+      extraPorts = lib.optional wifi.enable wifi.port;
+      # Read by systemd (LoadCredential) for the bridge, which runs as a
+      # dynamic user and so cannot own a file.
+      secrets.stackchan-wifi = {
+        enable = wifi.enable;
+        owner = "root";
+      };
+    };
+
+    # Only the robot's networks reach the Wi-Fi port; the robot is the only
+    # client that gets past its token anyway. Admitted before the nixos-fw
+    # chain, which refuses everyone else (as services/snapcast.nix does).
+    networking.firewall.extraCommands = lib.mkIf wifi.enable (
+      lib.concatMapStringsSep "\n" (r: "iptables -I ${r}") wifiRules
+    );
+    networking.firewall.extraStopCommands = lib.mkIf wifi.enable (
+      lib.concatMapStringsSep "\n" (r: "iptables -D ${r} 2>/dev/null || true") wifiRules
+    );
 
     # The channel-order discovery helper, to find soundMicGeometry (docs/stackchan.md).
     environment.systemPackages = [ doaOrder ];
@@ -243,6 +304,10 @@ in
       }
       // lib.optionalAttrs (cfg.sadWords != null) {
         SAD_WORDS = lib.concatStringsSep "," cfg.sadWords;
+      }
+      // lib.optionalAttrs wifi.enable {
+        WIFI_HOST = wifi.address;
+        WIFI_PORT = wifiPort;
       };
       serviceConfig = {
         ExecStart = lib.getExe bridge;
@@ -258,7 +323,11 @@ in
         Nice = 5;
         MemoryMax = "96M";
         IPAddressDeny = "any";
-        IPAddressAllow = [ "localhost" ] ++ lib.optional routerHere routerAddress;
+        IPAddressAllow = [
+          "localhost"
+        ]
+        ++ lib.optional routerHere routerAddress
+        ++ lib.optionals wifi.enable wifi.allowFrom;
         RestrictAddressFamilies = [
           "AF_INET"
           "AF_INET6"
@@ -266,6 +335,12 @@ in
         ];
         ProtectHome = true;
         ProtectSystem = "strict";
+      }
+      // lib.optionalAttrs wifi.enable {
+        # The Wi-Fi link's certificate, key and token, made on first start.
+        StateDirectory = "lva-stackchan";
+        StateDirectoryMode = "0700";
+        LoadCredential = [ "stackchan-wifi:${config.lanbat.secrets.stackchan-wifi.path}" ];
       };
     };
   };

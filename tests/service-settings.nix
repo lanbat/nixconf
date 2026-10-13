@@ -36,7 +36,9 @@
 #   - Stack-chan (lanbat-stackchan plugin on the example Pi 3): the bridge
 #     follows LVA's peripheral API on the loopback, a profile pins the robot,
 #     keeps it awake and sets its sad words, and the Wyoming backend is
-#     rejected.
+#     rejected. Wi-Fi is off by default; on, the bridge gets the
+#     stackchan-wifi credential, a state directory and a port open to the
+#     LAN alone.
 #   - The Redis index registry keeps today's indexes and rejects a clash, and
 #     Nextcloud's database is the workload instance's "nextcloud" over its
 #     socket, as database.createLocally made it.
@@ -324,6 +326,7 @@ let
     }
   ];
   stackchanWyoming = pi3Stackchan "wyoming" [ ];
+  stackchanWifi = pi3Stackchan "lva" [ { lanbat.stackchan.wifi.enable = true; } ];
   # The Stack-chan on a Pi 3 in the Kitchen, with the assistant router on the
   # server: the robot is the router's body there.
   bodyProfile =
@@ -851,6 +854,10 @@ let
       && unit.environment.SOUND_MIC_GEOMETRY == "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
       && unit.environment.SOUND_SOURCE == "lanbat_ps_eye_capture"
       && !(unit.environment ? SAD_WORDS)
+      && !(unit.environment ? WIFI_HOST)
+      && !(unit.serviceConfig ? LoadCredential)
+      && !(stackchan.lanbat.secrets ? stackchan-wifi)
+      && !(lib.hasInfix "8771" stackchan.networking.firewall.extraCommands)
       && lib.hasInfix ''SYMLINK+="stackchan"'' stackchan.services.udev.extraRules
       && !(lib.hasInfix "ID_SERIAL_SHORT" stackchan.services.udev.extraRules)
       && failedAssertions stackchan == [ ]
@@ -868,6 +875,28 @@ let
         && env.NAP_AFTER_S == "0"
         && env.SOUND_DIRECTION == "0"
         && env.SOUND_OFFSET_DEG == "-15"
+      )
+    )
+
+    (expect
+      "stackchan: on Wi-Fi the robot dials the Pi on a port open to the LAN, with details from a credential"
+      (
+        let
+          unit = stackchanWifi.systemd.services.lva-stackchan;
+          subnet = stackchanWifi.lanbat.deployment.lanSubnet;
+        in
+        unit.environment.WIFI_HOST == stackchanWifi.lanbat.hosts.pi-voice.networking.ip
+        && unit.environment.WIFI_PORT == "8771"
+        &&
+          unit.serviceConfig.LoadCredential == [
+            "stackchan-wifi:${stackchanWifi.lanbat.secrets.stackchan-wifi.path}"
+          ]
+        && unit.serviceConfig.StateDirectory == "lva-stackchan"
+        && lib.elem subnet unit.serviceConfig.IPAddressAllow
+        && lib.elem 8771 stackchanWifi.lanbat.services.stackchan.extraPorts
+        && lib.hasInfix "iptables -I INPUT -p tcp --dport 8771 -s ${subnet} -j ACCEPT" stackchanWifi.networking.firewall.extraCommands
+        && lib.hasInfix "iptables -D INPUT -p tcp --dport 8771 -s ${subnet} -j ACCEPT" stackchanWifi.networking.firewall.extraStopCommands
+        && failedAssertions stackchanWifi == [ ]
       )
     )
 
