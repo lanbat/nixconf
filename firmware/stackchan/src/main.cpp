@@ -32,7 +32,7 @@
 // and hears back:
 //
 //   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool,
-//              "ear": bool, "phones": "<id>"}}
+//              "ear": bool, "phones": "<id>", "nfc": bool}}
 //                                    when a link comes up; the Pi answers
 //                                    with the whole state
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
@@ -42,6 +42,7 @@
 //   {"seen": [{"person", "rssi"}]}  phones near it, every 15 s (phones.h)
 //   {"senses": {"lux", "prox", "near"}}  light and a hand near it, on change (senses.h)
 //   {"wave": true}                   a hand waved in front of the screen
+//   {"nfc": "<UID hex>"}            a tag or card tapped on it (nfc.h)
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -57,6 +58,7 @@
 
 #include "ear.h"
 #include "lights.h"
+#include "nfc.h"
 #include "phones.h"
 #include "senses.h"
 #include "pilink.h"
@@ -66,7 +68,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.6.0";
+constexpr const char* kFirmware = "1.7.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -102,6 +104,7 @@ bool noticeGuests = true;
 uint8_t brightness = 180;
 bool autoBrightness = true;  // the screen follows the room's light (senses.h)
 bool hasSenses = false;
+bool hasNfc = false;
 uint32_t sensesDebugUntil = 0, nextSensesDebug = 0;
 
 String caption;
@@ -629,6 +632,20 @@ void runSenses() {
   if (!asleep && !napping) M5.Display.setBrightness(dayBrightness());
 }
 
+// A tag tapped on it: to the Pi (Home Assistant's tag scanner, a person's
+// card for the router), with a little perk and a glow so the tap shows.
+void runNfc() {
+  if (!hasNfc) return;
+  String uid = nfc::update(asleep || napping);
+  if (!uid.length()) return;
+  endNap();
+  JsonDocument doc;
+  doc["nfc"] = uid;
+  send(doc);
+  lights::setScene(lights::Scene::Greeting);
+  if (!gesture) GESTURE(kPerk);
+}
+
 void readBattery() {
   uint32_t now = millis();
   if (now < nextBatteryRead) return;
@@ -790,6 +807,7 @@ void helloLine(JsonDocument& doc) {
   doc["hello"]["camera"] = hasCamera;
   doc["hello"]["ear"] = hasEar;
   doc["hello"]["phones"] = phones::configId();
+  doc["hello"]["nfc"] = hasNfc;
 }
 
 void setup() {
@@ -802,7 +820,6 @@ void setup() {
   M5.Speaker.begin();
   M5.Speaker.end();
   hasEar = ear::begin();
-  hasSenses = senses::begin();
   // The bridge sends its whole state in a burst when it connects.
   Serial.setRxBufferSize(4096);
   Serial.begin(115200);
@@ -814,6 +831,11 @@ void setup() {
   pilink::begin();
   phones::begin();
   hasCamera = vision::begin();
+  // After the camera: its start-up takes the internal I2C bus over and hands
+  // it back re-created, which leaves a driver bound to the old one deaf (the
+  // NFC reader was).
+  hasSenses = senses::begin();
+  hasNfc = nfc::begin();
   pointHead(0, kPitchRest, 300);
   randomSeed(esp_random());
   // Its stack in PSRAM: internal RAM is for the radios (docs/stackchan.md).
@@ -826,6 +848,7 @@ void loop() {
   runEar();
   phones::update();
   runSenses();
+  runNfc();
   readTouch();
   readBattery();
   follow();

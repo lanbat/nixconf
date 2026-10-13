@@ -214,6 +214,10 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
 - **Sensors:** battery, charging, battery low, link (USB or Wi-Fi), mood, someone in
   front of it, a hand near it, light at its sensor (relative, see above), napping,
   asleep for the night.
+- **Tags:** an NFC tag tapped on the robot fires Home Assistant's own tag scanner
+  (*Settings → Tags*; "when a tag is scanned" automations), and a person's card names
+  them ([people.md](people.md#cards)). It reads from a small spot on its body; it
+  perks up and glows when it has read one, also from a nap.
 - **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
   for automations: a stroke on its head could dim the lights, a wave skip a song.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
@@ -363,6 +367,7 @@ robot is plugged in.
 | `{"face_image": "<base64>"}` | A captured photo, answering `capture`; `null` if it couldn't take one |
 | `{"audio": "<base64>"}` | While recording, 100 ms of 16-bit 16 kHz mono each |
 | `{"senses": {"lux", "prox", "near"}}` | Light at the sensor and the proximity echo, when the hand near it comes or goes or the light changes |
+| `{"nfc": "<UID hex>"}` | A tag or card tapped on it, once per tap |
 | `{"wave": true}` | A hand waved across the proximity sensor (near and gone within 0.6 s) |
 | `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
 

@@ -490,7 +490,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
-                  frigate: Frigate | None = None, voice: VoiceIdClient | None = None) -> web.Application:
+                  frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
+                  cards: dict[str, str] | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -504,7 +505,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     full current set each time it changes. A robot may report phones too,
     as a room sensor does ({"seen": [...]}). A robot with an ear sends each
     sentence as it heard it ({"voice_sample": {"text", "pcm"}}), which goes to
-    voice-id and is dropped. A house sensor
+    voice-id and is dropped. A tag tapped on a robot that is a person's card
+    (`cards`: UID -> person key) is that person, there, for two minutes. A house sensor
     (pkgs/wifi-presence) reports whose phones are on the home network
     ({"home": [...]}), the full set every minute."""
     people = people or People({})
@@ -561,6 +563,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
                     bodies.event(room, data["event"])
+                    tag = data["event"].get("nfc")
+                    if isinstance(tag, str) and tag.upper() in (cards or {}):
+                        people.observe(room, "card", cards[tag.upper()], 1.0, clock())
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock(), source="aimed")

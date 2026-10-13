@@ -423,6 +423,19 @@ in
                 their IRK instead (docs/people.md).
               '';
             };
+            options.nfcTags = mkOption {
+              type = types.listOf (types.strMatching "[0-9A-Fa-f]{8,20}");
+              default = [ ];
+              example = [ "0435249AD11290" ];
+              description = ''
+                UIDs of this person's NFC cards or tags: tapped on a Stack-chan,
+                one names them as the likely speaker in that room for two minutes,
+                unless their voice clearly says otherwise. A hint, never
+                authority: a card's UID is easy to copy. Bank cards and phones
+                show a new random UID (starting 08) on every tap and cannot be
+                used. docs/people.md.
+              '';
+            };
             options.wifiMacs = mkOption {
               type = types.listOf (types.strMatching "([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}");
               default = [ ];

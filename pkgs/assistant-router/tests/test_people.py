@@ -191,3 +191,16 @@ def test_strength_must_be_a_number_and_a_person():
     p.observe_phone("Kitchen", "kiril", "loud", now=0.0)
     p.observe_phone("Kitchen", "ghost", -50, now=0.0)
     assert p.line("Kitchen", now=1.0) is None
+
+
+def test_a_card_names_its_owner_unless_the_voice_disagrees():
+    p = People(NAMES)
+    p.observe("Kitchen", "card", "kiril", 1.0, now=0.0)
+    a = p.assess("Kitchen", now=30.0)
+    assert a.speaker == "kiril" and a.how == "card"
+    # Someone else, clearly by voice, is still them.
+    assert p.assess("Kitchen", now=30.0, voice=scores(ivo=0.75)).speaker == "ivo"
+    # Two minutes later the card is forgotten.
+    assert p.assess("Kitchen", now=130.0).speaker is None
+    # Another room knows nothing of it.
+    assert p.assess("Bedroom 1", now=30.0).speaker is None

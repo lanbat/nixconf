@@ -10,6 +10,8 @@ a prompt. The sources:
   is loudest, or in each room within ROOM_MARGIN_DB of that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
+- "card": a person's NFC card tapped on the room's robot (people.<key>.nfcTags),
+  last 2 min: strong, it names them unless the voice clearly disagrees;
 - home: a person's phone on the home network (pkgs/wifi-presence), for the
   whole house, last 3 min;
 - and, per request, the voice: a score for every enrolled person (voice-id).
@@ -31,15 +33,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-SOURCES = ("face", "aimed", "phone")
-WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0}
-MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5}
+SOURCES = ("face", "aimed", "phone", "card")
+WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0, "card": 120.0}
+MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5, "card": 0.5}
 
 # The weights. Tuned on the scenarios in tests/test_people.py.
 PRIOR = 0.05            # every enrolled person
 PRIOR_UNKNOWN = 0.1     # someone not enrolled
 PHONE = 4.0             # × prior: their phone is in the room
 HOME = 2.0              # × prior: their phone is on the home network
+CARD = 100.0            # × prior: they just tapped their card on the robot
 HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
 ROOM_MARGIN_DB = 6      # a phone this much quieter than in its loudest room isn't there
 FACE = 6.0              # × prior: their face is in the room
@@ -170,6 +173,7 @@ class People:
         faces = self._recent(room, "face", now)
         aimed = self._recent(room, "aimed", now)
         home = self.home(now)
+        cards = self._recent(room, "card", now)
         voice = {k: float(v) for k, v in (voice or {}).items()
                  if k in self.names and type(v) in (int, float)}
 
@@ -180,6 +184,8 @@ class People:
                 w *= PHONE
             if person in home:
                 w *= HOME
+            if person in cards:
+                w *= CARD
             if person in faces:
                 w *= FACE
             if person == last:
@@ -205,12 +211,15 @@ class People:
                     by.append("voice")
                 if top in aimed:
                     by.append("face")
+                if top in cards:
+                    by.append("card")
                 a.how = " and ".join(by) or ("presence" if top in phones or top in faces else "conversation")
                 second = max([v for k, v in voice.items() if k != top], default=0.0)
                 if aimed.get(top, 0.0) >= LEARN_AIMED or (
                         voice.get(top, 0.0) >= LEARN_VOICE and voice[top] - second >= LEARN_MARGIN):
                     a.learn = top
-        a.nearby = [p for p in dict.fromkeys(list(faces) + list(aimed) + list(phones)) if p != a.speaker]
+        a.nearby = [p for p in dict.fromkeys(list(faces) + list(aimed) + list(phones) + list(cards))
+                    if p != a.speaker]
         return a
 
     def line(self, room: str, now: float, voice: dict[str, float] | None = None,

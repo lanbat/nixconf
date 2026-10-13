@@ -136,6 +136,21 @@ A kernel filter on the raw socket passes only the listed phones' frames, cut to 
 headers: nothing else on the network is read, and nothing is stored. Only person keys
 go to the router. Keep it a hint: a MAC address is easy to copy.
 
+## Cards
+
+A person's NFC card or tag (`people.<key>.nfcTags`), tapped on a Stack-chan, names them
+as the likely speaker in that room for two minutes, unless their voice clearly says
+otherwise:
+
+```nix
+people.alex = { name = "Alex"; nfcTags = [ "0435249AD11290" ]; };
+```
+
+Tap it on the robot with `journalctl -u lva-stackchan -f` open, or look in Home
+Assistant under *Settings → Tags*, to read its UID. Bank cards and phones show a new
+random UID (four bytes starting `08`) on every tap, so they can't be used. A card's UID
+is easy to copy: it personalises, it never allows anything.
+
 ## Voices
 
 Every sentence said to any satellite passes through `voice-id` on its way to
