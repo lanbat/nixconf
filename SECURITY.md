@@ -6,9 +6,9 @@ rather than in public issues or pull requests.
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting: open the
-[Security tab](https://github.com/lanbat/nixos/security) and choose
+[Security tab](https://github.com/lanbat/nixconf/security) and choose
 **Report a vulnerability**, or go straight to
-<https://github.com/lanbat/nixos/security/advisories/new>.
+<https://github.com/lanbat/nixconf/security/advisories/new>.
 
 Include the affected files or services, what an attacker could do, and how to
 reproduce it if you can.

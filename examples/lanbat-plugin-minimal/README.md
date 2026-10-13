@@ -24,7 +24,7 @@ plugin on a server host:
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    lanbat.url = "github:lanbat/nixos";
+    lanbat.url = "github:lanbat/nixconf";
     lanbat-plugin-minimal.url = "github:you/lanbat-plugin-minimal";
     lanbat-plugin-minimal.inputs.nixpkgs.follows = "nixpkgs";
   };

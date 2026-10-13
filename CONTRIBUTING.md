@@ -15,7 +15,7 @@ requests with fixes, documentation improvements and ideas.
 - For larger changes, such as a new service or a restructure, open an issue first so the
   approach can be agreed.
 - Issues labeled
-  [good first issue](https://github.com/lanbat/nixos/labels/good%20first%20issue)
+  [good first issue](https://github.com/lanbat/nixconf/labels/good%20first%20issue)
   are small and well scoped.
 
 ## Checking your change

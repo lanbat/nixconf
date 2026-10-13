@@ -189,7 +189,7 @@ in
       message =
         "music-assistant runs on ${config.lanbat.hostKey}, but snapcast runs on "
         + "${lib.concatStringsSep ", " snapcastHosts}: Music Assistant only works with the "
-        + "snapserver on its own host (lanbat/nixos#117).";
+        + "snapserver on its own host (lanbat/nixconf#117).";
     }
     {
       assertion = lib.all (name: builtins.match "[a-z0-9-]+" name != null) (lib.attrNames cfg.channels);
