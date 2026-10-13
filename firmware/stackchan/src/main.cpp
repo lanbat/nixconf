@@ -5,8 +5,9 @@
 // dozes off when nobody has been for a while. When a face appears after an
 // absence it notices: a glance, a nod, a warm glow.
 //
-// The Pi (pkgs/lva-stackchan) tells it over USB serial, one JSON object per
-// line, what the voice assistant is doing:
+// The Pi (pkgs/lva-stackchan) tells it over USB serial, or over Wi-Fi when
+// the robot isn't plugged into it (pilink.h), one JSON object per line, what
+// the voice assistant is doing:
 //
 //   {"mood": "neutral|listening|thinking|happy|sad|surprised|sleepy|confused|curious"}
 //   {"look": "track|user|up|center"}
@@ -20,16 +21,20 @@
 //   {"yaw": -700..700}              where the voice came from (the Pi's mics)
 //   {"capture": true}               one camera frame, as a JPEG
 //   {"ping": 1}                       a heartbeat, every 3 s
+//   {"wifi": {...} | null}          Wi-Fi details to keep (over USB only)
+//   {"hello": 1}                     asks for a hello (the bridge just started)
 //
 // and hears back:
 //
-//   {"hello": {"fw": "1.1.0", "proto": 1}}   at boot and when the Pi returns
+//   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool}}
+//                                    when a link comes up; the Pi answers
+//                                    with the whole state
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
 //   {"face": "new|lost"}
 //   {"face_image": "base64 JPEG, or empty"}     a capture's answer
 //   {"log": "..."}
 //
-// Without a line for 10 s it takes the Pi for gone and shows it.
+// Without a line for 10 s on either link it takes the Pi for gone and shows it.
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -38,14 +43,17 @@
 #include <M5Unified.h>
 #include <esp_heap_caps.h>
 
+#include <freertos/idf_additions.h>
+
 #include "lights.h"
+#include "pilink.h"
 #include "vision.h"
 
 using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.1.0";
+constexpr const char* kFirmware = "1.2.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -114,9 +122,6 @@ int targetYaw = 0, targetPitch = kPitchRest;
 // a task encodes the frame and sends it, the answer is one line.
 volatile bool capturePending = false;
 constexpr uint32_t kCaptureOutBytes = 48 * 1024;
-// Only one line on the wire at a time: a face's picture is a long write, and
-// two concurrent writes would interleave it with whatever else the robot says.
-SemaphoreHandle_t serialLock = nullptr;
 
 // A gesture is a few keyframes on top of where the head is pointed.
 struct Keyframe {
@@ -144,12 +149,9 @@ void gaze(float vertical, float horizontal) {
   avatar.setLeftGaze(vertical, horizontal);
 }
 
-void send(JsonDocument& doc) {
-  xSemaphoreTake(serialLock, portMAX_DELAY);
-  serializeJson(doc, Serial);
-  Serial.print('\n');
-  xSemaphoreGive(serialLock);
-}
+// One line at a time on the link: a face's picture is a long write, and two
+// concurrent writes would interleave it with whatever else the robot says.
+void send(JsonDocument& doc) { pilink::send(doc); }
 
 // Base64, for a face's picture.
 String base64Encode(const uint8_t* data, uint32_t len) {
@@ -182,8 +184,7 @@ String base64Encode(const uint8_t* data, uint32_t len) {
 
 void sendHello() {
   JsonDocument doc;
-  doc["hello"]["fw"] = kFirmware;
-  doc["hello"]["proto"] = kProtocol;
+  helloLine(doc);
   send(doc);
 }
 
@@ -312,7 +313,21 @@ String clock(int seconds) {
   return buf;
 }
 
-void handle(JsonDocument& doc) {
+void handle(JsonDocument& doc, pilink::Via via) {
+  if (!doc["hello"].isUnbound()) sendHello();
+  if (!doc["wifi"].isUnbound()) {
+    // Wi-Fi details: only from the Pi it is plugged into, never over Wi-Fi.
+    JsonDocument reply;
+    if (via != pilink::Via::Usb) {
+      reply["log"] = "wifi: details refused, they only come over USB";
+    } else if (pilink::provision(doc["wifi"])) {
+      reply["log"] = doc["wifi"].isNull() ? "wifi: details forgotten" : "wifi: details kept";
+    } else {
+      reply["log"] = "wifi: details malformed, not kept";
+    }
+    send(reply);
+    sendHello();  // with the new id, so the Pi sees they arrived
+  }
   if (doc["mood"].is<const char*>()) {
     String m = doc["mood"].as<const char*>();
     if (napping && m != "neutral" && m != "sleepy") endNap();  // the wake word, a timer
@@ -413,25 +428,27 @@ void handle(JsonDocument& doc) {
   }
 }
 
-void readSerial() {
-  static String line;
-  while (Serial.available()) {
-    char c = Serial.read();
-    if (c == '\n') {
-      JsonDocument doc;
-      if (deserializeJson(doc, line) == DeserializationError::Ok && doc.is<JsonObject>()) {
-        lastLine = millis();
-        if (!piPresent) {
-          piPresent = true;
-          lights::setStatus(muted, haOnline);
-          sendHello();  // the Pi answers with the whole state
-        }
-        handle(doc);
-      }
-      line = "";
-    } else if (line.length() < 1024) {
-      line += c;
+void readLink() {
+  pilink::update();
+  String line;
+  pilink::Via via;
+  while (pilink::next(line, via)) {
+    JsonDocument doc;
+    if (deserializeJson(doc, line) != DeserializationError::Ok || !doc.is<JsonObject>()) continue;
+    lastLine = millis();
+    if (!piPresent) {
+      piPresent = true;
+      lights::setStatus(muted, haOnline);
     }
+    handle(doc, via);
+  }
+  // A link came up: hello on it, and the Pi answers with the whole state.
+  // Over Wi-Fi the hello opened the connection (with the token) already.
+  static pilink::Via linkSeen = pilink::Via::None;
+  pilink::Via now = pilink::active();
+  if (now != linkSeen) {
+    linkSeen = now;
+    if (now == pilink::Via::Usb) sendHello();
   }
   if (piPresent && millis() - lastLine > kPiTimeoutMs) {
     piPresent = false;
@@ -447,7 +464,7 @@ void readSerial() {
 // The capture's answer, from its own task: encoding and the long write would
 // otherwise hold up the loop (the face tracking, the servos, the touch).
 void captureTask(void*) {
-  uint8_t* out = (uint8_t*)heap_caps_malloc_aligned(kCaptureOutBytes, 16, MALLOC_CAP_SPIRAM);
+  uint8_t* out = (uint8_t*)heap_caps_aligned_alloc(16, kCaptureOutBytes, MALLOC_CAP_SPIRAM);
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(20));
     if (!capturePending) continue;
@@ -613,6 +630,14 @@ void runGesture() {
 
 }  // namespace
 
+void helloLine(JsonDocument& doc) {
+  doc["hello"]["fw"] = kFirmware;
+  doc["hello"]["proto"] = kProtocol;
+  doc["hello"]["link"] = pilink::name(pilink::active() == pilink::Via::None ? pilink::Via::Wifi : pilink::active());
+  doc["hello"]["wifi"] = pilink::configId();
+  doc["hello"]["camera"] = hasCamera;
+}
+
 void setup() {
   M5StackChan.begin();  // M5Unified, servo power, touch, LEDs
   // The Pi speaks and listens; the robot's own speaker and microphone stay
@@ -622,28 +647,25 @@ void setup() {
   M5.Speaker.begin();
   M5.Speaker.end();
   M5.Mic.end();
+  // The bridge sends its whole state in a burst when it connects.
+  Serial.setRxBufferSize(4096);
   Serial.begin(115200);
   M5.Display.setBrightness(brightness);
 
   avatar.init();
   avatar.setSpeechFont(&fonts::efontCN_12);
 
-  serialLock = xSemaphoreCreateMutex();
+  pilink::begin();
   hasCamera = vision::begin();
   pointHead(0, kPitchRest, 300);
   randomSeed(esp_random());
-  xTaskCreatePinnedToCore(captureTask, "face", 8192, nullptr, 3, nullptr, 1);
-  sendHello();
-  if (!hasCamera) {
-    JsonDocument doc;
-    doc["log"] = "no camera: not looking at people";
-    send(doc);
-  }
+  // Its stack in PSRAM: internal RAM is for the radios (docs/stackchan.md).
+  xTaskCreatePinnedToCoreWithCaps(captureTask, "face", 8192, nullptr, 3, nullptr, 1, MALLOC_CAP_SPIRAM);
 }
 
 void loop() {
   M5StackChan.update();  // touch sensor (and M5.update)
-  readSerial();
+  readLink();
   readTouch();
   readBattery();
   follow();

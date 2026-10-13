@@ -21,6 +21,10 @@ This decides what it should feel and say:
   (the satellite's microphone array, not the mono LVA listens on) and turns
   to it, so the camera meets the speaker; with the router's face library a
   frame of the speaker is probed with it (docs/stackchan.md, docs/people.md).
+- The link: USB serial when the robot is plugged into this Pi, otherwise
+  Wi-Fi (WIFI_HOST): the robot dials a TLS port here, pinned to this
+  bridge's own certificate, and gets in with a token. The Wi-Fi details
+  travel only over USB; USB wins when both are up.
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
   the robot tells it whether someone is in front of it; it sends the mood
   and gesture the cloud model chose for a reply, and body commands ("nod",
@@ -34,10 +38,15 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
+import hmac
 import json
 import math
 import os
+import secrets
+import ssl
 import struct
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
@@ -164,6 +173,7 @@ class Brain:
     napping: bool = False  # the robot's own nap (nobody around), not the night
     battery_low: bool = False
     sound_angle: float = 0.0  # the direction the head last turned to (degrees)
+    wifi: dict | None = None  # the Wi-Fi details for the robot (wifi_payload), None: none
 
     def __post_init__(self) -> None:
         self.asleep = self.night_seen = self._is_night(self.now)
@@ -385,11 +395,21 @@ class Brain:
             self.napping = rest == "nap"
             out.append(("router", {"state": self.router_state(now)}))
         if "hello" in msg:
-            hello = msg["hello"] or {}
-            out.append(("log", f"robot firmware {hello.get('fw', '?')}, protocol {hello.get('proto', '?')}"))
+            hello = msg["hello"] if isinstance(msg["hello"], dict) else {}
+            link = hello.get("link", "usb")  # firmware before 1.2 had USB only
+            out.append(("log", f"robot firmware {hello.get('fw', '?')}, protocol {hello.get('proto', '?')}, over {link}"))
             if hello.get("proto") != PROTOCOL:
                 out.append(("log", f"the robot speaks protocol {hello.get('proto')}, this bridge {PROTOCOL}: reflash it (docs/stackchan.md)"))
+            if hello.get("camera") is False:
+                out.append(("log", "the robot has no camera: it won't look at people"))
             out += self.full_state(now)
+            # The Wi-Fi details, when the robot's differ from ours: over USB
+            # only, and only to firmware that knows them (it says "wifi").
+            want = self.wifi["id"] if self.wifi else ""
+            if link == "usb" and "wifi" in hello and hello["wifi"] != want:
+                out.append(("device", {"wifi": self.wifi}))
+                out.append(("log", "giving the robot the Wi-Fi details" if self.wifi
+                            else "telling the robot to forget its Wi-Fi details"))
         touch = msg.get("touch")
         if touch:
             if any(t.ringing for t in self.timers.values()):
@@ -601,15 +621,105 @@ class MicWindow:
         return [list(c) for c in self.channels]
 
 
+# ── the Wi-Fi link ─────────────────────────────────────────────────────────
+# When the robot isn't plugged into the Pi it dials WIFI_HOST:WIFI_PORT over
+# TLS. The bridge's certificate is its own (made on first start, kept in the
+# state directory) and the robot pins it by its SHA-256 fingerprint; the
+# robot's first line is its hello with a token from the same directory. The
+# network's name and password come from a systemd credential. All of it
+# reaches the robot over USB only (Brain.on_device, Bridge.send_device).
+WIFI_CREDENTIAL = "stackchan-wifi"
+WIFI_HELLO_TIMEOUT_S = 10.0
+LINE_LIMIT = 256 * 1024  # a face's picture is the longest line
+
+
+def read_wifi_credentials(path: str) -> tuple[str, str] | None:
+    """(ssid, password) from "ssid=..." and "password=..." lines, or None."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    values = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() in ("ssid", "password"):
+            values[key.strip()] = value.rstrip("\r")
+    ssid = values.get("ssid", "")
+    return (ssid, values.get("password", "")) if ssid else None
+
+
+def wifi_payload(ssid: str, password: str, host: str, port: int, fingerprint: str, token: str) -> dict:
+    """The robot's {"wifi": ...} line; "id" changes whenever anything does,
+    so the robot's hello tells whether it has these."""
+    details = {"ssid": ssid, "password": password, "host": host, "port": port,
+               "fingerprint": fingerprint, "token": token}
+    details["id"] = hashlib.sha256(json.dumps(details, sort_keys=True).encode()).hexdigest()[:12]
+    return details
+
+
+def ensure_identity(state_dir: str, openssl: str = "openssl") -> tuple[str, str, str, str]:
+    """(certificate path, key path, token, fingerprint): made on first start,
+    kept after. P-256: the robot's TLS handshake is quick with it."""
+    cert, key, token_path = (os.path.join(state_dir, n) for n in ("wifi-cert.pem", "wifi-key.pem", "wifi-token"))
+    if not (os.path.exists(cert) and os.path.exists(key)):
+        subprocess.run(
+            [openssl, "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+             "-nodes", "-days", "36500", "-subj", "/CN=lva-stackchan", "-keyout", key, "-out", cert],
+            check=True, capture_output=True)
+        os.chmod(key, 0o600)
+    if not os.path.exists(token_path):
+        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_hex(16))
+    with open(token_path, encoding="utf-8") as f:
+        token = f.read().strip()
+    with open(cert, encoding="ascii") as f:
+        fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(f.read())).hexdigest()
+    return cert, key, token, fingerprint
+
+
+@dataclass
+class WifiLink:
+    host: str  # where the robot dials this Pi
+    port: int
+    cert: str
+    key: str
+    token: str
+    fingerprint: str
+
+    def token_ok(self, token) -> bool:
+        return isinstance(token, str) and hmac.compare_digest(token.encode(), self.token.encode())
+
+
+def setup_wifi(env=os.environ) -> tuple[WifiLink | None, dict | None]:
+    """The Wi-Fi link and the details for the robot, from the environment;
+    (None, None) when Wi-Fi is off or the credentials are missing."""
+    host = env.get("WIFI_HOST", "")
+    if not host:
+        return None, None
+    creds = read_wifi_credentials(os.path.join(env.get("CREDENTIALS_DIRECTORY", ""), WIFI_CREDENTIAL))
+    if creds is None:
+        log(f"Wi-Fi: no {WIFI_CREDENTIAL} credential with an ssid; USB only")
+        return None, None
+    port = int(env.get("WIFI_PORT", "8771"))
+    cert, key, token, fingerprint = ensure_identity(env["STATE_DIRECTORY"], env.get("OPENSSL", "openssl"))
+    link = WifiLink(host, port, cert, key, token, fingerprint)
+    return link, wifi_payload(creds[0], creds[1], host, port, fingerprint, token)
+
+
 # ── I/O ────────────────────────────────────────────────────────────────────
 class Bridge:
-    def __init__(self, config: Config, device: str, lva_url: str, router_url: str = "", room: str = "") -> None:
-        self.brain = Brain(config, now=time.time())
+    def __init__(self, config: Config, device: str, lva_url: str, router_url: str = "", room: str = "",
+                 wifi: WifiLink | None = None, wifi_details: dict | None = None) -> None:
+        self.brain = Brain(config, now=time.time(), wifi=wifi_details)
         self.device = device
         self.lva_url = lva_url
         self.router_url = router_url
         self.room = room
-        self.writer: asyncio.StreamWriter | None = None
+        self.wifi = wifi
+        self.serial_writer: asyncio.StreamWriter | None = None
+        self.wifi_writer: asyncio.StreamWriter | None = None
         self.ws = None
         self.router_ws = None
         self.mouth_task: asyncio.Task | None = None
@@ -620,14 +730,38 @@ class Bridge:
         self.capture_task: asyncio.Task | None = None
 
     async def send_device(self, line: dict) -> None:
-        if self.writer is None:
+        """A line for the robot, over USB when it is plugged in, else over
+        Wi-Fi. The Wi-Fi details themselves go over USB or not at all."""
+        writer = self.serial_writer
+        if writer is None and "wifi" not in line:
+            writer = self.wifi_writer
+        if writer is None:
             return
         try:
-            self.writer.write(json.dumps(line, separators=(",", ":")).encode() + b"\n")
-            await self.writer.drain()
+            writer.write(json.dumps(line, separators=(",", ":")).encode() + b"\n")
+            await writer.drain()
         except (OSError, ConnectionError) as err:
             log(f"robot write failed: {err}")
-            self.writer = None
+            if writer is self.serial_writer:
+                self.serial_writer = None
+            elif writer is self.wifi_writer:
+                self.wifi_writer = None
+
+    async def on_line(self, raw: bytes) -> None:
+        """A line from the robot, on either link."""
+        try:
+            msg = json.loads(raw)
+        except ValueError:
+            return  # boot noise from the ROM before the firmware speaks
+        if not isinstance(msg, dict):
+            return
+        img = msg.get("face_image")
+        if isinstance(img, str) and self.face_waiter is not None:
+            waiter, self.face_waiter = self.face_waiter, None
+            if not waiter.done():
+                waiter.set_result(img)
+            return  # the capture's answer, not a sensor event
+        await self.act(self.brain.on_device(msg, time.time()))
 
     async def act(self, actions: list) -> None:
         for kind, value in actions:
@@ -656,30 +790,60 @@ class Bridge:
 
         while True:
             try:
-                reader, self.writer = await serial_asyncio_fast.open_serial_connection(url=self.device, baudrate=115200)
+                reader, self.serial_writer = await serial_asyncio_fast.open_serial_connection(
+                    url=self.device, baudrate=115200, limit=LINE_LIMIT)
                 log(f"robot connected on {self.device}")
                 await self.act(self.brain.full_state(time.time()))
+                # Its hello says what it has (the Wi-Fi details); one that
+                # was already up when the bridge started would not send it.
+                await self.send_device({"hello": 1})
                 while True:
                     raw = await reader.readline()
                     if not raw:
                         break
-                    try:
-                        msg = json.loads(raw)
-                    except ValueError:
-                        continue  # boot noise from the ROM before the firmware speaks
-                    if isinstance(msg, dict):
-                        img = msg.get("face_image")
-                        if isinstance(img, str) and self.face_waiter is not None:
-                            waiter, self.face_waiter = self.face_waiter, None
-                            if not waiter.done():
-                                waiter.set_result(img)
-                            continue  # the capture's answer, not a sensor event
-                        await self.act(self.brain.on_device(msg, time.time()))
-            except (OSError, ConnectionError) as err:
-                if self.writer is not None:
-                    log(f"robot gone: {err}")
-            self.writer = None
+                    await self.on_line(raw)
+            except (OSError, ConnectionError, ValueError) as err:
+                if self.serial_writer is not None:
+                    log(f"robot gone from USB: {err}")
+            self.serial_writer = None
             await asyncio.sleep(3)
+
+    async def wifi_loop(self) -> None:
+        """The robot over Wi-Fi, when it isn't plugged in: a TLS port it
+        dials; its first line is a hello with the token, or it is dropped."""
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx.load_cert_chain(self.wifi.cert, self.wifi.key)
+        server = await asyncio.start_server(self.wifi_client, port=self.wifi.port, ssl=ctx, limit=LINE_LIMIT)
+        log(f"robot can dial {self.wifi.host}:{self.wifi.port} over Wi-Fi")
+        async with server:
+            await server.serve_forever()
+
+    async def wifi_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        peer = (writer.get_extra_info("peername") or ("?",))[0]
+        try:
+            raw = await asyncio.wait_for(reader.readline(), WIFI_HELLO_TIMEOUT_S)
+            msg = json.loads(raw) if raw else None
+            hello = msg.get("hello") if isinstance(msg, dict) else None
+            if not isinstance(hello, dict) or not self.wifi.token_ok(hello.pop("token", None)):
+                log(f"refused a robot on Wi-Fi from {peer}: no hello with the right token")
+                return
+            old, self.wifi_writer = self.wifi_writer, writer
+            if old is not None:
+                old.close()
+            log(f"robot connected over Wi-Fi from {peer}")
+            await self.act(self.brain.on_device(msg, time.time()))  # the hello: the whole state
+            while True:
+                raw = await reader.readline()
+                if not raw:
+                    break
+                await self.on_line(raw)
+        except (OSError, ConnectionError, ValueError, asyncio.TimeoutError) as err:
+            log(f"robot on Wi-Fi from {peer}: {err or type(err).__name__}")
+        finally:
+            if self.wifi_writer is writer:
+                self.wifi_writer = None
+                log("robot gone from Wi-Fi")
+            writer.close()
 
     async def lva_loop(self) -> None:
         import websockets
@@ -783,6 +947,8 @@ class Bridge:
     async def hear_direction(self) -> None:
         """The voice was just heard: turn to it, and with the head aimed take
         a frame of the speaker for the router's face library."""
+        if self.serial_writer is None:
+            return  # on Wi-Fi the robot is elsewhere: these mics can't aim it
         window = self.mic_window.snapshot() if self.mic_window is not None else None
         if window is None:
             return
@@ -831,6 +997,8 @@ class Bridge:
 
     async def run(self) -> None:
         loops = [self.serial_loop(), self.lva_loop(), self.clock_loop()]
+        if self.wifi is not None:
+            loops.append(self.wifi_loop())
         if self.router_url and self.room:
             loops.append(self.router_loop())
         if self.config.sound_direction:
@@ -839,12 +1007,15 @@ class Bridge:
 
 
 def main() -> None:
+    wifi, wifi_details = setup_wifi()
     bridge = Bridge(
         Config.from_env(),
         device=os.environ.get("STACKCHAN_DEVICE", "/dev/stackchan"),
         lva_url=os.environ.get("LVA_PERIPHERAL_URL", "ws://127.0.0.1:6055"),
         router_url=os.environ.get("ROUTER_BODY_URL", ""),
         room=os.environ.get("ROOM", ""),
+        wifi=wifi,
+        wifi_details=wifi_details,
     )
     asyncio.run(bridge.run())
 

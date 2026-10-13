@@ -308,6 +308,10 @@ instead. Document the reason in the service file if you add another soft depende
 - Inject secrets at runtime via `environmentFile` or `config.lanbat.secrets.<name>.path` —
   never inline plaintext in Nix expressions.
 - Only declare a secret that the service actually reads.
+- A service running as a systemd `DynamicUser` has no fixed account to own a secret.
+  Declare the secret with `owner = "root"` and hand it over with
+  `LoadCredential = [ "<secret>:${config.lanbat.secrets.<secret>.path}" ]`; the
+  service reads `$CREDENTIALS_DIRECTORY/<secret>` (`modules/pi/stackchan.nix`).
 - For environment variable injection into NixOS-native services, set:
   ```nix
   systemd.services.<name>.serviceConfig.EnvironmentFile = [

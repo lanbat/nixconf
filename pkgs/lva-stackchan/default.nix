@@ -6,6 +6,7 @@
   lib,
   python3Packages,
   pipewire,
+  openssl,
 }:
 
 python3Packages.buildPythonApplication {
@@ -23,6 +24,8 @@ python3Packages.buildPythonApplication {
   ];
   makeWrapperArgs = [
     "--set-default PW_RECORD ${pipewire}/bin/pw-record"
+    # The Wi-Fi link's certificate, made on first start.
+    "--set-default OPENSSL ${lib.getExe openssl}"
   ];
   doCheck = false;
   meta = {

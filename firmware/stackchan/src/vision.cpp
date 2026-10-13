@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 #include <esp_camera.h>
 #include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
 #include <esp_log.h>
 
 #include "esp_jpeg_enc.h"
@@ -186,17 +187,11 @@ bool begin() {
   if (err != ESP_OK) {
     return false;
   }
-  // The face's picture, on request. 4:2:0 at quality 55 keeps a QVGA frame
-  // well under the 48 KB the capture task gives it (the camera is the only
-  // other user of the PSRAM frame buffers, so the copy is always fresh).
-  jpeg_enc_config_t jc = DEFAULT_JPEG_ENC_CONFIG();
-  jc.src_type = JPEG_PIXEL_FORMAT_RGB565_BE;  // the camera's native order
-  jc.subsampling = JPEG_SUBSAMPLE_420;
-  jc.quality = 55;
-  jc.task_enable = false;  // encode in the caller's context
-  if (jpeg_enc_open(&jc, &jpeg) != JPEG_ERR_OK) jpeg = nullptr;
-  jpegIn = (uint8_t*)heap_caps_malloc_aligned(kFrameW * kFrameH * 2, 16, MALLOC_CAP_SPIRAM);
-  xTaskCreatePinnedToCore(detectTask, "vision", 12288, nullptr, 1, nullptr, 0);
+  // The face's picture, on request: a copy of the frame for the encoder,
+  // which itself is opened per picture (captureJpeg).
+  jpegIn = (uint8_t*)heap_caps_aligned_alloc(16, kFrameW * kFrameH * 2, MALLOC_CAP_SPIRAM);
+  // Its stack in PSRAM: internal RAM is for the radios.
+  xTaskCreatePinnedToCoreWithCaps(detectTask, "vision", 12288, nullptr, 1, nullptr, 0, MALLOC_CAP_SPIRAM);
   return true;
 }
 
@@ -208,9 +203,22 @@ Sighting latest() {
 }
 
 bool captureJpeg(uint8_t* out, uint32_t outLen, uint32_t* outSize) {
-  if (!jpeg || !jpegIn || !out || !outSize) return false;
+  if (!jpegIn || !out || !outSize) return false;
+  // Opened per picture: the encoder holds about 39 KB of internal RAM, which
+  // Wi-Fi needs the rest of the time. 4:2:0 at quality 55 keeps a QVGA frame
+  // well under the 48 KB the capture task gives it.
+  jpeg_enc_config_t jc = DEFAULT_JPEG_ENC_CONFIG();
+  jc.src_type = JPEG_PIXEL_FORMAT_RGB565_BE;  // the camera's native order
+  jc.subsampling = JPEG_SUBSAMPLE_420;
+  jc.quality = 55;
+  jc.task_enable = false;  // encode in the caller's context
+  if (jpeg_enc_open(&jc, &jpeg) != JPEG_ERR_OK) return false;
   camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) return false;
+  if (!fb) {
+    jpeg_enc_close(jpeg);
+    jpeg = nullptr;
+    return false;
+  }
   bool ok = false;
   if (fb->format == PIXFORMAT_RGB565 && fb->width == kFrameW && fb->height == kFrameH) {
     size_t bytes = (size_t)fb->width * fb->height * 2;
@@ -220,6 +228,8 @@ bool captureJpeg(uint8_t* out, uint32_t outLen, uint32_t* outSize) {
     if (ok) *outSize = (uint32_t)size;
   }
   esp_camera_fb_return(fb);
+  jpeg_enc_close(jpeg);
+  jpeg = nullptr;
   return ok;
 }
 

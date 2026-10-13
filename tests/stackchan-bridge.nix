@@ -8,8 +8,15 @@
 let
   bridge = pkgs.callPackage ../pkgs/lva-stackchan { };
 in
-pkgs.runCommand "stackchan-bridge-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
-  python3 ${./stackchan-bridge.py} ${../pkgs/lva-stackchan}
-  test -x ${bridge}/bin/lva-stackchan
-  touch $out
-''
+pkgs.runCommand "stackchan-bridge-check"
+  {
+    nativeBuildInputs = [
+      pkgs.python3
+      pkgs.openssl # the Wi-Fi link's certificate
+    ];
+  }
+  ''
+    python3 ${./stackchan-bridge.py} ${../pkgs/lva-stackchan}
+    test -x ${bridge}/bin/lva-stackchan
+    touch $out
+  ''

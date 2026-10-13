@@ -6,10 +6,16 @@ and check what comes out.
 
 Run with: nix build .#checks.x86_64-linux.stackchan-bridge
 """
+import asyncio
+import hashlib
+import json
 import math
 import os
+import ssl
+import stat
 import struct
 import sys
+import tempfile
 import time
 import unittest
 
@@ -19,16 +25,21 @@ sys.path.insert(0, sys.argv.pop(1))
 
 from stackchan_bridge import (  # noqa: E402
     Brain,
+    Bridge,
     Config,
     DEFAULT_SOUND_GEOMETRY,
     DOA_CHANNELS,
     DOA_RATE,
     DOA_WINDOW_S,
     MicWindow,
+    WifiLink,
     _angle_moved,
+    ensure_identity,
     envelope_level,
     estimate_direction,
     parse_geometry,
+    read_wifi_credentials,
+    wifi_payload,
 )
 
 NOON = 1_800_000_000 - 1_800_000_000 % 86400 + 12 * 3600  # 12:00 UTC
@@ -505,6 +516,158 @@ class Sound(unittest.TestCase):
     def test_around_the_back(self):
         self.assertEqual(self.yaw(20), 200)
         self.assertEqual(self.yaw(-170), -700)  # 170 degrees on, clamped
+
+
+WIFI = wifi_payload("Home", "hunter22", "192.0.2.12", 8771, "ab" * 32, "cd" * 16)
+
+
+class WifiProvisioning(unittest.TestCase):
+    """The Wi-Fi details reach the robot over USB, only when it lacks them."""
+
+    def hello(self, brain, **hello):
+        return brain.on_device({"hello": {"fw": "1.2.0", "proto": 1, **hello}}, NOON)
+
+    def wifi_lines(self, actions):
+        return [line["wifi"] for line in device(actions) if "wifi" in line]
+
+    def test_a_robot_without_them_gets_them_over_usb(self):
+        b = Brain(Config(), now=NOON, wifi=WIFI)
+        self.assertEqual(self.wifi_lines(self.hello(b, link="usb", wifi="")), [WIFI])
+
+    def test_a_robot_with_them_gets_nothing(self):
+        b = Brain(Config(), now=NOON, wifi=WIFI)
+        self.assertEqual(self.wifi_lines(self.hello(b, link="usb", wifi=WIFI["id"])), [])
+
+    def test_changed_details_are_sent_again(self):
+        b = Brain(Config(), now=NOON, wifi=WIFI)
+        self.assertEqual(self.wifi_lines(self.hello(b, link="usb", wifi="0123456789ab")), [WIFI])
+
+    def test_never_over_wifi(self):
+        b = Brain(Config(), now=NOON, wifi=WIFI)
+        self.assertEqual(self.wifi_lines(self.hello(b, link="wifi", wifi="")), [])
+
+    def test_without_wifi_here_the_robot_forgets_its_details(self):
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(self.wifi_lines(self.hello(b, link="usb", wifi=WIFI["id"])), [None])
+        self.assertEqual(self.wifi_lines(self.hello(b, link="usb", wifi="")), [])
+
+    def test_old_firmware_is_left_alone(self):
+        b = Brain(Config(), now=NOON, wifi=WIFI)
+        out = b.on_device({"hello": {"fw": "1.1.0", "proto": 1}}, NOON)
+        self.assertEqual(self.wifi_lines(out), [])
+        self.assertIn("mood", merged(out))  # still the whole state
+
+    def test_the_id_follows_every_detail(self):
+        ids = {wifi_payload(*args)["id"] for args in (
+            ("Home", "hunter22", "192.0.2.12", 8771, "ab" * 32, "cd" * 16),
+            ("Home", "hunter23", "192.0.2.12", 8771, "ab" * 32, "cd" * 16),
+            ("Home", "hunter22", "192.0.2.13", 8771, "ab" * 32, "cd" * 16),
+            ("Home", "hunter22", "192.0.2.12", 8771, "ab" * 32, "ce" * 16),
+        )}
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(WIFI["id"], wifi_payload("Home", "hunter22", "192.0.2.12", 8771, "ab" * 32, "cd" * 16)["id"])
+
+    def test_credentials_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "stackchan-wifi")
+            with open(path, "w") as f:
+                f.write("ssid=My Home\npassword=pa=ss word\n# a comment\n")
+            self.assertEqual(read_wifi_credentials(path), ("My Home", "pa=ss word"))
+            with open(path, "w") as f:
+                f.write("password=only\n")
+            self.assertIsNone(read_wifi_credentials(path))
+            self.assertIsNone(read_wifi_credentials(os.path.join(d, "missing")))
+
+
+class WifiLinkTest(unittest.TestCase):
+    """The bridge's side of the Wi-Fi link, over real TLS on the loopback."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.TemporaryDirectory()
+        cls.identity = ensure_identity(cls.dir.name, os.environ.get("OPENSSL", "openssl"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.dir.cleanup()
+
+    def test_identity_is_made_once_and_kept_private(self):
+        cert, key, token, fingerprint = self.identity
+        self.assertEqual(ensure_identity(self.dir.name), self.identity)
+        self.assertEqual(stat.S_IMODE(os.stat(key).st_mode), 0o600)
+        self.assertEqual(len(token), 32)
+        with open(cert) as f:
+            self.assertEqual(fingerprint, hashlib.sha256(ssl.PEM_cert_to_DER_cert(f.read())).hexdigest())
+
+    def run_robot(self, hello, then=()):
+        """Dial the bridge as the robot does, pinning its certificate; the
+        lines the bridge sent back, and the bridge."""
+        cert, key, token, fingerprint = self.identity
+        link = WifiLink("127.0.0.1", 0, cert, key, token, fingerprint)
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="", wifi=link, wifi_details=None)
+
+        async def scenario():
+            server_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            server_ctx.load_cert_chain(cert, key)
+            server = await asyncio.start_server(bridge.wifi_client, "127.0.0.1", 0, ssl=server_ctx)
+            port = server.sockets[0].getsockname()[1]
+            robot_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            robot_ctx.check_hostname = False
+            robot_ctx.verify_mode = ssl.CERT_NONE  # pinned below instead, as on the robot
+            reader, writer = await asyncio.open_connection("127.0.0.1", port, ssl=robot_ctx)
+            peer = writer.get_extra_info("ssl_object").getpeercert(binary_form=True)
+            self.assertEqual(hashlib.sha256(peer).hexdigest(), fingerprint)
+            writer.write(json.dumps({"hello": hello}).encode() + b"\n")
+            for line in then:
+                writer.write(json.dumps(line).encode() + b"\n")
+            await writer.drain()
+            got = []
+            try:
+                while True:
+                    raw = await asyncio.wait_for(reader.readline(), 0.5)
+                    if not raw:
+                        break
+                    got.append(json.loads(raw))
+            except asyncio.TimeoutError:
+                pass
+            connected = bridge.wifi_writer is not None
+            # The bridge never sends the Wi-Fi details over Wi-Fi.
+            await bridge.send_device({"wifi": WIFI})
+            try:
+                while True:
+                    raw = await asyncio.wait_for(reader.readline(), 0.3)
+                    if not raw:
+                        break
+                    got.append(json.loads(raw))
+            except asyncio.TimeoutError:
+                pass
+            writer.close()
+            server.close()
+            await server.wait_closed()
+            return got, connected
+
+        return asyncio.run(scenario())
+
+    def test_the_right_token_gets_the_whole_state(self):
+        token = self.identity[2]
+        got, connected = self.run_robot({"fw": "1.2.0", "proto": 1, "link": "wifi", "wifi": "x", "token": token},
+                                        then=[{"touch": "stroke", "zone": "back"}])
+        self.assertTrue(connected)
+        lines = {k: v for line in got for k, v in line.items()}
+        self.assertIn("config", lines)
+        self.assertIn("timers", lines)
+        self.assertEqual(lines.get("gesture"), "nod")  # the stroke, over Wi-Fi
+        self.assertNotIn("wifi", lines)
+
+    def test_a_wrong_token_is_dropped(self):
+        got, connected = self.run_robot({"fw": "1.2.0", "proto": 1, "link": "wifi", "token": "0" * 32})
+        self.assertEqual(got, [])
+        self.assertFalse(connected)
+
+    def test_no_token_is_dropped(self):
+        got, connected = self.run_robot({"fw": "1.2.0", "proto": 1, "link": "wifi"})
+        self.assertEqual(got, [])
+        self.assertFalse(connected)
 
 
 if __name__ == "__main__":
