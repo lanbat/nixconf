@@ -1,7 +1,7 @@
-# lanbat/nixos
+# lanbat/nixconf
 
-[![CI](https://github.com/lanbat/nixos/actions/workflows/check.yml/badge.svg)](https://github.com/lanbat/nixos/actions/workflows/check.yml)
-[![nightly](https://github.com/lanbat/nixos/actions/workflows/nightly.yml/badge.svg)](https://github.com/lanbat/nixos/actions/workflows/nightly.yml)
+[![CI](https://github.com/lanbat/nixconf/actions/workflows/check.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/check.yml)
+[![nightly](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **A complete, production-grade homelab written in Nix** — two machines, one identity

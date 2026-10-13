@@ -223,7 +223,7 @@ secrets:
 The core flake also exports reusable NixOS modules for plugin authors:
 
 ```nix
-inputs.lanbat.url = "github:lanbat/nixos";
+inputs.lanbat.url = "github:lanbat/nixconf";
 # inputs.lanbat.inputs.nixpkgs.follows = "nixpkgs";
 
 imports = [

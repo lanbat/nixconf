@@ -1,6 +1,6 @@
 {
   description = "Minimal lanbat plugin example";
-  inputs.lanbat.url = "github:lanbat/nixos";
+  inputs.lanbat.url = "github:lanbat/nixconf";
   outputs =
     { self, ... }:
     {

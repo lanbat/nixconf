@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>lanbat/nixos: a whole homelab as one Nix flake</title>
+  <title>lanbat/nixconf: a whole homelab as one Nix flake</title>
   <meta name="description" content="A complete, production-grade homelab written in Nix. Two machines, one identity provider, 20+ self-hosted services, one file per service, and no Kubernetes.">
   <meta name="theme-color" content="#e9edf4">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="canonical" href="https://lanbat.github.io/nixos/">
+  <link rel="canonical" href="https://lanbat.github.io/nixconf/">
 
   <meta property="og:type" content="website">
-  <meta property="og:title" content="lanbat/nixos: a whole homelab as one Nix flake">
+  <meta property="og:title" content="lanbat/nixconf: a whole homelab as one Nix flake">
   <meta property="og:description" content="One file per service. The wiring writes itself. Two machines, single sign-on, 20+ services, no Kubernetes.">
-  <meta property="og:url" content="https://lanbat.github.io/nixos/">
+  <meta property="og:url" content="https://lanbat.github.io/nixconf/">
   <meta name="twitter:card" content="summary">
 
   <link rel="preload" href="assets/fonts/bricolage-grotesque-400-800.woff2" as="font" type="font/woff2" crossorigin>
@@ -23,7 +23,7 @@
 
   <header class="top">
     <div class="wrap top__row">
-      <a class="mark" href="#top" aria-label="lanbat/nixos, top of page">
+      <a class="mark" href="#top" aria-label="lanbat/nixconf, top of page">
         <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M16 10 17.6 5.8 19.2 10.2C22.5 8.6 26.5 9.4 30 13Q27.6 13.2 26.4 16.6Q24.2 15 22.4 17.4Q21 16.6 19.6 21.4L16 26.5 12.4 21.4Q11 16.6 9.6 17.4Q7.8 15 5.6 16.6Q4.4 13.2 2 13C5.5 9.4 9.5 8.6 12.8 10.2L14.4 5.8Z"/></svg>
         <span>lanbat<span class="mark__slash">/</span>nixos</span>
       </a>
@@ -32,7 +32,7 @@
         <a href="#tiers">Tiers</a>
         <a href="#extend">Extend</a>
         <a href="#start">Start</a>
-        <a class="btn btn--small" href="https://github.com/lanbat/nixos">GitHub</a>
+        <a class="btn btn--small" href="https://github.com/lanbat/nixconf">GitHub</a>
       </nav>
     </div>
   </header>
@@ -47,13 +47,13 @@
             <span class="h1__b">The wiring writes itself.</span>
           </h1>
           <p class="lead">
-            lanbat/nixos is a whole homelab as a single Nix flake: an x86_64 server, a Raspberry Pi 5
+            lanbat/nixconf is a whole homelab as a single Nix flake: an x86_64 server, a Raspberry Pi 5
             for encrypted storage and TV, one sign-on for everything, and no Kubernetes. It is
             published as a reference. Read it, fork it, or borrow the patterns that save you weeks.
           </p>
           <div class="cta">
-            <a class="btn" href="https://github.com/lanbat/nixos">Open the repo on GitHub</a>
-            <a class="btn btn--ghost" href="https://github.com/lanbat/nixos/blob/master/docs/architecture.md">Read the architecture</a>
+            <a class="btn" href="https://github.com/lanbat/nixconf">Open the repo on GitHub</a>
+            <a class="btn btn--ghost" href="https://github.com/lanbat/nixconf/blob/master/docs/architecture.md">Read the architecture</a>
           </div>
         </div>
 
@@ -79,7 +79,7 @@
             A service in lanbat is a short description. Change the highlighted values in the block below.
             The Caddy vhost, systemd ordering, sign-on and dashboard tile follow from it, and evaluation
             rejects clashes before anything is deployed. This is a simplified preview of the wiring in
-            <a href="https://github.com/lanbat/nixos/tree/master/modules/wiring"><code>modules/wiring/</code></a>.
+            <a href="https://github.com/lanbat/nixconf/tree/master/modules/wiring"><code>modules/wiring/</code></a>.
           </p>
         </div>
 
@@ -268,8 +268,8 @@ nix run .#deploy-query -- &lt;host&gt;</code></pre>
           </p>
         </div>
         <div class="badges">
-          <a href="https://github.com/lanbat/nixos/actions/workflows/check.yml"><img src="https://github.com/lanbat/nixos/actions/workflows/check.yml/badge.svg" alt="CI status" height="20"></a>
-          <a href="https://github.com/lanbat/nixos/actions/workflows/nightly.yml"><img src="https://github.com/lanbat/nixos/actions/workflows/nightly.yml/badge.svg" alt="Nightly status" height="20"></a>
+          <a href="https://github.com/lanbat/nixconf/actions/workflows/check.yml"><img src="https://github.com/lanbat/nixconf/actions/workflows/check.yml/badge.svg" alt="CI status" height="20"></a>
+          <a href="https://github.com/lanbat/nixconf/actions/workflows/nightly.yml"><img src="https://github.com/lanbat/nixconf/actions/workflows/nightly.yml/badge.svg" alt="Nightly status" height="20"></a>
         </div>
       </div>
     </section>
@@ -291,7 +291,7 @@ nix run .#deploy-query -- &lt;host&gt;</code></pre>
           <li>
             <h3>Enter the dev shell</h3>
             <p>It provides deploy-rs, agenix and nixos-anywhere.</p>
-            <div class="code"><button class="copy" type="button" data-copy aria-label="Copy command">Copy</button><pre><code>git clone https://github.com/lanbat/nixos
+            <div class="code"><button class="copy" type="button" data-copy aria-label="Copy command">Copy</button><pre><code>git clone https://github.com/lanbat/nixconf
 cd nixos
 nix develop</code></pre></div>
           </li>
@@ -304,7 +304,7 @@ cp deployments/homelab/deploy.nix.example \
           </li>
           <li>
             <h3>Encrypt your secrets</h3>
-            <p>Follow the <a href="https://github.com/lanbat/nixos/blob/master/secrets/README.md">secrets guide</a>. They are agenix files that only the right hosts can decrypt.</p>
+            <p>Follow the <a href="https://github.com/lanbat/nixconf/blob/master/secrets/README.md">secrets guide</a>. They are agenix files that only the right hosts can decrypt.</p>
           </li>
           <li>
             <h3>Deploy each host</h3>
@@ -316,8 +316,8 @@ deploy --skip-checks path:.#homelab-pi-storage</code></pre></div>
 
         <p class="more">
           The full walk-through, covering disk layout, secrets and post-install, is the
-          <a href="https://github.com/lanbat/nixos/blob/master/docs/deployment-checklist.md">deployment checklist</a>.
-          After a reboot, the <a href="https://github.com/lanbat/nixos/blob/master/docs/runbook.md">runbook</a> shows how to unlock.
+          <a href="https://github.com/lanbat/nixconf/blob/master/docs/deployment-checklist.md">deployment checklist</a>.
+          After a reboot, the <a href="https://github.com/lanbat/nixconf/blob/master/docs/runbook.md">runbook</a> shows how to unlock.
         </p>
       </div>
     </section>
@@ -330,8 +330,8 @@ deploy --skip-checks path:.#homelab-pi-storage</code></pre></div>
           <p>Pull requests are welcome. The contributor guide covers how to check a change locally and the conventions the repo follows, including the checklist for adding a new service.</p>
         </div>
         <div class="join__actions">
-          <a class="btn btn--light" href="https://github.com/lanbat/nixos">Star or fork on GitHub</a>
-          <a class="btn btn--ghost-light" href="https://github.com/lanbat/nixos/blob/master/CONTRIBUTING.md">Contributor guide</a>
+          <a class="btn btn--light" href="https://github.com/lanbat/nixconf">Star or fork on GitHub</a>
+          <a class="btn btn--ghost-light" href="https://github.com/lanbat/nixconf/blob/master/CONTRIBUTING.md">Contributor guide</a>
         </div>
       </div>
     </section>
@@ -339,12 +339,12 @@ deploy --skip-checks path:.#homelab-pi-storage</code></pre></div>
 
   <footer class="foot">
     <div class="wrap foot__row">
-      <span>lanbat/nixos, MIT licensed</span>
+      <span>lanbat/nixconf, MIT licensed</span>
       <nav aria-label="Footer">
-        <a href="https://github.com/lanbat/nixos">Source</a>
-        <a href="https://github.com/lanbat/nixos/tree/master/docs">Docs</a>
-        <a href="https://github.com/lanbat/nixos/blob/master/SECURITY.md">Security</a>
-        <a href="https://github.com/lanbat/nixos/blob/master/LICENSE">License</a>
+        <a href="https://github.com/lanbat/nixconf">Source</a>
+        <a href="https://github.com/lanbat/nixconf/tree/master/docs">Docs</a>
+        <a href="https://github.com/lanbat/nixconf/blob/master/SECURITY.md">Security</a>
+        <a href="https://github.com/lanbat/nixconf/blob/master/LICENSE">License</a>
       </nav>
     </div>
   </footer>

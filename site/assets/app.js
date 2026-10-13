@@ -1,4 +1,4 @@
-/* lanbat/nixos site: the service playground, the tier simulator, small helpers. */
+/* lanbat/nixconf site: the service playground, the tier simulator, small helpers. */
 (function () {
   "use strict";
 

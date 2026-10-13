@@ -45,7 +45,7 @@ async def upstream_info(uri: str) -> Info:
     for program in info.asr:
         program.name = PROGRAM
         program.description = f"Speaker identification in front of {program.description or 'speech-to-text'}"
-        program.attribution = Attribution(name="lanbat", url="https://github.com/lanbat/nixos")
+        program.attribution = Attribution(name="lanbat", url="https://github.com/lanbat/nixconf")
     return info
 
 
