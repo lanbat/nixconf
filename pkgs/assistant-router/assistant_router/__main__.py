@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
 
 from aiohttp import web
 
@@ -16,7 +17,8 @@ from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
 from .mqtt import HomeAssistant, run_mqtt
-from .server import Config, make_app, make_body_app
+from .server import Config, forget_person, make_app, make_body_app
+from .tap import Taps, make_tap_app
 
 
 async def serve(cfg: Config, a: argparse.Namespace) -> None:
@@ -33,6 +35,19 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     people_store = PeopleStore(people, a.people_state) if a.people_state else None
     frigate = Frigate(a.frigate_url) if a.frigate_url else None
     voice = VoiceIdClient(a.voice_id_url) if a.voice_id_url else None
+    taps = None
+    if a.tap_url:
+        def remember(key: str, name: str) -> None:
+            if people_store is not None:
+                people_store.add(key, name)
+            else:
+                people.add(key, name)
+
+        async def forget(key: str) -> bool:
+            return await forget_person(key, people_store, voice, frigate)
+
+        taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
+                    user_header=a.tap_user_header, name_header=a.tap_name_header)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice))]
     await runners[0].setup()
@@ -43,17 +58,19 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
             with open(a.cards_file, encoding="utf-8") as f:
                 cards = {str(k).upper(): str(v) for k, v in json.load(f).items()}
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
-                                                   cards=cards)))
-        await runners[1].setup()
-        await web.TCPSite(runners[1], a.body_host, a.body_port).start()
+                                                   cards=cards, taps=taps)))
+        await runners[-1].setup()
+        await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
+    if taps is not None:
+        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget)))
+        await runners[-1].setup()
+        await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
     mqtt = None
     if a.mqtt_host:
         password = None
         if a.mqtt_password_file:
             with open(a.mqtt_password_file, encoding="utf-8") as f:
                 password = f.read().strip()
-        import time
-
         ha = HomeAssistant(bodies, people, time.monotonic)
         mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     try:
@@ -86,6 +103,12 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--people-state", help="JSON {key: name} in the state dir: people enrolled at runtime, merged over --people-file (people_store.py)")
     p.add_argument("--voice-id-url", help="voice-id's API (services/voice-id.nix): enrol, refine and forget voices")
     p.add_argument("--cards-file", help="JSON {UID: key}: people's NFC cards, tapped on a robot (people.py)")
+    p.add_argument("--tap-url", help="https://who.<domain>: the page a phone held to a robot opens (tap.py); unset: none")
+    p.add_argument("--tap-port", type=int, default=8772, help="where the tap page listens, on the loopback, for Caddy")
+    p.add_argument("--tap-user-header", default="X-Authentik-Username",
+                   help="who signed in, set by the forward-auth provider after its check (Caddy drops a client's)")
+    p.add_argument("--tap-name-header", help="their display name, likewise; unset: the username")
+    p.add_argument("--phones-state", help="JSON {mac: key} in the state dir: phones learned from taps (tap.py)")
     p.add_argument("--mqtt-host", help="the MQTT broker: publish the robots and who is around to Home Assistant (mqtt.py)")
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-user")

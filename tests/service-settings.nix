@@ -430,6 +430,17 @@ let
       ];
     }
   ];
+  # The same, without phones tapped on robots.
+  routerNoTap = serverWith [
+    {
+      lanbat.deployment.haLlm = lib.mkForce {
+        baseUrl = "http://127.0.0.1:8092/v1";
+        model = "assistant";
+      };
+      lanbat.services.llama-cpp.settings.model = "qwen3-4b";
+      lanbat.services.assistant-router.settings.tap = false;
+    }
+  ];
   # The router configured on a server that lists its services without it.
   routerUnlisted =
     (lanbatLib.mkProfile "example" (
@@ -979,9 +990,32 @@ let
       && unit.serviceConfig.AmbientCapabilities == [ "CAP_NET_RAW" ]
       && unit.serviceConfig.IPAddressAllow == [ "localhost" ]
       && lib.hasInfix "--cards-file" presenceServer.systemd.services.assistant-router.serviceConfig.ExecStart
-      # Without the router, or without anyone's wifiMacs, it stays off.
-      && !(routerServer.systemd.services ? wifi-presence)
+      # Without the router, or without anyone's wifiMacs or taps, it stays off.
+      && !(base.systemd.services ? wifi-presence)
+      && !(routerNoTap.systemd.services ? wifi-presence)
       && failedAssertions presenceServer == [ ]
+    ))
+
+    (expect "who: a phone held to a robot opens a page behind the login, and its phone is learned" (
+      let
+        exec = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;
+        domain = routerServer.lanbat.deployment.domain;
+      in
+      routerServer.lanbat.services.who.subdomain == "who"
+      && routerServer.lanbat.services.who.port == 8772
+      && routerServer.lanbat.services.who.auth == "forward-auth"
+      && routerServer.services.caddy.virtualHosts ? "who.${domain}"
+      && lib.hasInfix "--tap-url https://who.${domain}" exec
+      && lib.hasInfix "--tap-user-header X-Authentik-Username" exec
+      && lib.hasInfix "--tap-name-header X-Authentik-Name" exec
+      && lib.hasInfix "--phones-state /var/lib/assistant-router/phones.json" exec
+      # wifi-presence runs for the learned phones, with none in the profile.
+      && builtins.fromJSON routerServer.systemd.services.wifi-presence.environment.PHONES == { }
+      && routerNoTap.lanbat.services.who.subdomain == null
+      && !(routerNoTap.services.caddy.virtualHosts ? "who.${domain}")
+      && !(lib.hasInfix "--tap-url" routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart)
+      && failedAssertions routerServer == [ ]
+      && failedAssertions routerNoTap == [ ]
     ))
 
     (expect "stackchan: the router's persona is the profile's" (

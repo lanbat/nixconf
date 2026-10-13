@@ -83,8 +83,8 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
 | Media feed bridge | `/var/lib/media-feed-bridge` | Video channels as audio podcast feeds for MA — loopback only; state is just the downloaded yt-dlp release (updated daily by a timer after a trial on the channels), safe to delete |
 | Wyoming pipeline | — | STT/TTS/wake word — model files managed by NixOS module |
 | Speaker identification (`voice-id`) | `/mnt/workload/voice-id` (voiceprints, a `workloadDirs` entry) | Speech-to-text proxy, in the voice path, so always-on; while the layer is locked it knows nobody and stores nothing, and it restarts when the layer comes online |
-| Assistant router (`assistant-router`) | — | Between Home Assistant's agent and the models, in the voice path; its only state is the request log in `/var/lib/assistant-router` (`logDays` days, what the microphones heard: personal data on the host root — set `logText = false` to keep only tier, route and timing) |
-| Who is home (`wifi-presence`) | — | Listens for the people's phones on the LAN for the assistant router; no state |
+| Assistant router (`assistant-router`) | — | Between Home Assistant's agent and the models, in the voice path; its state in `/var/lib/assistant-router` is the request log (`logDays` days, what the microphones heard: personal data on the host root — set `logText = false` to keep only tier, route and timing), the people added at runtime and the phones learned from taps (Wi-Fi address to person). The `who` page is part of it |
+| Who is home (`wifi-presence`) | — | Listens for the people's phones on the LAN (the profile's, and those learned from taps) for the assistant router; no state |
 | LLM gateway (`llm-gateway`) | — | LiteLLM in front of cloud LLM APIs; no state; keys from `llm-gateway-env` |
 | llama.cpp (`llama-cpp`) | — | Local conversation model — pinned in the Nix store, no state; runs only when `haLlm` is on the loopback |
 | SearXNG | — | Search proxy — stateless |

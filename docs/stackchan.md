@@ -217,7 +217,9 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
 - **Tags:** an NFC tag tapped on the robot fires Home Assistant's own tag scanner
   (*Settings → Tags*; "when a tag is scanned" automations), and a person's card names
   them ([people.md](people.md#cards)). It reads from the top of its head; it
-  perks up and glows when it has read one, also from a nap.
+  perks up and glows when it has read one, also from a nap. A phone held there opens
+  the router's "who tapped" page instead ([people.md](people.md#tap-your-phone)): the
+  robot is that page's tag, and reads cards whenever the router hasn't given it a link.
 - **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
   for automations: a stroke on its head could dim the lights, a wave skip a song.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to

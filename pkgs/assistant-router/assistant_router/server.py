@@ -30,6 +30,7 @@ from .people import People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
 from .state import State
+from .tap import LINK_PERIOD_S, Taps
 
 LOG = logging.getLogger("assistant-router")
 
@@ -99,6 +100,25 @@ def _person_key(name: str) -> str | None:
     checks it is unused before enrolling."""
     slug = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
     return slug or None
+
+
+async def forget_person(key: str, people_store: PeopleStore | None, voice: VoiceIdClient | None,
+                        frigate: Frigate | None) -> bool:
+    """Forget `key`'s voice and face; and them, when they were added at
+    runtime (True). One the profile declares stays (False)."""
+    if voice is not None:
+        await voice.forget(key)
+    if frigate is not None:
+        try:
+            faces = await frigate.list()
+            if faces.get(key):
+                await frigate.delete(key, faces[key])
+        except FrigateError:
+            pass
+    if people_store is not None and people_store.has(key):
+        people_store.remove(key)
+        return True
+    return False
 
 
 @dataclass
@@ -330,18 +350,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if key is None:
             return finish(device, "I'm not sure who you are, so I can't forget you.", tool_results)
         name = people.names.get(key, key)
-        if voice is not None:
-            await voice.forget(key)
-        if frigate is not None:
-            try:
-                faces = await frigate.list()
-                if faces.get(key):
-                    await frigate.delete(key, faces[key])
-            except FrigateError:
-                pass
         speakers.pop(device, None)
-        if people_store is not None and people_store.has(key):
-            people_store.remove(key)
+        if await forget_person(key, people_store, voice, frigate):
             return finish(device, f"Okay, {name}, I've forgotten you: your face and your voice.", tool_results)
         return finish(device, f"Okay, {name}, I've forgotten your recordings. "
                               "Your name is in the house settings, so it stays.", tool_results)
@@ -491,7 +501,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
-                  cards: dict[str, str] | None = None) -> web.Application:
+                  cards: dict[str, str] | None = None, taps: Taps | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -508,10 +518,37 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     voice-id and is dropped. A tag tapped on a robot that is a person's card
     (`cards`: UID -> person key) is that person, there, for two minutes. A house sensor
     (pkgs/wifi-presence) reports whose phones are on the home network
-    ({"home": [...]}), the full set every minute."""
+    ({"home": [...]}), the full set every minute; it is told the phones
+    learned from taps ({"phones": {mac: key}}), now and on each change. With
+    `taps`, each robot gets the link a phone held to it opens ({"tap": {"url"}}),
+    a new one every minute (tap.py)."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
     tasks: set[asyncio.Task] = set()
+    house: set[web.WebSocketResponse] = set()  # house sensors, told the learned phones
+
+    def spawn(coro) -> None:
+        tasks.add(asyncio.create_task(coro))
+        for t in [t for t in tasks if t.done()]:
+            tasks.discard(t)
+
+    async def tell_house(phones: dict[str, str]) -> None:
+        for ws in list(house):
+            try:
+                await ws.send_json({"phones": phones})
+            except Exception:  # pylint: disable=broad-except
+                house.discard(ws)
+
+    if taps is not None:
+        taps.listeners.append(lambda phones: spawn(tell_house(phones)))
+
+    async def new_links() -> None:
+        # Every minute on the minute, so a link is good for one to two minutes.
+        while True:
+            now = clock()
+            await asyncio.sleep(LINK_PERIOD_S - now % LINK_PERIOD_S + 0.5)
+            for room in bodies.rooms():
+                await bodies.send(room, {"tap": {"url": taps.link(room)}})
 
     def _b64(value) -> bytes | None:
         if not isinstance(value, str) or not value:
@@ -558,14 +595,21 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         # router has a face library to probe against.
                         try:
                             await ws.send_json({"body_hello": {"faces": frigate is not None}})
+                            if taps is not None:
+                                await ws.send_json({"tap": {"url": taps.link(room)}})
                         except Exception:  # pylint: disable=broad-except
                             pass
+                    elif kind == "house-sensor" and taps is not None:
+                        house.add(ws)
+                        await tell_house(dict(taps.phones))
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
                     bodies.event(room, data["event"])
                     tag = data["event"].get("nfc")
                     if isinstance(tag, str) and tag.upper() in (cards or {}):
                         people.observe(room, "card", cards[tag.upper()], 1.0, clock())
+                    if data["event"].get("tapped") is True:
+                        LOG.info(json.dumps({"body": "phone tapped", "room": room}))
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock(), source="aimed")
@@ -574,9 +618,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     if voice is not None and isinstance(sample.get("text"), str) \
                             and isinstance(sample.get("pcm"), str):
                         # Scored by voice-id, reported to /v1/voice, never kept.
-                        tasks.add(asyncio.create_task(voice.embed(sample["text"], sample["pcm"])))
-                        for t in [t for t in tasks if t.done()]:
-                            tasks.discard(t)
+                        spawn(voice.embed(sample["text"], sample["pcm"]))
                 elif room and kind not in non_bodies and "face_image" in data:
                     bodies.complete_capture(room, data["face_image"])
                 elif room and kind not in non_bodies and "face_probe" in data:
@@ -607,11 +649,22 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     people.observe_home([h.get("person") for h in data["home"][:64] if isinstance(h, dict)],
                                         clock())
         finally:
+            house.discard(ws)
             if room and kind not in non_bodies:
                 bodies.disconnect(room, ws)
                 LOG.info(json.dumps({"body": "gone", "room": room}))
         return ws
 
+    async def start_links(app: web.Application) -> None:
+        if taps is not None:
+            app["links"] = asyncio.create_task(new_links())
+
+    async def stop_links(app: web.Application) -> None:
+        if "links" in app:
+            app["links"].cancel()
+
     app = web.Application()
     app.router.add_get("/v1/body", socket)
+    app.on_startup.append(start_links)
+    app.on_cleanup.append(stop_links)
     return app

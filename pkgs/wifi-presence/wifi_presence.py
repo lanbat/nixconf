@@ -12,6 +12,12 @@ whose kernel filter passes only the listed addresses' frames:
   to the whole subnet every FULL_SWEEP_S to find them. Sleeping phones still
   answer ARP; many ignore ping.
 
+Phones also come from the router: a phone held to a robot opens a page that
+knows whose it is and learns its address (assistant-router tap.py). The
+router tells this service those, {"phones": {mac: person}}, when it connects
+and on each change; the profile's own addresses win, and the kernel filter is
+rebuilt.
+
 The router hears the full set of who is home every minute, as a "house-sensor"
 on its body socket: {"home": [{"person": "alex"}]}. Being home is a mild hint
 for who is speaking (pkgs/assistant-router people.py), never authority over
@@ -76,6 +82,18 @@ def parse_phones(text: str) -> dict[str, str]:
                 m = normalise_mac(mac)
                 if m:
                     out[m] = str(person)
+    return out
+
+
+def merge_phones(static: dict[str, str], learned) -> dict[str, str]:
+    """The profile's phones, then those learned from taps, up to MAX_PHONES."""
+    out = dict(static)
+    if isinstance(learned, dict):
+        for mac, person in sorted(learned.items()):
+            m = normalise_mac(mac)
+            if m and m not in out and isinstance(person, str) and 0 < len(person) <= 40 \
+                    and len(out) < MAX_PHONES:
+                out[m] = person
     return out
 
 
@@ -190,7 +208,8 @@ class Service:
     def __init__(self, interface: str, subnet: str, phones: dict[str, str], router_url: str) -> None:
         self.interface = interface
         self.subnet = subnet
-        self.presence = Presence(phones)
+        self.static = dict(phones)
+        self.presence = Presence(dict(phones))
         self.router_url = router_url
         self.sock: socket.socket | None = None
         self.own_mac = b""
@@ -205,6 +224,25 @@ class Service:
         sock.bind((self.interface, 0))
         sock.setblocking(False)
         self.sock = sock
+
+    def learned(self, phones) -> None:
+        """The phones the router learned from taps: the whole set, each time."""
+        merged = merge_phones(self.static, phones)
+        if merged == self.presence.phones:
+            return
+        self.presence.phones = merged
+        if self.sock is not None:
+            attach_filter(self.sock, bpf_source_macs(sorted(merged)))
+        log(f"listening for {len(merged)} phones ({len(merged) - len(self.static)} learned from taps)")
+
+    async def listen(self, ws) -> None:
+        async for raw in ws:
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and "phones" in msg:
+                self.learned(msg["phones"])
 
     def on_readable(self) -> None:
         while True:
@@ -244,13 +282,18 @@ class Service:
                     delay = 1
                     await ws.send(json.dumps({"hello": {"room": "house", "kind": "house-sensor", "proto": PROTOCOL}}))
                     log(f"telling {self.router_url} who is home")
-                    while True:
-                        home = self.presence.home(time.time())
-                        if home != self.reported:
-                            log(f"home: {', '.join(home) or 'nobody'}")
-                            self.reported = home
-                        await ws.send(json.dumps({"home": [{"person": p} for p in home]}))
-                        await asyncio.sleep(REPORT_S)
+                    listening = asyncio.create_task(self.listen(ws))
+                    try:
+                        while not listening.done():
+                            home = self.presence.home(time.time())
+                            if home != self.reported:
+                                log(f"home: {', '.join(home) or 'nobody'}")
+                                self.reported = home
+                            await ws.send(json.dumps({"home": [{"person": p} for p in home]}))
+                            await asyncio.wait([listening], timeout=REPORT_S)
+                        listening.result()  # the router hung up: why
+                    finally:
+                        listening.cancel()
             except (OSError, websockets.exceptions.WebSocketException) as err:
                 log(f"router unreachable ({err}); retrying")
             await asyncio.sleep(delay)
@@ -266,7 +309,7 @@ class Service:
 def main() -> None:
     phones = parse_phones(os.environ.get("PHONES", "{}"))
     if not phones:
-        log("no phones to look for (people.<key>.wifiMacs); idle")
+        log("no phones in the profile (people.<key>.wifiMacs); waiting for taps")
     service = Service(
         interface=os.environ["INTERFACE"],
         subnet=os.environ["SUBNET"],

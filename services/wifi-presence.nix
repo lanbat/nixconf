@@ -8,9 +8,10 @@
 # the last 10 minutes is home; the router weighs that, mildly, into who is
 # speaking. A hint, never authority.
 #
-# It runs where the assistant router runs, once someone has wifiMacs, and
-# reports to the router's body socket on the loopback. No state, no secrets,
-# nothing listening.
+# It runs where the assistant router runs, once someone has wifiMacs or the
+# router learns phones from taps on a robot (its "who" page, tap.py: the
+# router hands them over on the body socket). It reports to the router's body
+# socket on the loopback. No state, no secrets, nothing listening.
 {
   config,
   lib,
@@ -27,7 +28,8 @@ let
   routerHere =
     hostLib.haLlmIsRouter (config.lanbat.deployment.haLlm or null)
     && config.lanbat.hasService "assistant-router";
-  enabled = routerHere && phones != { };
+  tapping = config.lanbat.services ? who && config.lanbat.services.who.port != null;
+  enabled = routerHere && (phones != { } || tapping);
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 in
 {
