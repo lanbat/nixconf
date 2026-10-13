@@ -10,6 +10,7 @@ prompt:
                                "night": false, "nap": false, "battery": 87, "charging": false, "link": "usb",
                                "mood": "neutral", "brightness": 180, "fw": "1.5.0"}}
                     {"event": {"touch": "tap|stroke", "zone": "front|middle|back|screen|null"}}
+                    {"event": {"wave": true}}      a hand waved in front of its screen
                     {"face_image": "<base64>"}   a face it was asked to capture
                     {"face_image": null}          it couldn't get one
     router -> body  {"act": {"mood": "happy", "gesture": "nod", "look": "user", "sleep": false}}
@@ -99,6 +100,8 @@ class BodyState:
     mood: str | None = None
     brightness: int | None = None
     fw: str | None = None
+    lux: int | None = None  # light at its sensor: relative (behind dark glass)
+    near: bool = False  # a hand close to its screen
 
 
 def _key(room: str) -> str:
@@ -130,7 +133,9 @@ class Bodies:
         if self.events is None or not self.has(room) or not isinstance(event, dict):
             return
         touch, zone = event.get("touch"), event.get("zone")
-        if touch in ("tap", "stroke"):
+        if event.get("wave") is True:
+            touch, zone = "wave", None
+        if touch in ("tap", "stroke", "wave"):
             try:
                 self.events.put_nowait((self._names.get(_key(room), room), {
                     "touch": touch, "zone": zone if zone in ("front", "middle", "back", "screen") else None}))
@@ -184,6 +189,10 @@ class Bodies:
             state.mood = fields["mood"]
         if type(fields.get("brightness")) is int and 0 <= fields["brightness"] <= 255:
             state.brightness = fields["brightness"]
+        if type(fields.get("lux")) is int and 0 <= fields["lux"] <= 100000:
+            state.lux = fields["lux"]
+        if type(fields.get("near")) is bool:
+            state.near = fields["near"]
         if isinstance(fields.get("fw"), str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,16}", fields["fw"]):
             state.fw = fields["fw"]
 

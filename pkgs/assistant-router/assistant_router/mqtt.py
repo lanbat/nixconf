@@ -86,6 +86,14 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                value_template="{{ 'ON' if value_json.night else 'OFF' }}"),
         entity("event", "touch", "Touch", state_topic=f"{base}/event/touch", event_types=["tap", "stroke"],
                icon="mdi:hand-back-right"),
+        entity("event", "wave", "Wave", state_topic=f"{base}/event/wave", event_types=["wave"],
+               icon="mdi:hand-wave"),
+        # Behind the CoreS3's dark glass a lit room reads a few lux: relative.
+        entity("sensor", "illuminance", "Light at the sensor", state_topic=state, device_class="illuminance",
+               unit_of_measurement="lx", state_class="measurement", value_template="{{ value_json.lux }}",
+               entity_category="diagnostic"),
+        entity("binary_sensor", "hand_near", "Hand near", state_topic=state, icon="mdi:hand-back-left",
+               value_template="{{ 'ON' if value_json.near else 'OFF' }}"),
         entity("select", "mood_select", "Set mood", command_topic=f"{base}/cmd/mood", options=list(MOODS),
                state_topic=state, value_template="{{ value_json.mood if value_json.mood in "
                                                    + json.dumps(list(MOODS)) + " else 'neutral' }}"),
@@ -134,7 +142,7 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
         return None
     return {"present": s.present, "battery": s.battery, "charging": s.charging, "battery_low": s.battery_low,
             "link": s.link, "mood": s.mood, "nap": s.nap, "night": s.night, "brightness": s.brightness,
-            "fw": s.fw}
+            "fw": s.fw, "lux": s.lux, "near": s.near}
 
 
 def _names(people: People, keys) -> str:
@@ -243,6 +251,10 @@ class HomeAssistant:
     async def events(self, publish: Publish) -> None:
         while True:
             room, event = await self.bodies.events.get()
+            if event["touch"] == "wave":
+                await self._send(publish, f"{_base(room)}/event/wave", {"event_type": "wave"},
+                                 retain=False, force=True)
+                continue
             await self._send(publish, f"{_base(room)}/event/touch",
                              {"event_type": event["touch"], "zone": event["zone"]}, retain=False, force=True)
 

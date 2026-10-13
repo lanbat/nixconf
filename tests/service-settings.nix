@@ -852,6 +852,7 @@ let
       && lib.elem "pipewire" unit.serviceConfig.SupplementaryGroups
       && unit.environment.NIGHT_START == "23:00"
       && unit.environment.NAP_AFTER_S == "900"
+      && unit.environment.AUTO_BRIGHTNESS == "1"
       && unit.environment.SOUND_DIRECTION == "1"
       && unit.environment.SOUND_OFFSET_DEG == "0"
       && unit.environment.SOUND_TURN_MIN_DEG == "15"

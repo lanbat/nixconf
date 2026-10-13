@@ -151,3 +151,17 @@ async def test_touches_become_events():
     task.cancel()
     touches = [(t, json.loads(p), r) for t, p, r in broker.messages]
     assert touches == [("lanbat/stackchan/living_room/event/touch", {"event_type": "stroke", "zone": "back"}, False)]
+
+
+async def test_a_wave_is_its_own_event_and_light_is_published():
+    bodies, _, ha, _, _ = setup()
+    bodies.update("Living room", {"lux": 37, "near": True}, 100.0)
+    broker = Broker()
+    await ha.tick(broker.publish)
+    state = broker.last("lanbat/stackchan/living_room/state")
+    assert state["lux"] == 37 and state["near"] is True
+    bodies.event("Living room", {"wave": True})
+    task = asyncio.create_task(ha.events(broker.publish))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    assert broker.last("lanbat/stackchan/living_room/event/wave") == {"event_type": "wave"}
