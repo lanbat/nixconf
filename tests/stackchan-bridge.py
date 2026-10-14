@@ -789,6 +789,61 @@ class EarBridge(unittest.TestCase):
         self.assertEqual(bridge.ear_audio, bytearray())
 
 
+class DirectionListener(unittest.TestCase):
+    """The four mics are recorded only while the robot is on this Pi's USB."""
+
+    def test_recording_follows_the_usb_link(self):
+        import stackchan_bridge as sb
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            spawns = os.path.join(tmp, "spawns")
+            fake = os.path.join(tmp, "pw-record")
+            with open(fake, "w") as f:
+                # Python, not sh and cat: the Nix build sandbox has neither on PATH.
+                f.write(f"#!{sys.executable}\nimport sys\nopen({spawns!r}, 'a').write('x\\n')\n"
+                        "while True:\n    sys.stdout.buffer.write(bytes(4096))\n")
+            os.chmod(fake, 0o755)
+            old = (os.environ.get("PW_RECORD"), sb.DOA_USB_POLL_S)
+            os.environ["PW_RECORD"], sb.DOA_USB_POLL_S = fake, 0.02
+            bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+
+            def count():
+                return len(open(spawns).read().splitlines()) if os.path.exists(spawns) else 0
+
+            async def go():
+                task = asyncio.create_task(bridge.doa_loop())
+                await asyncio.sleep(0.3)
+                on_wifi = count()  # the robot isn't on USB: nothing recorded
+                bridge.serial_writer = object()
+                for _ in range(150):
+                    if count() and bridge.mic_window is not None:
+                        break
+                    await asyncio.sleep(0.02)
+                await asyncio.sleep(0.2)
+                on_usb, window = count(), bridge.mic_window is not None
+                bridge.serial_writer = None
+                for _ in range(150):  # stopping the recorder can take a moment in a sandbox
+                    if bridge.mic_window is None:
+                        break
+                    await asyncio.sleep(0.02)
+                gone = bridge.mic_window is None
+                task.cancel()
+                return on_wifi, on_usb, window, gone
+
+            try:
+                on_wifi, on_usb, window, gone = asyncio.run(go())
+            finally:
+                if old[0] is None:
+                    os.environ.pop("PW_RECORD", None)
+                else:
+                    os.environ["PW_RECORD"] = old[0]
+                sb.DOA_USB_POLL_S = old[1]
+            self.assertEqual(on_wifi, 0)
+            self.assertEqual(on_usb, 1)
+            self.assertTrue(window)
+            self.assertTrue(gone)
+
+
 class Phones(unittest.TestCase):
     """The robot as a room sensor: keys over USB, sightings to the router."""
 

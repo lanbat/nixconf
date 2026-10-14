@@ -658,6 +658,9 @@ DOA_RATE = 48000  # the card's own rate: no resampling
 DOA_CHANNELS = 4
 DOA_WINDOW_S = 0.3
 DOA_CHUNK = 256  # frames per read, one pass through the window's deques
+DOA_RETRY_S = 3  # a failed recorder: retried after this, doubling...
+DOA_RETRY_MAX_S = 300  # ...up to this (a microphone left unplugged costs nothing)
+DOA_USB_POLL_S = 2.0  # how often an idle direction listener looks for the robot on USB
 
 CAPTURE_SETTLE_S = 1.2  # the head just turned: let it arrive before the frame
 CAPTURE_TIMEOUT_S = 5.0  # the robot answers a capture with a face_image
@@ -1164,10 +1167,17 @@ class Bridge:
     async def doa_loop(self) -> None:
         """The rolling window behind hear_direction: the microphone node at
         its full channel count, not the mono LVA listens on."""
-        self.mic_window = MicWindow(DOA_CHANNELS, int(DOA_WINDOW_S * DOA_RATE))
-        delay = 3
+        delay = DOA_RETRY_S
         while True:
+            # Only while the robot is on this Pi's USB, next to these mics: on
+            # Wi-Fi it is elsewhere and hear_direction ignores them, so the
+            # four channels (and PipeWire's work for them) would be wasted.
+            while self.serial_writer is None:
+                self.mic_window = None
+                await asyncio.sleep(DOA_USB_POLL_S)
+            self.mic_window = MicWindow(DOA_CHANNELS, int(DOA_WINDOW_S * DOA_RATE))
             proc: asyncio.subprocess.Process | None = None
+            started = time.monotonic()
             try:
                 proc = await asyncio.create_subprocess_exec(
                     os.environ.get("PW_RECORD", "pw-record"),
@@ -1177,18 +1187,30 @@ class Bridge:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
-                delay = 3
-                log(f"hearing direction on {self.config.sound_source}")
-                while True:
-                    self.mic_window.push(await proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2))
-            except (OSError, asyncio.IncompleteReadError) as err:
-                log(f"direction listener stopped ({err}); retrying")
+                if delay == DOA_RETRY_S:
+                    log(f"hearing direction on {self.config.sound_source}")
+                while self.serial_writer is not None:
+                    # A stalled recorder (no data in 2 s) is restarted, and the
+                    # robot leaving USB is seen even then.
+                    self.mic_window.push(await asyncio.wait_for(
+                        proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2), 2.0))
+                self.mic_window = None  # the robot left USB: wait for it, quietly
+                continue
+            except (OSError, asyncio.IncompleteReadError, asyncio.TimeoutError) as err:
+                self.mic_window = None  # nothing current to estimate from
+                if delay == DOA_RETRY_S:
+                    log(f"direction listener stopped ({err}); retrying, less often while it fails")
             finally:
                 if proc is not None and proc.returncode is None:
                     proc.terminate()
-                    await proc.wait()
+                    try:
+                        await asyncio.wait_for(proc.wait(), 2.0)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+            # A node that is missing (the microphone unplugged) fails at once:
+            # back off, and start over only after a recorder that kept running.
+            delay = DOA_RETRY_S if time.monotonic() - started > 30 else min(delay * 2, DOA_RETRY_MAX_S)
             await asyncio.sleep(delay)
-            delay = min(delay * 2, 30)
 
     async def hear_direction(self) -> None:
         """The voice was just heard: turn to it, and with the head aimed take
