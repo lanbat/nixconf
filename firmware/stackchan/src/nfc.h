@@ -33,5 +33,7 @@ void readFor(uint32_t ms);
 Event update(bool resting);
 // For {"debug": "nfc"}: what it is doing.
 String status();
+// "tag" (for phones) or "reader" (for cards), for the health line.
+const char* mode();
 
 }  // namespace nfc

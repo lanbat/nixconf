@@ -27,6 +27,7 @@
 //   {"led": {"rgb": [r, g, b]} | null}  a notification light (Home Assistant)
 //   {"tap": {"url": "https://..."}}  the link it is a tag with, for phones (nfc.h)
 //   {"nfc_read": seconds}           read cards instead, for a while
+//   {"nap": true|false}             nap now, or wake from a nap
 //   {"config": {..., "auto_brightness": bool}}  the screen follows the room's light
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
@@ -46,6 +47,8 @@
 //   {"wave": true}                   a hand waved in front of the screen
 //   {"nfc": "<UID hex>"}            a tag or card tapped on it (nfc.h)
 //   {"tapped": true}                 a phone read its link (its tag, nfc.h)
+//   {"health": {"rssi", "heap_kb", "psram_kb", "uptime_s", "nfc": "tag|reader",
+//               "yaw"}}             every minute: how it is doing (yaw in degrees)
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -55,6 +58,7 @@
 #include <Avatar.h>
 #include <M5StackChan.h>
 #include <M5Unified.h>
+#include <WiFi.h>
 #include <esp_heap_caps.h>
 
 #include <freertos/idf_additions.h>
@@ -71,7 +75,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.8.0";
+constexpr const char* kFirmware = "1.9.0";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -498,6 +502,11 @@ void handle(JsonDocument& doc, pilink::Via via) {
     showText();
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
+  if (doc["nap"].is<bool>()) {
+    // {"nap": true|false}: from Home Assistant; not at night, which has its own rest.
+    if (doc["nap"].as<bool>() && !napping && !asleep) startNap();
+    if (!doc["nap"].as<bool>()) endNap();
+  }
   if (doc["nfc_read"].is<int>() && hasNfc) {
     // {"nfc_read": seconds}: read cards for a while ("remember this card").
     nfc::readFor((uint32_t)constrain(doc["nfc_read"].as<int>(), 0, 120) * 1000);
@@ -868,8 +877,26 @@ void setup() {
   xTaskCreatePinnedToCoreWithCaps(captureTask, "face", 8192, nullptr, 3, nullptr, 1, MALLOC_CAP_SPIRAM);
 }
 
+// Every minute: the link's signal, free memory, its NFC's mode and where the
+// head points, for Home Assistant (through the Pi).
+void runHealth() {
+  static uint32_t next = 5000;
+  uint32_t now = millis();
+  if (now < next) return;
+  next = now + 60000;
+  JsonDocument doc;
+  if (pilink::active() == pilink::Via::Wifi) doc["health"]["rssi"] = WiFi.RSSI();
+  doc["health"]["heap_kb"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
+  doc["health"]["psram_kb"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024;
+  doc["health"]["uptime_s"] = now / 1000;
+  if (hasNfc) doc["health"]["nfc"] = nfc::mode();
+  doc["health"]["yaw"] = targetYaw / 10;
+  send(doc);
+}
+
 void loop() {
   M5StackChan.update();  // touch sensor (and M5.update)
+  runHealth();
   readLink();
   runEar();
   phones::update();

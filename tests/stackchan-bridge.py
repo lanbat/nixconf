@@ -339,10 +339,12 @@ class Router(unittest.TestCase):
     def test_presence_is_reported_on_change(self):
         b = Brain(Config(), now=NOON)
         self.assertEqual(self.router(b.on_device({"face": "new"}, NOON)),
-                         [{"state": {"present": True, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}}])
+                         [{"state": {"present": True, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}},
+                          {"event": {"face": "new"}}])
         self.assertEqual(self.router(b.on_device({"face": "new"}, NOON + 1)), [])
         self.assertEqual(self.router(b.on_device({"face": "lost"}, NOON + 90)),
-                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}}])
+                         [{"state": {"present": False, "present_since_s": 0, "asleep": False, "battery_low": False, "ear": False}},
+                          {"event": {"face": "lost"}}])
 
     def test_state_on_connect(self):
         b = Brain(Config(), now=NOON)
@@ -842,6 +844,64 @@ class DirectionListener(unittest.TestCase):
             self.assertEqual(on_usb, 1)
             self.assertTrue(window)
             self.assertTrue(gone)
+
+
+class MoreForHomeAssistant(unittest.TestCase):
+    def test_the_conversation_phase_and_the_wake_word(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_lva("wake_word_detected", {}, NOON)
+        self.assertIn(("router", {"event": {"wake": True}}), out)
+        self.assertEqual(b.router_state(NOON)["phase"], "listening")
+        for event, phase in (("thinking", "thinking"), ("tts_speaking", "speaking"),
+                             ("tts_finished", "speaking"), ("idle", "idle")):
+            b.on_lva(event, {}, NOON)
+            self.assertEqual(b.router_state(NOON)["phase"], phase, event)
+
+    def test_health_is_kept_when_in_range(self):
+        b = Brain(Config(), now=NOON)
+        b.on_device({"health": {"rssi": -61, "heap_kb": 87, "psram_kb": 5000, "nfc": "tag", "yaw": -12}}, NOON)
+        s = b.router_state(NOON)
+        self.assertEqual((s["rssi"], s["heap_kb"], s["psram_kb"], s["nfc_mode"], s["head_yaw"]),
+                         (-61, 87, 5000, "tag", -12))
+        b.on_device({"health": {"rssi": 5, "heap_kb": "x", "nfc": "card", "yaw": 400}}, NOON)
+        s = b.router_state(NOON)
+        self.assertEqual((s["rssi"], s["heap_kb"], s["nfc_mode"], s["head_yaw"]), (None, None, None, None))
+
+    def test_the_voice_direction_is_kept_even_without_a_turn(self):
+        b = Brain(Config(), now=NOON)
+        b.on_sound(5.4, 0.9, NOON)  # within the turn threshold: no turn
+        self.assertEqual(b.router_state(NOON)["voice_dir"], 5)
+
+    def test_new_controls(self):
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(b.on_router({"act": {"yaw": -30}}, NOON), [("device", {"yaw": -300})])
+        self.assertEqual(b.on_router({"act": {"yaw": 99}}, NOON), [])
+        self.assertEqual(b.on_router({"act": {"nap": True}}, NOON), [("device", {"nap": True})])
+        self.assertEqual(b.on_router({"act": {"listen": "start"}}, NOON), [("lva", {"command": "start_listening"})])
+        self.assertEqual(b.on_router({"act": {"listen": "stop"}}, NOON), [("lva", {"command": "stop_pipeline"})])
+        self.assertEqual(b.on_router({"act": {"listen": "rm -rf"}}, NOON), [])
+
+    def test_servo_faults_go_to_the_router(self):
+        b = Brain(Config(), now=NOON)
+        self.assertIn(("router", {"event": {"servo_fault": 2}}), b.on_device({"servo_fault": 2}, NOON))
+
+    def test_pi_undervoltage_from_hwmon(self):
+        import stackchan_bridge as sb
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIsNone(sb.pi_undervolt(root))
+            os.makedirs(os.path.join(root, "hwmon1"))
+            with open(os.path.join(root, "hwmon1", "name"), "w") as f:
+                f.write("rpi_volt\n")
+            with open(os.path.join(root, "hwmon1", "in0_lcrit_alarm"), "w") as f:
+                f.write("1\n")
+            self.assertTrue(sb.pi_undervolt(root))
+
+    def test_the_last_problem_is_kept_short(self):
+        import stackchan_bridge as sb
+        sb.log("robot write failed: " + "x" * 200)
+        self.assertEqual(len(sb.last_error()), 80)
+        self.assertTrue(sb.last_error().startswith("robot write failed"))
 
 
 class Phones(unittest.TestCase):

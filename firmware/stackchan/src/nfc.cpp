@@ -250,6 +250,8 @@ Event work(bool resting) {
   return e;
 }
 
+const char* mode() { return beingTag ? "tag" : "reader"; }
+
 String status() {
   static const char* names[] = {"none", "off", "idle", "ready", "active", "halt"};
   int st = (int)tag.state();

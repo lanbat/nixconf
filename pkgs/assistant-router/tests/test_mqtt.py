@@ -179,3 +179,57 @@ async def test_a_tapped_tag_goes_to_home_assistants_tag_scanner():
     await asyncio.sleep(0.01)
     task.cancel()
     assert broker.messages == [("lanbat/stackchan/living_room/tag", "0435249AD11290", False)]
+
+
+async def test_what_it_does_and_how_it_is_reach_home_assistant():
+    bodies, _, ha, _, _ = setup()
+    bodies.update("Living room", {"phase": "speaking", "voice_dir": 35, "head_yaw": -10, "rssi": -58,
+                                  "heap_kb": 92, "psram_kb": 6100, "nfc_mode": "tag", "pi_undervolt": True,
+                                  "bridge_error": "router write failed\x07: closed"}, 100.0)
+    broker = Broker()
+    await ha.tick(broker.publish)
+    s = broker.last("lanbat/stackchan/living_room/state")
+    assert (s["phase"], s["voice_dir"], s["head_yaw"], s["rssi"], s["heap_kb"], s["nfc_mode"]) == \
+        ("speaking", 35, -10, -58, 92, "tag")
+    assert s["pi_undervolt"] is True and s["bridge_error"] == "router write failed: closed"
+    # Out of range or unknown: dropped to unknown, never passed on.
+    bodies.update("Living room", {"phase": "dancing", "rssi": 40, "nfc_mode": "card", "voice_dir": "left"}, 101.0)
+    await ha.tick(broker.publish)
+    s = broker.last("lanbat/stackchan/living_room/state")
+    assert (s["phase"], s["rssi"], s["nfc_mode"], s["voice_dir"]) == ("speaking", None, None, None)
+
+
+async def test_its_own_events_become_event_entities():
+    bodies, _, ha, _, _ = setup()
+    broker = Broker()
+    for event in ({"wake": True}, {"gesture": "perk"}, {"face": "lost"}, {"tapped": True},
+                  {"servo_fault": 3}, {"gesture": "explode"}, {"face": "maybe"}):
+        bodies.event("Living room", event)
+    bodies.announce("Living room", {"card": "learned", "person": "Kiril"})
+    task = asyncio.create_task(ha.events(broker.publish))
+    await asyncio.sleep(0.01)
+    task.cancel()
+    got = {t.rsplit("/", 1)[1]: json.loads(p) for t, p, _ in broker.messages}
+    assert got == {"wake": {"event_type": "wake"}, "gesture": {"event_type": "perk"},
+                   "face": {"event_type": "lost"}, "phone_tap": {"event_type": "tap"},
+                   "servo_fault": {"event_type": "fault", "servo": 3},
+                   "card": {"event_type": "learned", "person": "Kiril"}}
+    configs = dict(robot_discovery("Living room"))
+    gesture = configs["homeassistant/event/lanbat_stackchan_living_room/gesture/config"]
+    assert "perk" in gesture["event_types"]
+
+
+async def test_more_controls():
+    assert command("look", "up") == {"look": "up"}
+    assert command("look", "sideways") is None
+    assert command("turn", "-30") == {"yaw": -30}
+    assert command("turn", "90") is None
+    assert command("nap", "ON") == {"nap": True}
+    assert command("listen", "start") == {"listen": "start"}
+    assert command("listen", "stop") == {"listen": "stop"}
+    assert command("listen", "now") is None
+    bodies, _, ha, socket, _ = setup()
+    broker = Broker()
+    await ha.handle("lanbat/stackchan/living_room/cmd/read_card", "ON", broker.publish)
+    await ha.handle("lanbat/stackchan/living_room/cmd/turn", "25", broker.publish)
+    assert socket.sent == [{"nfc_read": 30}, {"act": {"yaw": 25}}]

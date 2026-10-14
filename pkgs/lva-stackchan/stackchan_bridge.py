@@ -90,8 +90,49 @@ DEFAULT_SAD_WORDS = (
 DEFAULT_SOUND_GEOMETRY = "-0.03,0;-0.01,0;0.01,0;0.03,0"
 
 
+# The conversation's phase for Home Assistant, from LVA's events.
+PHASES = {
+    "wake_word_detected": "listening",
+    "listening": "listening",
+    "thinking": "thinking",
+    "tts_speaking": "speaking",
+    "idle": "idle",
+    "pipeline_error": "idle",
+    "disconnected": "idle",
+}
+
+_ERROR_WORDS = ("failed", "unreachable", "error", "fault", "gone")
+_last_error = {"text": None}
+
+
 def log(msg: str) -> None:
     print(f"lva-stackchan: {msg}", file=sys.stderr, flush=True)
+    if any(w in msg.lower() for w in _ERROR_WORDS):
+        _last_error["text"] = msg[:80]
+
+
+def last_error() -> str | None:
+    """The last line that reported a problem (80 characters at most)."""
+    return _last_error["text"]
+
+
+def pi_undervolt(root: str = "/sys/class/hwmon") -> bool | None:
+    """Whether this Pi's supply is sagging now (the firmware's rpi_volt
+    alarm), or None on a host without one."""
+    try:
+        for name in os.listdir(root):
+            base = os.path.join(root, name)
+            try:
+                with open(os.path.join(base, "name"), encoding="ascii") as f:
+                    if f.read().strip() != "rpi_volt":
+                        continue
+                with open(os.path.join(base, "in0_lcrit_alarm"), encoding="ascii") as f:
+                    return f.read().strip() == "1"
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return None
 
 
 def _minutes(hhmm: str) -> int | None:
@@ -200,6 +241,15 @@ class Brain:
     near: bool = False  # a hand close to its screen
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
     tap_url: str = ""  # the link the robot is a tag with, from the router; it keeps nothing
+    # For Home Assistant (through the router): what it is doing and how it is.
+    phase: str = "idle"  # idle, listening, thinking, speaking: the conversation
+    voice_dir: int | None = None  # the last voice's direction, degrees, + to its left
+    head_yaw: int | None = None  # where the head points, degrees (its health line)
+    rssi: int | None = None  # its Wi-Fi signal, dBm, while on Wi-Fi
+    heap_kb: int | None = None
+    psram_kb: int | None = None
+    nfc_mode: str | None = None  # "tag" (for phones) or "reader" (for cards)
+    pi_undervolt: bool | None = None  # this Pi's supply sagging (None: can't tell)
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -242,7 +292,16 @@ class Brain:
                 "brightness": self.config.brightness,
                 "fw": self.firmware,
                 "lux": self.lux,
-                "near": self.near}
+                "near": self.near,
+                "phase": self.phase,
+                "voice_dir": self.voice_dir,
+                "head_yaw": self.head_yaw,
+                "rssi": self.rssi,
+                "heap_kb": self.heap_kb,
+                "psram_kb": self.psram_kb,
+                "nfc_mode": self.nfc_mode,
+                "pi_undervolt": self.pi_undervolt,
+                "bridge_error": last_error()}
 
     def _listening(self) -> bool:
         return self.ear and self.router
@@ -317,6 +376,9 @@ class Brain:
     def on_lva(self, event: str, data: dict, now: float) -> list:
         self.now = now
         out: list = []
+        self.phase = PHASES.get(event, self.phase)
+        if event == "wake_word_detected":
+            out.append(("router", {"event": {"wake": True}}))
         if event in ("wake_word_detected", "listening"):
             if not self.in_turn:
                 self.in_turn, self.heard, self.replied = True, False, False
@@ -433,6 +495,16 @@ class Brain:
             out.append(("device", {"gesture": gesture}))
         if act.get("look") in LOOKS:
             out.append(("device", {"look": act["look"]}))
+        yaw = act.get("yaw")
+        if type(yaw) is int and -70 <= yaw <= 70:
+            # The head to an angle, degrees (+ to its left); the robot takes tenths.
+            out.append(("device", {"yaw": yaw * 10}))
+        if type(act.get("nap")) is bool:
+            out.append(("device", {"nap": act["nap"]}))
+        if act.get("listen") == "start":
+            out.append(("lva", {"command": "start_listening"}))
+        elif act.get("listen") == "stop":
+            out.append(("lva", {"command": "stop_pipeline"}))
         sleep = act.get("sleep")
         if type(sleep) is bool:
             # Until night or day next changes (tick); in a turn, at its end.
@@ -469,6 +541,19 @@ class Brain:
             self.present = face == "new"
             self.present_at = now
             out.append(("router", {"state": self.router_state(now)}))
+            out.append(("router", {"event": {"face": face}}))
+        health = msg.get("health")
+        if isinstance(health, dict):
+            # Every minute from the robot: kept for Home Assistant, as given
+            # when in range, else unknown.
+            def number(key, lo, hi):
+                value = health.get(key)
+                return value if type(value) is int and lo <= value <= hi else None
+            self.rssi = number("rssi", -127, 0)
+            self.heap_kb = number("heap_kb", 0, 1 << 20)
+            self.psram_kb = number("psram_kb", 0, 1 << 20)
+            self.head_yaw = number("yaw", -90, 90)
+            self.nfc_mode = health.get("nfc") if health.get("nfc") in ("tag", "reader") else None
         battery = msg.get("battery")
         if isinstance(battery, dict):
             if type(battery.get("level")) is int:
@@ -558,6 +643,8 @@ class Brain:
                 out += [self._mood("happy"), ("device", {"gesture": "nod"})]
         if msg.get("servo_fault") is not None:
             out.append(("log", f"servo {msg['servo_fault']} reported a fault"))
+            if type(msg["servo_fault"]) is int:
+                out.append(("router", {"event": {"servo_fault": msg["servo_fault"]}}))
         if msg.get("log"):
             out.append(("log", f"robot: {msg['log']}"))
         return out
@@ -570,6 +657,7 @@ class Brain:
         free gesture."""
         self.now = now
         target = angle + self.config.sound_offset_deg
+        self.voice_dir = int(round(target))
         if _angle_moved(target, self.sound_angle) < self.config.sound_turn_min_deg:
             return []
         self.sound_angle = target
@@ -1009,6 +1097,11 @@ class Bridge:
         for kind, value in actions:
             if kind == "device":
                 await self.send_device(value)
+                if isinstance(value, dict) and value.get("gesture") in GESTURES and self.router_ws is not None:
+                    try:
+                        await self.router_ws.send(json.dumps({"event": {"gesture": value["gesture"]}}))
+                    except Exception as err:  # pylint: disable=broad-except
+                        log(f"router write failed: {err}")
             elif kind == "lva":
                 if self.ws is not None:
                     await self.ws.send(json.dumps(value))
@@ -1160,6 +1253,7 @@ class Bridge:
     async def clock_loop(self) -> None:
         while True:
             await asyncio.sleep(3)
+            self.brain.pi_undervolt = pi_undervolt()
             await self.act(self.brain.tick(time.time()))
             # Heartbeat: the robot shows it has lost its Pi after 10 s without a line.
             await self.send_device({"ping": 1})

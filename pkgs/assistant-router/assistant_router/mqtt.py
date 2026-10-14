@@ -30,7 +30,9 @@ import logging
 import re
 from typing import Any, Awaitable, Callable
 
-from .body import MOODS, Bodies
+from .body import GESTURE_EVENTS, MOODS, PHASES, Bodies
+
+LOOKS = ("track", "user", "up", "center")
 from .people import People
 
 LOG = logging.getLogger("assistant-router")
@@ -116,6 +118,57 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:account-voice"),
         entity("sensor", "nearby", "Probably nearby", state_topic=f"{base}/identity",
                value_template="{{ value_json.nearby }}", icon="mdi:account-group"),
+        # What it is doing.
+        entity("sensor", "phase", "Conversation", state_topic=state, device_class="enum",
+               options=list(PHASES), value_template="{{ value_json.phase }}", icon="mdi:chat-processing"),
+        entity("sensor", "voice_dir", "Voice direction", state_topic=state, unit_of_measurement="°",
+               value_template="{{ value_json.voice_dir }}", icon="mdi:account-voice",
+               entity_category="diagnostic"),
+        entity("sensor", "head_yaw", "Head direction", state_topic=state, unit_of_measurement="°",
+               value_template="{{ value_json.head_yaw }}", icon="mdi:head-sync-outline",
+               entity_category="diagnostic"),
+        # How it is.
+        entity("sensor", "rssi", "Wi-Fi signal", state_topic=state, device_class="signal_strength",
+               unit_of_measurement="dBm", state_class="measurement", value_template="{{ value_json.rssi }}",
+               entity_category="diagnostic"),
+        entity("sensor", "heap", "Free memory", state_topic=state, unit_of_measurement="kB",
+               state_class="measurement", value_template="{{ value_json.heap_kb }}", icon="mdi:memory",
+               entity_category="diagnostic"),
+        entity("sensor", "psram", "Free PSRAM", state_topic=state, unit_of_measurement="kB",
+               state_class="measurement", value_template="{{ value_json.psram_kb }}", icon="mdi:memory",
+               entity_category="diagnostic"),
+        entity("sensor", "nfc_mode", "NFC mode", state_topic=state, value_template="{{ value_json.nfc_mode }}",
+               icon="mdi:nfc-variant", entity_category="diagnostic"),
+        entity("sensor", "bridge_error", "Last problem", state_topic=state,
+               value_template="{{ value_json.bridge_error }}", icon="mdi:alert-circle-outline",
+               entity_category="diagnostic"),
+        entity("binary_sensor", "pi_undervolt", "Pi under-voltage", state_topic=state, device_class="problem",
+               value_template="{{ 'ON' if value_json.pi_undervolt else 'OFF' }}", entity_category="diagnostic"),
+        # What it did.
+        entity("event", "wake_word", "Wake word", state_topic=f"{base}/event/wake", event_types=["wake"],
+               icon="mdi:account-voice"),
+        entity("event", "gesture", "Gesture", state_topic=f"{base}/event/gesture", event_types=list(GESTURE_EVENTS),
+               icon="mdi:robot-happy"),
+        entity("event", "face", "Face", state_topic=f"{base}/event/face", event_types=["new", "lost"],
+               icon="mdi:face-recognition"),
+        entity("event", "phone_tap", "Phone tap", state_topic=f"{base}/event/phone_tap", event_types=["tap"],
+               icon="mdi:cellphone-nfc"),
+        entity("event", "card", "Card", state_topic=f"{base}/event/card",
+               event_types=["waiting", "learned", "forgotten"], icon="mdi:card-account-details"),
+        entity("event", "servo_fault", "Servo fault", state_topic=f"{base}/event/servo_fault",
+               event_types=["fault"], icon="mdi:alert", entity_category="diagnostic"),
+        # More to tell it.
+        entity("select", "look", "Look", command_topic=f"{base}/cmd/look", options=list(LOOKS),
+               icon="mdi:eye"),
+        entity("number", "turn", "Head turn", command_topic=f"{base}/cmd/turn", min=-70, max=70, step=5,
+               unit_of_measurement="°", icon="mdi:head-sync-outline", mode="slider"),
+        entity("button", "nap", "Nap now", command_topic=f"{base}/cmd/nap", payload_press="ON", icon="mdi:sleep"),
+        entity("button", "listen", "Start listening", command_topic=f"{base}/cmd/listen", payload_press="start",
+               icon="mdi:microphone"),
+        entity("button", "stop", "Stop reply", command_topic=f"{base}/cmd/listen", payload_press="stop",
+               icon="mdi:stop"),
+        entity("button", "read_card", "Read a card", command_topic=f"{base}/cmd/read_card", payload_press="ON",
+               icon="mdi:nfc-search-variant"),
     ]
     # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
     out.append((f"{DISCOVERY}/tag/{uid}/nfc/config", {"topic": f"{base}/tag", "device": device}))
@@ -145,7 +198,10 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
         return None
     return {"present": s.present, "battery": s.battery, "charging": s.charging, "battery_low": s.battery_low,
             "link": s.link, "mood": s.mood, "nap": s.nap, "night": s.night, "brightness": s.brightness,
-            "fw": s.fw, "lux": s.lux, "near": s.near}
+            "fw": s.fw, "lux": s.lux, "near": s.near, "phase": s.phase or "idle",
+            "voice_dir": s.voice_dir, "head_yaw": s.head_yaw, "rssi": s.rssi, "heap_kb": s.heap_kb,
+            "psram_kb": s.psram_kb, "nfc_mode": s.nfc_mode, "pi_undervolt": s.pi_undervolt,
+            "bridge_error": s.bridge_error or "none"}
 
 
 def _names(people: People, keys) -> str:
@@ -159,6 +215,24 @@ def identity(people: People, room: str, now: float) -> dict:
     return {"speaker": people.names[speaker] if speaker else "unknown",
             "posterior": round(posterior, 2) if speaker else None, "how": how or None,
             "nearby": _names(people, nearby)}
+
+
+def _event_payload(event: dict) -> tuple[str, dict] | None:
+    """(topic, Home Assistant event payload) for the robot's and router's own
+    events; None for touches, waves and tags, which have their own."""
+    if event.get("wake") is True:
+        return "wake", {"event_type": "wake"}
+    if event.get("tapped") is True:
+        return "phone_tap", {"event_type": "tap"}
+    if "gesture" in event:
+        return "gesture", {"event_type": event["gesture"]}
+    if "face" in event:
+        return "face", {"event_type": event["face"]}
+    if "servo_fault" in event:
+        return "servo_fault", {"event_type": "fault", "servo": event["servo_fault"]}
+    if "card" in event:
+        return "card", {"event_type": event["card"], "person": event.get("person")}
+    return None
 
 
 def command(name: str, payload: str) -> dict | None:
@@ -178,6 +252,18 @@ def command(name: str, payload: str) -> dict | None:
         return {"brightness": value} if 0 <= value <= 255 else None
     if name == "caption" and text:
         return {"caption": text[:200]}
+    if name == "look" and text in LOOKS:
+        return {"look": text}
+    if name == "turn":
+        try:
+            value = int(round(float(text)))
+        except ValueError:
+            return None
+        return {"yaw": value} if -70 <= value <= 70 else None
+    if name == "nap" and text == "ON":
+        return {"nap": True}
+    if name == "listen" and text in ("start", "stop"):
+        return {"listen": text}
     if name == "led":
         try:
             data = json.loads(text)
@@ -257,6 +343,11 @@ class HomeAssistant:
             if "nfc" in event:
                 await self._send(publish, f"{_base(room)}/tag", event["nfc"], retain=False, force=True)
                 continue
+            named = _event_payload(event)
+            if named is not None:
+                topic, payload = named
+                await self._send(publish, f"{_base(room)}/event/{topic}", payload, retain=False, force=True)
+                continue
             if event["touch"] == "wave":
                 await self._send(publish, f"{_base(room)}/event/wave", {"event_type": "wave"},
                                  retain=False, force=True)
@@ -274,6 +365,10 @@ class HomeAssistant:
         if len(parts) != 5 or parts[0] != PREFIX or parts[1] != "stackchan" or parts[3] != "cmd":
             return
         room = next((r for r in self.bodies.rooms() if slug(r) == parts[2]), None)
+        if room is not None and parts[4] == "read_card" and payload.strip() == "ON":
+            # Cards for Home Assistant's tag scanner, while the robot is a tag for phones.
+            await self.bodies.send(room, {"nfc_read": 30})
+            return
         act = command(parts[4], payload)
         if room is None or act is None:
             return
