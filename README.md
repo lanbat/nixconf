@@ -3,6 +3,7 @@
 [![CI](https://github.com/lanbat/nixconf/actions/workflows/check.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/check.yml)
 [![nightly](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![IRC: #lanbat on Libera.Chat](https://img.shields.io/badge/IRC-%23lanbat%20on%20Libera.Chat-2f4bff.svg)](https://web.libera.chat/#lanbat)
 
 **[Take the interactive tour →](https://lanbat.github.io/nixconf/)** · part of [LAN BAT](https://lanbat.github.io/), open home infrastructure
 

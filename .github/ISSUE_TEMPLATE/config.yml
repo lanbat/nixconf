@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask in #lanbat on Libera.Chat
+    url: https://web.libera.chat/#lanbat
+    about: Questions and help setting things up.
   - name: Report a security vulnerability
     url: https://github.com/lanbat/nixconf/security/advisories/new
     about: Please report vulnerabilities privately, not as public issues.
