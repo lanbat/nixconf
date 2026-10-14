@@ -200,9 +200,10 @@ a second of speech gives no scores: "lights off" says too little about who said 
   person it recognises as speaking, and their name if they enrolled themselves; people
   listed in `deploy.nix` keep their name. It does nothing when it isn't sure who is
   asking.
-- **A second ear.** A Stack-chan on a satellite also records each sentence, from the
-  wake word to the transcript, with its own microphone, which is often nearer the
-  speaker than the satellite's. The bridge hands that recording to the router, the
+- **A second ear.** A Stack-chan on a satellite's USB also records each sentence, from
+  the wake word to the transcript, with its own microphone, which is often nearer the
+  speaker than the satellite's. Not over Wi-Fi: a sentence's audio is more than the
+  robot's Wi-Fi link keeps up with, so there the satellite's microphone alone is the voice. The bridge hands that recording to the router, the
   router to voice-id (its loopback `/embed`), and voice-id scores it like the
   satellite's audio and drops it. Of the two reports for a sentence the router keeps
   the one that matches someone better, waiting up to 0.8 s for both. The robot's

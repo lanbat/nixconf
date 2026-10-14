@@ -726,6 +726,13 @@ class Ear(unittest.TestCase):
         self.assertIn({"record": False}, device(heard))
         self.assertEqual(self.ears(heard), ["What's the weather?"])
 
+    def test_not_over_wifi(self):
+        b = self.brain()
+        b.link = "wifi"
+        wake = b.on_lva("wake_word_detected", {}, NOON)
+        self.assertNotIn({"record": True}, device(wake))
+        self.assertEqual(self.ears(wake), [])
+
     def test_nothing_said_is_dropped(self):
         b = self.brain()
         b.on_lva("wake_word_detected", {}, NOON)
