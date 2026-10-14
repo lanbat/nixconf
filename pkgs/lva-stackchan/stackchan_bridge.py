@@ -304,7 +304,10 @@ class Brain:
                 "bridge_error": last_error()}
 
     def _listening(self) -> bool:
-        return self.ear and self.router
+        # Over USB only: a sentence's audio, base64 at about 43 KB/s, is more
+        # than the robot's TLS link keeps up with, and broke its Wi-Fi link at
+        # every wake word. On Wi-Fi the satellite's own microphone is the voice.
+        return self.ear and self.router and self.link == "usb"
 
     def _record(self) -> list:
         return [("device", {"record": True}), ("ear", "start")] if self._listening() else []
