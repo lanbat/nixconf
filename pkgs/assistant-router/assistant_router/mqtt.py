@@ -118,6 +118,13 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:account-voice"),
         entity("sensor", "nearby", "Probably nearby", state_topic=f"{base}/identity",
                value_template="{{ value_json.nearby }}", icon="mdi:account-group"),
+        # What each recognition source says, behind the guesses above.
+        *[entity("sensor", f"seen_{source}", name, state_topic=f"{base}/evidence",
+                 value_template="{{ value_json." + source + ".names }}",
+                 json_attributes_topic=f"{base}/evidence",
+                 json_attributes_template="{{ value_json." + source + ".confidence | tojson }}",
+                 icon=icon, entity_category="diagnostic")
+          for source, name, icon in SOURCES],
         # What it is doing.
         entity("sensor", "phase", "Conversation", state_topic=state, device_class="enum",
                options=list(PHASES), value_template="{{ value_json.phase }}", icon="mdi:chat-processing"),
@@ -207,6 +214,26 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
 def _names(people: People, keys) -> str:
     names = sorted(people.names[k] for k in keys if k in people.names)
     return ", ".join(names) if names else "nobody"
+
+
+SOURCES = (
+    ("camera", "Seen by the cameras", "mdi:cctv"),
+    ("robot", "Seen by the robot", "mdi:robot"),
+    ("voice", "Heard by voice", "mdi:account-voice"),
+    ("bluetooth", "Phones here (Bluetooth)", "mdi:bluetooth"),
+    ("wifi", "Phones here (Wi-Fi)", "mdi:wifi"),
+    ("card", "Tapped (phone or card)", "mdi:cellphone-nfc"),
+)
+
+
+def evidence(people: People, room: str, now: float) -> dict:
+    """Per recognition source: the names it gives for the room, and their
+    confidences as attributes."""
+    found = people.evidence(room, now)
+    return {source: {"names": _names(people, found.get(source, {})),
+                     "confidence": {people.names[k]: round(v, 2) for k, v in found.get(source, {}).items()
+                                    if k in people.names}}
+            for source, _, _ in SOURCES}
 
 
 def identity(people: People, room: str, now: float) -> dict:
@@ -330,6 +357,7 @@ class HomeAssistant:
             await self._send(publish, f"{_base(room)}/availability", "online")
             await self._send(publish, f"{_base(room)}/state", state)
             await self._send(publish, f"{_base(room)}/identity", identity(self.people, room, now))
+            await self._send(publish, f"{_base(room)}/evidence", evidence(self.people, room, now))
             if room not in self._leds:
                 self._leds[room] = {"state": "OFF", "color_mode": "rgb"}
             await self._send(publish, f"{_base(room)}/led", self._leds[room])
