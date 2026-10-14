@@ -193,7 +193,11 @@ void update() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n') {
-      if (usbLine.length()) {
+      usbLine.trim();
+      // Only the Pi's JSON lines count as the Pi: a host that merely probes
+      // the port (ModemManager's "AT" on a laptop, after every reset) must
+      // not take the robot off Wi-Fi.
+      if (usbLine.startsWith("{") && usbLine.endsWith("}")) {
         usbLines.push_back(usbLine);
         if (!wasAlive) usbSince = now;
         lastUsb = now;

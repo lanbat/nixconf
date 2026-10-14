@@ -75,7 +75,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.0";
+constexpr const char* kFirmware = "1.9.1";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
