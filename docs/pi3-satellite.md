@@ -211,6 +211,15 @@ which can't set a volume.) Ducking never touches that volume: it lowers the Snap
 PipeWire, and keeps the levels to return to in `/run/lva-snapcast-duck/saved.json`, so a ducker
 stopped or restarted while the music is down (a deploy) still puts it back.
 
+**Speaking up in a loud room.** With `lva.adaptiveVolume.enable` (default), the ducker also
+takes a one-second level of the microphone every 30 s while nothing is happening (the
+echo-cancelled one when there is one), and the median of the last five is how loud the room
+is. A reply is then played louder the further the room is above `quietDb` (−55 dBFS): half a
+dB per dB, at most `maxBoostDb` (8 dB), and never past full scale. So set the satellite's
+volume in Home Assistant for a **quiet** room: that's what replies use when it is quiet, and
+the room's noise only adds on top; around 50 % leaves the full 8 dB of headroom. Only the
+level is kept, never audio. The journal says what it did: `room -38 dBFS: voice +8.0 dB`.
+
 **Echo cancellation with the music (experiment).** `echoCancellation.includeMusic = true`
 (with `echoCancellation.enable`) plays Snapcast through the echo canceller's sink, so the music
 is part of its reference and is taken out of the microphone too, not only the assistant's voice.

@@ -850,6 +850,17 @@ let
       && lvaPi3Aec.systemd.services.lva-snapcast-duck.environment.DUCK_VOLUME == "0.25"
     ))
 
+    (expect "lva: replies speak up in a loud room, measured on the echo-cancelled microphone" (
+      let
+        env = lvaPi3Aec.systemd.services.lva-snapcast-duck.environment;
+      in
+      env.ADAPT_MIC_NODE == "lanbat_aec_mic"
+      && env.ADAPT_QUIET_DB == "-55"
+      && env.ADAPT_MAX_BOOST_DB == "8"
+      && env.LVA_PREFS == "/var/lib/linux-voice-assistant/prefs.json"
+      && lib.hasSuffix "/bin/pw-record" env.PW_RECORD
+    ))
+
     (expect "stackchan: the bridge follows LVA's peripheral API on the loopback" (
       let
         unit = stackchan.systemd.services.lva-stackchan;

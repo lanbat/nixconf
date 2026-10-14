@@ -11,13 +11,27 @@ Two levels: near silence while the microphone is open (a speech station at a
 quarter of its volume is still clear speech to a microphone a metre away, and
 ends up in the transcript), and a quieter background while the assistant
 thinks and answers.
+
+It also lets the assistant speak up in a loud room (ADAPT_MIC_NODE set): while
+nothing is happening it takes a one-second level of the satellite's
+microphone every 30 s, and the median of the last five is the room's
+loudness. When a reply starts, LVA's playback streams get a boost that grows
+with how far the room is above quiet (half a dB per dB, at most
+ADAPT_MAX_BOOST_DB), and never past full scale: LVA's own volume (Home
+Assistant's, from its preferences) times the boost stays at or below 1, so it
+can't clip. In a quiet room the reply is at Home Assistant's volume. Only the
+level is kept, never the audio.
 """
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
+import math
 import os
 import signal
+import statistics
+import struct
 import subprocess
 import sys
 
@@ -55,6 +69,18 @@ DUCK_BINARIES = frozenset(
 )
 STEP = 0.05
 
+# The voice following the room's loudness; off when no microphone node is given.
+ADAPT_MIC_NODE = os.environ.get("ADAPT_MIC_NODE", "")
+ADAPT_QUIET_DB = float(os.environ.get("ADAPT_QUIET_DB", "-55"))
+ADAPT_MAX_BOOST_DB = float(os.environ.get("ADAPT_MAX_BOOST_DB", "8"))
+ADAPT_SLOPE = 0.5  # dB of boost per dB of room above quiet
+ADAPT_EVERY_S = 30.0
+ADAPT_READINGS = 5
+LVA_PREFS = os.environ.get("LVA_PREFS", "")
+PW_RECORD = os.environ.get("PW_RECORD", "pw-record")
+# LVA plays through libmpv inside its own Python process.
+VOICE_BINARY_PREFIX = os.environ.get("VOICE_BINARY_PREFIX", "python")
+
 
 def run(*args: str) -> str:
     # wpctl and pw-dump warn on stderr that a system service gets no realtime
@@ -67,6 +93,17 @@ def run(*args: str) -> str:
 def snapcast_nodes() -> list[int]:
     """PipeWire node ids of the ducked programs' playback streams (the process
     binary is a property of its client, not of the nodes)."""
+    return _output_nodes(lambda binary: binary in DUCK_BINARIES)
+
+
+def voice_nodes() -> list[int]:
+    """PipeWire node ids of LVA's own playback streams (its replies, its
+    sounds): played by its Python process, not by a ducked program."""
+    return _output_nodes(lambda binary: binary.startswith(VOICE_BINARY_PREFIX)
+                         and binary not in DUCK_BINARIES)
+
+
+def _output_nodes(wanted) -> list[int]:
     try:
         objects = json.loads(run(PW_DUMP) or "[]")
     except json.JSONDecodeError:
@@ -75,8 +112,7 @@ def snapcast_nodes() -> list[int]:
         o["id"]
         for o in objects
         if o.get("type") == "PipeWire:Interface:Client"
-        and o.get("info", {}).get("props", {}).get("application.process.binary")
-        in DUCK_BINARIES
+        and wanted(str(o.get("info", {}).get("props", {}).get("application.process.binary") or ""))
     }
     return [
         o["id"]
@@ -214,7 +250,130 @@ class Ducker:
         save_state({})
 
 
-async def main_loop(ducker: Ducker) -> None:
+def level_db(pcm: bytes) -> float:
+    """The RMS level of s16 mono audio, in dB below full scale (-120 for silence)."""
+    n = len(pcm) // 2
+    if n == 0:
+        return -120.0
+    samples = struct.unpack(f"<{n}h", pcm[: n * 2])
+    rms = math.sqrt(sum(v * v for v in samples) / n) / 32768.0
+    return 20 * math.log10(rms) if rms > 1e-6 else -120.0
+
+
+def boost_db(room_db: float | None, quiet_db: float = ADAPT_QUIET_DB,
+             max_boost_db: float = ADAPT_MAX_BOOST_DB, slope: float = ADAPT_SLOPE) -> float:
+    """How much louder to speak in a room this loud: nothing at or below quiet."""
+    if room_db is None:
+        return 0.0
+    return max(0.0, min(max_boost_db, (room_db - quiet_db) * slope))
+
+
+def voice_gain(boost: float, base_volume: float) -> float:
+    """The playback streams' volume for a boost, capped so that LVA's own
+    volume times it stays at full scale or below."""
+    gain = 10 ** (boost / 20)
+    if base_volume > 0:
+        gain = min(gain, 1.0 / base_volume)
+    return max(1.0, gain)
+
+
+def lva_volume() -> float:
+    """LVA's own volume (Home Assistant sets it), from its preferences."""
+    try:
+        with open(LVA_PREFS, encoding="utf-8") as f:
+            volume = float(json.load(f).get("volume", 1.0))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 1.0
+    return max(0.0, min(1.0, volume))
+
+
+class Room:
+    """How loud the room is: the median of the last few readings."""
+
+    def __init__(self) -> None:
+        self.readings: collections.deque = collections.deque(maxlen=ADAPT_READINGS)
+
+    def add(self, db: float) -> None:
+        self.readings.append(db)
+
+    def loudness(self) -> float | None:
+        return statistics.median(self.readings) if self.readings else None
+
+
+class Voice:
+    """Boosts LVA's playback while it speaks, by the room's loudness."""
+
+    def __init__(self, room: Room) -> None:
+        self.room = room
+        self.busy = False  # listening or answering: no reading of the room then
+        self.boosted: set[int] = set()
+        self.task: asyncio.Task | None = None
+
+    def speak(self) -> None:
+        self.busy = True
+        loud = self.room.loudness()
+        gain = voice_gain(boost_db(loud), lva_volume())
+        if gain <= 1.001:
+            return
+        print(f"lva-snapcast-duck: room {loud:.0f} dBFS: voice +{20 * math.log10(gain):.1f} dB",
+              file=sys.stderr, flush=True)
+        if self.task and not self.task.done():
+            self.task.cancel()
+        self.task = asyncio.ensure_future(self._boost(gain))
+
+    async def _boost(self, gain: float) -> None:
+        # The reply's stream appears when it starts playing: look for a moment.
+        for _ in range(20):
+            nodes = [n for n in voice_nodes() if n not in self.boosted]
+            if nodes:
+                self.boosted.update(nodes)
+                await fade({n: (1.0, gain) for n in nodes}, 0.15)
+                return
+            await asyncio.sleep(0.05)
+
+    def settle(self) -> None:
+        """The reply is over: LVA's streams back to their own volume."""
+        if self.task and not self.task.done():
+            self.task.cancel()
+        for node in self.boosted:
+            set_volume(node, 1.0)
+        self.boosted = set()
+
+    def idle(self) -> None:
+        self.settle()
+        self.busy = False
+
+
+async def read_room(room: Room, voice: Voice, ducker: "Ducker") -> None:
+    """Every ADAPT_EVERY_S while nothing is happening, a one-second level of
+    the microphone; never while the assistant listens or speaks."""
+    while True:
+        await asyncio.sleep(ADAPT_EVERY_S)
+        if voice.busy or ducker.ducked:
+            continue
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                PW_RECORD, "--target", ADAPT_MIC_NODE, "--rate", "16000", "--channels", "1",
+                "--format", "s16", "-",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        except OSError:
+            continue
+        try:
+            pcm = await asyncio.wait_for(proc.stdout.readexactly(32000), 3.0)
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError):
+            pcm = b""
+        finally:
+            if proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), 2.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+        if pcm and not voice.busy:
+            room.add(level_db(pcm))
+
+
+async def main_loop(ducker: Ducker, voice: Voice | None = None) -> None:
     url = os.environ.get("LVA_PERIPHERAL_URL", "ws://127.0.0.1:6055")
     delay = 2.0
 
@@ -233,11 +392,27 @@ async def main_loop(ducker: Ducker) -> None:
                         ducker.duck(DUCK_VOLUME)
                     elif event in RESTORE_EVENTS:
                         ducker.restore()
+                    if voice is not None:
+                        follow(voice, event)
         except Exception as exc:  # pylint: disable=broad-except
             ducker.restore()
+            if voice is not None:
+                voice.idle()
             print(f"lva-snapcast-duck: {exc}", file=sys.stderr)
             await asyncio.sleep(delay)
             delay = min(delay * 1.5, 30.0)
+
+
+def follow(voice: Voice, event) -> None:
+    """The voice's boost through one of LVA's events."""
+    if event == "tts_speaking":
+        voice.speak()
+    elif event == "tts_finished":
+        voice.settle()
+    elif event in LISTEN_EVENTS or event == "thinking":
+        voice.busy = True
+    elif event in RESTORE_EVENTS:
+        voice.idle()
 
 
 async def run_until_stopped() -> None:
@@ -251,10 +426,19 @@ async def run_until_stopped() -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stopping.set)
-    task = asyncio.ensure_future(main_loop(ducker))
+    voice = None
+    tasks = []
+    if ADAPT_MIC_NODE:
+        room = Room()
+        voice = Voice(room)
+        tasks.append(asyncio.ensure_future(read_room(room, voice, ducker)))
+    tasks.append(asyncio.ensure_future(main_loop(ducker, voice)))
     await stopping.wait()
-    task.cancel()
+    for task in tasks:
+        task.cancel()
     ducker.restore_now()
+    if voice is not None:
+        voice.settle()
 
 
 def main() -> None:
