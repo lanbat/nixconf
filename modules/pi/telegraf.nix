@@ -118,8 +118,10 @@ in
         }
       ];
 
-      # CoreDNS metrics, on a host with the lanbat-dns plugin.
-      inputs.prometheus = lib.optionals config.services.coredns.enable [
+      # CoreDNS metrics, on a host with the lanbat-dns plugin. Absent, not an
+      # empty list, elsewhere: Telegraf 1.38 refuses "prometheus = []" and
+      # doesn't start ("unsupported config format: prometheus").
+      inputs.prometheus = lib.mkIf config.services.coredns.enable [
         { urls = [ "http://127.0.0.1:9153/metrics" ]; }
       ];
 
