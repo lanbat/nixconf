@@ -204,3 +204,28 @@ def test_a_card_names_its_owner_unless_the_voice_disagrees():
     assert p.assess("Kitchen", now=130.0).speaker is None
     # Another room knows nothing of it.
     assert p.assess("Bedroom 1", now=30.0).speaker is None
+
+
+def test_evidence_shows_what_each_source_says():
+    p = People({"kiril": "Kiril", "maria": "Maria"})
+    p.observe("Kitchen", "face", "maria", 0.9, 100.0)
+    p.observe("Kitchen", "aimed", "kiril", 0.8, 100.0)
+    p.observe_phone("Kitchen", "kiril", -60, 100.0, via="ble")
+    p.observe_phone("Bedroom", "kiril", -80, 100.0, via="ble")  # louder in the Kitchen
+    p.observe("Kitchen", "tap", "kiril", 1.0, 100.0)
+    p.observe_home(["maria"], 100.0)
+    p.note_voice("Kitchen", {"kiril": 0.71, "maria": 0.2, "stranger": 0.9}, 100.0)
+    e = p.evidence("Kitchen", 101.0)
+    assert e["camera"] == {"maria": 0.9} and e["robot"] == {"kiril": 0.8}
+    assert e["bluetooth"] == {"kiril": 1.0} and e["wifi"] == {}
+    assert e["card"] == {"kiril": 1.0} and e["home"] == {"maria": 1.0}
+    assert e["voice"] == {"kiril": 0.71}  # the best enrolled match only
+    assert p.evidence("Bedroom", 101.0)["bluetooth"] == {}  # not where it's loudest
+
+
+def test_old_or_unclear_voice_is_not_shown():
+    p = People({"kiril": "Kiril"})
+    p.note_voice("Kitchen", {"kiril": 0.1}, 100.0)
+    assert p.evidence("Kitchen", 101.0)["voice"] == {}  # no better than a stranger
+    p.note_voice("Kitchen", {"kiril": 0.8}, 100.0)
+    assert p.evidence("Kitchen", 100.0 + 301)["voice"] == {}  # five minutes on

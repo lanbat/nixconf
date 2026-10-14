@@ -52,6 +52,7 @@ CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conver
 VOICE_SHARPNESS = 10.0  # likelihood exp(k·cosine)
 VOICE_UNKNOWN = 0.25    # the cosine an unenrolled voice scores against itself
 AIMED = 1200.0          # × (1 + AIMED·confidence): the face the robot turned to
+VOICE_EVIDENCE_S = 300.0  # the last voice match is shown this long (evidence())
 POSTERIOR_MIN = 0.8
 LEAD_MIN = 3.0          # × the runner-up (the unknown candidate included)
 LEARN_VOICE = 0.8       # a voice this close, and LEARN_MARGIN ahead, teaches itself
@@ -96,6 +97,8 @@ class People:
         # who is at home, and when the house sensor said so last
         self._home: set[str] = set()
         self._home_at: float | None = None
+        # room -> the last sentence's voice scores, and when (evidence())
+        self._voice: dict[str, tuple[dict[str, float], float]] = {}
 
     def add(self, key: str, name: str) -> None:
         self.names[str(key)] = str(name)
@@ -119,17 +122,46 @@ class People:
             return
         self._signal.setdefault(person, {})[(str(via), _key(room))] = (rssi, now)
 
-    def _placed(self, room: str, now: float) -> set[str]:
+    def _placed(self, room: str, now: float, only: str | None = None) -> set[str]:
         """Whose phones are in `room`: heard there recently, and not much
-        quieter there than in their loudest room."""
+        quieter there than in their loudest room (by `only` one kind of
+        sensor, "ble" or "wifi", when given)."""
         here = _key(room)
         out = set()
         for person, heard in self._signal.items():
-            for via in {v for v, _ in heard}:
+            for via in {v for v, _ in heard if only is None or v == only}:
                 recent = {r: s for (v, r), (s, at) in heard.items()
                           if v == via and now - at <= WINDOW["phone"]}
                 if here in recent and recent[here] >= max(recent.values()) - ROOM_MARGIN_DB:
                     out.add(person)
+        return out
+
+    def note_voice(self, room: str, voice: dict[str, float] | None, now: float) -> None:
+        """The last sentence's voice scores in `room`, for evidence()."""
+        if room and voice:
+            scores = {k: float(v) for k, v in voice.items() if k in self.names and type(v) in (int, float)}
+            if scores:
+                self._voice[_key(room)] = (scores, now)
+
+    def evidence(self, room: str, now: float) -> dict[str, dict[str, float]]:
+        """What each source says about `room` now: person key -> confidence,
+        per source. For Home Assistant's view of the recognition; the same
+        evidence assess() weighs, with nothing added."""
+        out = {
+            "camera": self._recent(room, "face", now),
+            "robot": self._recent(room, "aimed", now),
+            "bluetooth": {p: 1.0 for p in self._placed(room, now, only="ble")},
+            "wifi": {p: 1.0 for p in self._placed(room, now, only="wifi")},
+            "card": {**self._recent(room, "card", now), **self._recent(room, "tap", now)},
+            "home": {p: 1.0 for p in self.home(now)},
+        }
+        out["bluetooth"].update(self._recent(room, "phone", now))
+        voice = self._voice.get(_key(room))
+        out["voice"] = {}
+        if voice is not None and now - voice[1] <= VOICE_EVIDENCE_S:
+            best = max(voice[0], key=voice[0].get)
+            if voice[0][best] >= VOICE_UNKNOWN:
+                out["voice"] = {best: round(voice[0][best], 2)}
         return out
 
     def remember(self, room: str, a: "Assessment", now: float) -> None:

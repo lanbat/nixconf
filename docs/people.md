@@ -248,6 +248,14 @@ The router publishes its guesses as sensors, named "Probably …": who spoke las
 robot and who is nearby it, and who is home ([stackchan.md](stackchan.md#in-home-assistant)).
 They are as uncertain as the line the cloud model gets, and for the same uses.
 
+Behind them, each robot has a diagnostic sensor per source, so you can see what led to a
+guess: **Seen by the cameras**, **Seen by the robot** (its own camera, after turning to
+the voice), **Heard by voice** (the last sentence's best match and its score, for five
+minutes), **Phones here (Bluetooth)**, **Phones here (Wi-Fi)** (once the satellites
+listen on Wi-Fi) and **Tapped (phone or card)**. Each names who that source sees in the
+room now, with its confidences as attributes. They hold the same people and names as the
+"Probably" sensors, nothing more.
+
 ## Never authority
 
 Recognition is never used to unlock, disarm, open or allow anything, and never picks the

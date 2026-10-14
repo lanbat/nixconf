@@ -447,6 +447,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         last = last_speaker(device, now)
         assessment = people.assess(room, now, voice_scores, last)
         people.remember(room, assessment, now)
+        people.note_voice(room, voice_scores, now)
         if assessment.speaker:
             speakers[device] = (assessment.speaker, now)
             last = assessment.speaker

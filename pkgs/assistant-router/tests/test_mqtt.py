@@ -233,3 +233,18 @@ async def test_more_controls():
     await ha.handle("lanbat/stackchan/living_room/cmd/read_card", "ON", broker.publish)
     await ha.handle("lanbat/stackchan/living_room/cmd/turn", "25", broker.publish)
     assert socket.sent == [{"nfc_read": 30}, {"act": {"yaw": 25}}]
+
+
+async def test_each_recognition_source_is_a_sensor():
+    bodies, people, ha, _, clock = setup()
+    people.observe_phone("Living room", "maria", -55, clock[0], via="ble")
+    people.note_voice("Living room", {"kiril": 0.75}, clock[0])
+    broker = Broker()
+    await ha.tick(broker.publish)
+    e = broker.last("lanbat/stackchan/living_room/evidence")
+    assert e["bluetooth"] == {"names": "Maria", "confidence": {"Maria": 1.0}}
+    assert e["voice"] == {"names": "Kiril", "confidence": {"Kiril": 0.75}}
+    assert e["camera"]["names"] == "nobody"
+    configs = dict(robot_discovery("Living room"))
+    voice = configs["homeassistant/sensor/lanbat_stackchan_living_room/seen_voice/config"]
+    assert voice["name"] == "Heard by voice" and voice["state_topic"].endswith("/evidence")
