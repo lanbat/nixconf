@@ -213,7 +213,12 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
 
 - **Sensors:** battery, charging, battery low, link (USB or Wi-Fi), mood, someone in
   front of it, a hand near it, light at its sensor (relative, see above), napping,
-  asleep for the night.
+  asleep for the night, and the **conversation** (idle, listening, thinking or speaking).
+- **Diagnostics:** the last voice's direction and where the head points (degrees, +
+  to its left), its Wi-Fi signal while on Wi-Fi, free memory and PSRAM, its NFC's mode
+  (tag for phones, or reading cards), the bridge's last problem (one short line), and
+  its Pi's under-voltage (the Pi's own alarm: a supply that sags under load). The robot
+  sends its part once a minute (`health`).
 - **Tags:** an NFC tag tapped on the robot fires Home Assistant's own tag scanner
   (*Settings → Tags*; "when a tag is scanned" automations), and a person's card names
   them ([people.md](people.md#cards)). It reads from the top of its head; it
@@ -223,11 +228,16 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   link, or for 30 s after someone says "remember this card"
   ([people.md](people.md#cards)).
 - **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
-  for automations: a stroke on its head could dim the lights, a wave skip a song.
+  for automations: a stroke on its head could dim the lights, a wave skip a song. So are
+  the **wake word**, each **gesture** it plays, a **face** arriving or leaving, a **phone
+  tap**, a **card** (waiting after "remember this card", learned, forgotten, with the
+  person) and a **servo fault**. What was said and replied never goes to Home Assistant.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
-  sleep and wake up, set its mood, its screen brightness, a caption on its screen, and
-  its LEDs as a light: an RGB notification lamp (a reminder, the washing machine) that
-  shows while nothing else is on its LEDs.
+  sleep and wake up, nap now, set its mood, where to look (track, you, up, ahead) and a
+  head turn (−70…70°), start listening and stop the reply, read a card (30 s, for the
+  tag scanner while it is a tag for phones), its screen brightness, a caption on its
+  screen, and its LEDs as a light: an RGB notification lamp (a reminder, the washing
+  machine) that shows while nothing else is on its LEDs.
 - **Who:** "Probably speaking" (who spoke to it last, with how sure and how it knew, for
   five minutes) and "Probably nearby" per robot, and "Probably home" on a People
   device. They are guesses, named as such: use them to personalise, never to unlock,
@@ -367,6 +377,7 @@ robot is plugged in.
 | `{"nfc_read": seconds}` | Read cards instead of being a tag, for up to 120 s ("remember this card") |
 | `{"debug": "senses"}` | For 30 s, the light and proximity sensor's raw readings in the journal, 5 a second |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
+| `{"nap": true\|false}` | Nap now, or wake from a nap (not at night) |
 | `{"debug": "nfc"}` | For 30 s, what its NFC is doing (tag or reader, reads, field) in the bridge's journal every 2 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
@@ -384,6 +395,7 @@ robot is plugged in.
 | `{"senses": {"lux", "prox", "near"}}` | Light at the sensor and the proximity echo, when the hand near it comes or goes or the light changes |
 | `{"nfc": "<UID hex>"}` | A tag or card tapped on it, once per tap (phones' random IDs are left out) |
 | `{"tapped": true}` | A phone read its link, once per tap |
+| `{"health": {"rssi", "heap_kb", "psram_kb", "uptime_s", "nfc", "yaw"}}` | Every minute: Wi-Fi signal (on Wi-Fi only), free memory and PSRAM, uptime, NFC mode (`tag` or `reader`), the head's direction in degrees |
 | `{"wave": true}` | A hand waved across the proximity sensor (near and gone within 0.6 s) |
 | `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
 

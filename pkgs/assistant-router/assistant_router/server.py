@@ -369,9 +369,12 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         name = people.names.get(key, key)
         if what == "forget":
             n = cards.forget(key)
+            if n:
+                bodies.announce(room, {"card": "forgotten", "person": name})
             return finish(device, f"Okay, {name}, I've forgotten your card." if n else
                           f"I don't have a card of yours, {name}.", [])
         cards.expect(room, key, now)
+        bodies.announce(room, {"card": "waiting", "person": name})
         await bodies.send(room, {"nfc_read": cards_mod.READ_S})
         await bodies.act(room, {"mood": "curious"})
         return finish(device, f"Okay, {name}, hold your card on top of my head.", [])
@@ -640,6 +643,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             people.observe(room, "card", key, 1.0, clock())
                         if learned:
                             LOG.info(json.dumps({"card": "learned", "room": room, "person": key}))
+                            bodies.announce(room, {"card": "learned", "person": people.names.get(key, key)})
                             name = people.names.get(key, key)
                             await bodies.send(room, {"nfc_read": 0})  # a tag for phones again
                             await bodies.act(room, {"mood": "happy", "gesture": "nod",

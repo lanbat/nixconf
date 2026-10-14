@@ -41,6 +41,9 @@ from dataclasses import dataclass
 from typing import Any
 
 MOODS = ("happy", "excited", "sad", "curious", "surprised", "thinking", "sleepy", "neutral")
+PHASES = ("idle", "listening", "thinking", "speaking")
+# Gestures the robot plays (the bridge's list), for Home Assistant's gesture event.
+GESTURE_EVENTS = ("perk", "nod", "shake", "wiggle", "tilt", "dance", "look_around")
 GESTURES = ("nod", "shake", "tilt", "wiggle", "dance", "look_around", "look_at_user")
 
 # How long to wait for a body's face before a capture is reported as failed.
@@ -106,6 +109,15 @@ class BodyState:
     fw: str | None = None
     lux: int | None = None  # light at its sensor: relative (behind dark glass)
     near: bool = False  # a hand close to its screen
+    phase: str | None = None  # idle, listening, thinking, speaking
+    voice_dir: int | None = None  # the last voice's direction, degrees, + to its left
+    head_yaw: int | None = None
+    rssi: int | None = None  # its Wi-Fi signal, dBm
+    heap_kb: int | None = None
+    psram_kb: int | None = None
+    nfc_mode: str | None = None  # tag (for phones) or reader (for cards)
+    pi_undervolt: bool | None = None  # its Pi's supply sagging
+    bridge_error: str | None = None  # the bridge's last problem, short
 
 
 def _key(room: str) -> str:
@@ -145,6 +157,18 @@ class Bodies:
             except asyncio.QueueFull:
                 pass
             return
+        # What it did, for Home Assistant's event entities: fixed fields only.
+        for kind, ok in (("wake", event.get("wake") is True),
+                         ("tapped", event.get("tapped") is True),
+                         ("gesture", event.get("gesture") in GESTURE_EVENTS),
+                         ("face", event.get("face") in ("new", "lost")),
+                         ("servo_fault", type(event.get("servo_fault")) is int and 0 <= event["servo_fault"] < 64)):
+            if ok:
+                try:
+                    self.events.put_nowait((self._names.get(_key(room), room), {kind: event[kind]}))
+                except asyncio.QueueFull:
+                    pass
+                return
         if event.get("wave") is True:
             touch, zone = "wave", None
         if touch in ("tap", "stroke", "wave"):
@@ -153,6 +177,16 @@ class Bodies:
                     "touch": touch, "zone": zone if zone in ("front", "middle", "back", "screen") else None}))
             except asyncio.QueueFull:
                 pass  # Home Assistant is not keeping up: drop the touch
+
+    def announce(self, room: str, event: dict[str, Any]) -> None:
+        """Something the router itself did in a body's room (a card learned),
+        for Home Assistant."""
+        if self.events is None or not self.has(room):
+            return
+        try:
+            self.events.put_nowait((self._names.get(_key(room), room), event))
+        except asyncio.QueueFull:
+            pass
 
     def disconnect(self, room: str, socket: Any) -> None:
         if self._sockets.get(_key(room)) is socket:
@@ -207,6 +241,21 @@ class Bodies:
             state.near = fields["near"]
         if isinstance(fields.get("fw"), str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,16}", fields["fw"]):
             state.fw = fields["fw"]
+        if fields.get("phase") in PHASES:
+            state.phase = fields["phase"]
+        for name, lo, hi in (("voice_dir", -180, 180), ("head_yaw", -90, 90), ("rssi", -127, 0),
+                             ("heap_kb", 0, 1 << 20), ("psram_kb", 0, 1 << 20)):
+            if name in fields:
+                value = fields[name]
+                setattr(state, name, value if type(value) is int and lo <= value <= hi else None)
+        if "nfc_mode" in fields:
+            state.nfc_mode = fields["nfc_mode"] if fields["nfc_mode"] in ("tag", "reader") else None
+        if "pi_undervolt" in fields:
+            state.pi_undervolt = fields["pi_undervolt"] if type(fields["pi_undervolt"]) is bool else None
+        if "bridge_error" in fields:
+            # Diagnostics, never a prompt: printable, short.
+            error = fields["bridge_error"]
+            state.bridge_error = (re.sub(r"[^ -~]", "", error)[:80] or None) if isinstance(error, str) else None
 
     async def act(self, room: str, act: dict[str, Any]) -> bool:
         if not act:
