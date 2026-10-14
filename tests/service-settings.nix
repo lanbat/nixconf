@@ -1028,6 +1028,14 @@ let
       && failedAssertions routerNoTap == [ ]
     ))
 
+    # Telegraf 1.38 won't start with an empty input list ("unsupported config
+    # format: prometheus"): a Pi without CoreDNS has no prometheus input at all.
+    (expect "telegraf: CoreDNS metrics only where CoreDNS runs" (
+      !bodyPi.services.coredns.enable
+      && !(bodyPi.services.telegraf.extraConfig.inputs ? prometheus)
+      && bodyServer.lanbat.hostKey == "server"
+    ))
+
     (expect "stackchan: the router's persona is the profile's" (
       bodyServer.lanbat.services.assistant-router.settings.body.persona == "You are Robo."
       && lib.hasInfix "assistant-router-people.json" bodyServer.systemd.services.assistant-router.serviceConfig.ExecStart
