@@ -195,13 +195,17 @@ in
     };
     soundMicGeometry = mkOption {
       type = types.str;
-      default = "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01";
+      default = "-0.03,0;-0.01,0;0.01,0;0.03,0";
+      example = "0.03,0;0.01,0;-0.01,0;-0.03,0";
       description = ''
         Where the four microphones sit, as four "x,y" points in metres (y
         forward, x to the robot's right), in the order the card reports them.
-        The default is a 2 cm square; set it from the hardware and the channel
-        order, docs/stackchan.md. The doa-order tool (on the satellite's PATH)
-        records the four channels, you clap three times, and prints the string.
+        The default is the PlayStation Eye's: a line across its front, 2 cm
+        apart. Mics in a line tell left from right but not front from back,
+        which is all the head needs. If the head turns away from the voice,
+        the camera faces the other way: reverse the order (the example).
+        A card with mics in a square gives front and back too; set its points
+        here. docs/stackchan.md.
       '';
     };
     phones = mkOption {

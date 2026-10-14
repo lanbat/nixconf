@@ -298,10 +298,18 @@ The estimate is good to a few degrees once three things are right: the mic **geo
 the mic **channel order**, and a per-room **offset**.
 
 - **Geometry.** `soundMicGeometry` is four "x,y" points in metres, y forward and x to the
-  robot's right, one per mic in channel order. The default is the PlayStation Eye's array.
-  With a different four-mic card, set its points here; two mics closer than 5 mm apart
-  make an axis that can't be read.
-- **Channel order.** The four channels must line up with the four geometry points. The
+  robot's right, one per mic in channel order. The default is the PlayStation Eye's: its
+  four mics sit in a line across its front, 2 cm apart. A line tells left from right but
+  not front from back, so a voice behind the robot reads as its mirror in front, and the
+  head turns that way, which is where it should look anyway. With a different card whose
+  mics form a square, set its points here and it gets front and back too; two mics closer
+  than 5 mm apart make an axis that can't be read.
+- **Which way round.** The Eye's channel 0 is at one end of the line, and which end that
+  is as the robot sees it depends on how the camera faces. Say the wake word from the
+  robot's left: the journal should show a positive angle (`voice at 50 degrees`) and the
+  head should turn toward you. If it's negative and the head turns away, reverse the
+  order: `soundMicGeometry = "0.03,0;0.01,0;-0.01,0;-0.03,0";`.
+- **Channel order (square arrays).** The four channels must line up with the four geometry points. The
   `doa-order` tool (on the satellite's PATH, from this module) finds it: it records all
   four channels, you clap three times — straight ahead, then to the robot's right, then to
   its left — and it prints the channel-to-corner mapping and a `soundMicGeometry` string
