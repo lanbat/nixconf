@@ -1158,15 +1158,23 @@ class Bridge:
                 if delay == DOA_RETRY_S:
                     log(f"hearing direction on {self.config.sound_source}")
                 while self.serial_writer is not None:
-                    self.mic_window.push(await proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2))
-                continue  # the robot left USB: wait for it, quietly
-            except (OSError, asyncio.IncompleteReadError) as err:
+                    # A stalled recorder (no data in 2 s) is restarted, and the
+                    # robot leaving USB is seen even then.
+                    self.mic_window.push(await asyncio.wait_for(
+                        proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2), 2.0))
+                self.mic_window = None  # the robot left USB: wait for it, quietly
+                continue
+            except (OSError, asyncio.IncompleteReadError, asyncio.TimeoutError) as err:
+                self.mic_window = None  # nothing current to estimate from
                 if delay == DOA_RETRY_S:
                     log(f"direction listener stopped ({err}); retrying, less often while it fails")
             finally:
                 if proc is not None and proc.returncode is None:
                     proc.terminate()
-                    await proc.wait()
+                    try:
+                        await asyncio.wait_for(proc.wait(), 2.0)
+                    except asyncio.TimeoutError:
+                        proc.kill()
             # A node that is missing (the microphone unplugged) fails at once:
             # back off, and start over only after a recorder that kept running.
             delay = DOA_RETRY_S if time.monotonic() - started > 30 else min(delay * 2, DOA_RETRY_MAX_S)
