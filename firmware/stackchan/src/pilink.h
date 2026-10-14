@@ -25,6 +25,8 @@ bool next(String& line, Via& via);
 void send(JsonDocument& doc);
 Via active();
 const char* name(Via via);
+// The Wi-Fi signal in dBm while the link is Wi-Fi, else 0.
+int rssi();
 // The stored Wi-Fi details' id, "" when there are none (for the hello).
 String configId();
 // {"ssid", "password", "host", "port", "fingerprint", "token", "id"}, kept

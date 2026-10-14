@@ -92,8 +92,12 @@ bool dial() {
   return pinned;
 }
 
+// The Wi-Fi signal, read here in the Wi-Fi task: the radio and its TLS client
+// are this task's alone (reading it from the loop broke the link).
+volatile int lastRssi = 0;
+
 void wifiTask(void*) {
-  uint32_t backoff = kDialFirstMs, nextDial = 0;
+  uint32_t backoff = kDialFirstMs, nextDial = 0, nextRssi = 0;
   String line;
   uint8_t buf[256];
   for (;;) {
@@ -109,6 +113,10 @@ void wifiTask(void*) {
       }
       vTaskDelay(pdMS_TO_TICKS(200));
       continue;
+    }
+    if ((int32_t)(millis() - nextRssi) >= 0) {
+      nextRssi = millis() + 10000;
+      lastRssi = WiFi.RSSI();
     }
     xSemaphoreTake(wifiLock, portMAX_DELAY);
     bool alive = client.connected();
@@ -193,7 +201,11 @@ void update() {
   while (Serial.available()) {
     char c = Serial.read();
     if (c == '\n') {
-      if (usbLine.length()) {
+      usbLine.trim();
+      // Only the Pi's JSON lines count as the Pi: a host that merely probes
+      // the port (ModemManager's "AT" on a laptop, after every reset) must
+      // not take the robot off Wi-Fi.
+      if (usbLine.startsWith("{") && usbLine.endsWith("}")) {
         usbLines.push_back(usbLine);
         if (!wasAlive) usbSince = now;
         lastUsb = now;
@@ -242,6 +254,8 @@ Via active() {
   if (clientOpen && authed) return Via::Wifi;
   return Via::None;
 }
+
+int rssi() { return active() == Via::Wifi ? lastRssi : 0; }
 
 const char* name(Via via) { return via == Via::Usb ? "usb" : via == Via::Wifi ? "wifi" : "none"; }
 
