@@ -911,6 +911,30 @@ class MoreForHomeAssistant(unittest.TestCase):
         self.assertTrue(sb.last_error().startswith("robot write failed"))
 
 
+class Mirror(unittest.TestCase):
+    def test_home_assistant_flips_the_voice_direction_and_it_is_kept(self):
+        import stackchan_bridge as sb
+        import tempfile
+        b = Brain(Config(sound_turn_min_deg=1), now=NOON)
+        self.assertEqual(b.on_sound(40, 0.9, NOON)[0], ("device", {"yaw": 400}))
+        out = b.on_router({"act": {"mirror": True}}, NOON)
+        self.assertIn(("save", {"sound_mirror": True}), out)
+        self.assertTrue(b.router_state(NOON)["sound_mirror"])
+        self.assertEqual(b.on_sound(40, 0.9, NOON)[0], ("device", {"yaw": -400}))
+        self.assertEqual(b.on_router({"act": {"mirror": True}}, NOON), [])  # no change, nothing saved
+        with tempfile.TemporaryDirectory() as state:
+            old = os.environ.get("STATE_DIRECTORY")
+            os.environ["STATE_DIRECTORY"] = state
+            try:
+                sb.save_settings({"sound_mirror": True})
+                self.assertEqual(sb.load_settings(), {"sound_mirror": True})
+            finally:
+                if old is None:
+                    os.environ.pop("STATE_DIRECTORY")
+                else:
+                    os.environ["STATE_DIRECTORY"] = old
+
+
 class Phones(unittest.TestCase):
     """The robot as a room sensor: keys over USB, sightings to the router."""
 

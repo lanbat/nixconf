@@ -233,7 +233,8 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   tap**, a **card** (waiting after "remember this card", learned, forgotten, with the
   person) and a **servo fault**. What was said and replied never goes to Home Assistant.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
-  sleep and wake up, nap now, set its mood, where to look (track, you, up, ahead) and a
+  sleep and wake up, nap now, mirror the voice direction (a switch, for a camera that
+  faces the other way), set its mood, where to look (track, you, up, ahead) and a
   head turn (−70…70°), start listening and stop the reply, read a card (30 s, for the
   tag scanner while it is a tag for phones), its screen brightness, a caption on its
   screen, and its LEDs as a light: an RGB notification lamp (a reminder, the washing
@@ -317,8 +318,10 @@ the mic **channel order**, and a per-room **offset**.
 - **Which way round.** The Eye's channel 0 is at one end of the line, and which end that
   is as the robot sees it depends on how the camera faces. Say the wake word from the
   robot's left: the journal should show a positive angle (`voice at 50 degrees`) and the
-  head should turn toward you. If it's negative and the head turns away, reverse the
-  order: `soundMicGeometry = "0.03,0;0.01,0;-0.01,0;-0.03,0";`.
+  head should turn toward you. If it's negative and the head turns away, turn on
+  **Mirror voice direction** on the robot's Home Assistant device (kept on the Pi across
+  restarts), or reverse the order in the profile:
+  `soundMicGeometry = "0.03,0;0.01,0;-0.01,0;-0.03,0";`.
 - **Channel order (square arrays).** The four channels must line up with the four geometry points. The
   `doa-order` tool (on the satellite's PATH, from this module) finds it: it records all
   four channels, you clap three times — straight ahead, then to the robot's right, then to

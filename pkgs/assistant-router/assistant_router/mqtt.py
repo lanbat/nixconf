@@ -169,6 +169,9 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:eye"),
         entity("number", "turn", "Head turn", command_topic=f"{base}/cmd/turn", min=-70, max=70, step=5,
                unit_of_measurement="°", icon="mdi:head-sync-outline", mode="slider"),
+        entity("switch", "mirror", "Mirror voice direction", command_topic=f"{base}/cmd/mirror",
+               state_topic=state, value_template="{{ 'ON' if value_json.sound_mirror else 'OFF' }}",
+               icon="mdi:swap-horizontal", entity_category="config"),
         entity("button", "nap", "Nap now", command_topic=f"{base}/cmd/nap", payload_press="ON", icon="mdi:sleep"),
         entity("button", "listen", "Start listening", command_topic=f"{base}/cmd/listen", payload_press="start",
                icon="mdi:microphone"),
@@ -208,7 +211,7 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
             "fw": s.fw, "lux": s.lux, "near": s.near, "phase": s.phase or "idle",
             "voice_dir": s.voice_dir, "head_yaw": s.head_yaw, "rssi": s.rssi, "heap_kb": s.heap_kb,
             "psram_kb": s.psram_kb, "nfc_mode": s.nfc_mode, "pi_undervolt": s.pi_undervolt,
-            "bridge_error": s.bridge_error or "none"}
+            "bridge_error": s.bridge_error or "none", "sound_mirror": s.sound_mirror}
 
 
 def _names(people: People, keys) -> str:
@@ -289,6 +292,8 @@ def command(name: str, payload: str) -> dict | None:
         return {"yaw": value} if -70 <= value <= 70 else None
     if name == "nap" and text == "ON":
         return {"nap": True}
+    if name == "mirror" and text in ("ON", "OFF"):
+        return {"mirror": text == "ON"}
     if name == "listen" and text in ("start", "stop"):
         return {"listen": text}
     if name == "led":

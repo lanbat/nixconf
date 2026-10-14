@@ -118,6 +118,7 @@ class BodyState:
     nfc_mode: str | None = None  # tag (for phones) or reader (for cards)
     pi_undervolt: bool | None = None  # its Pi's supply sagging
     bridge_error: str | None = None  # the bridge's last problem, short
+    sound_mirror: bool = False  # the voice's direction mirrored (its bridge's setting)
 
 
 def _key(room: str) -> str:
@@ -250,6 +251,8 @@ class Bodies:
                 setattr(state, name, value if type(value) is int and lo <= value <= hi else None)
         if "nfc_mode" in fields:
             state.nfc_mode = fields["nfc_mode"] if fields["nfc_mode"] in ("tag", "reader") else None
+        if type(fields.get("sound_mirror")) is bool:
+            state.sound_mirror = fields["sound_mirror"]
         if "pi_undervolt" in fields:
             state.pi_undervolt = fields["pi_undervolt"] if type(fields["pi_undervolt"]) is bool else None
         if "bridge_error" in fields:

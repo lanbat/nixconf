@@ -248,3 +248,16 @@ async def test_each_recognition_source_is_a_sensor():
     configs = dict(robot_discovery("Living room"))
     voice = configs["homeassistant/sensor/lanbat_stackchan_living_room/seen_voice/config"]
     assert voice["name"] == "Heard by voice" and voice["state_topic"].endswith("/evidence")
+
+
+async def test_the_mirror_switch():
+    assert command("mirror", "ON") == {"mirror": True}
+    assert command("mirror", "OFF") == {"mirror": False}
+    assert command("mirror", "maybe") is None
+    bodies, _, ha, socket, _ = setup()
+    bodies.update("Living room", {"sound_mirror": True}, 100.0)
+    broker = Broker()
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/stackchan/living_room/state")["sound_mirror"] is True
+    switch = dict(robot_discovery("Living room"))["homeassistant/switch/lanbat_stackchan_living_room/mirror/config"]
+    assert switch["command_topic"] == "lanbat/stackchan/living_room/cmd/mirror"
