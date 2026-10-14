@@ -58,7 +58,6 @@
 #include <Avatar.h>
 #include <M5StackChan.h>
 #include <M5Unified.h>
-#include <WiFi.h>
 #include <esp_heap_caps.h>
 
 #include <freertos/idf_additions.h>
@@ -75,7 +74,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.1";
+constexpr const char* kFirmware = "1.9.2";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -885,7 +884,7 @@ void runHealth() {
   if (now < next) return;
   next = now + 60000;
   JsonDocument doc;
-  if (pilink::active() == pilink::Via::Wifi) doc["health"]["rssi"] = WiFi.RSSI();
+  if (pilink::rssi() < 0) doc["health"]["rssi"] = pilink::rssi();
   doc["health"]["heap_kb"] = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024;
   doc["health"]["psram_kb"] = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024;
   doc["health"]["uptime_s"] = now / 1000;
