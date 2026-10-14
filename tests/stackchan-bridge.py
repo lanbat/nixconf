@@ -435,11 +435,14 @@ class Geometry(unittest.TestCase):
         self.assertIsNone(parse_geometry("0;1;2;3"))
 
 
+SQUARE = "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
+
+
 class Direction(unittest.TestCase):
     def test_a_wave_at_a_known_angle_is_found(self):
         for theta in (0, 30, -30, 60, -60, 90):
             with self.subTest(theta=theta):
-                est = estimate_direction(wave(theta), DOA_RATE, DEFAULT_SOUND_GEOMETRY)
+                est = estimate_direction(wave(theta, geom=SQUARE), DOA_RATE, SQUARE)
                 self.assertIsNotNone(est)
                 angle, confidence = est
                 self.assertLess(abs(angle - theta), 2.0)
@@ -456,6 +459,23 @@ class Direction(unittest.TestCase):
         rng = random.Random(7)
         noise = [[rng.uniform(-1.0, 1.0) for _ in range(1000)] for _ in range(4)]
         self.assertIsNone(estimate_direction(noise, DOA_RATE, DEFAULT_SOUND_GEOMETRY))
+
+    def test_mics_in_a_line_give_left_and_right(self):
+        # The PlayStation Eye's line: no front or back, the sign and angle are right.
+        for theta in (0, 30, -30, 60, -60, 80, -80):
+            with self.subTest(theta=theta):
+                angle, confidence = estimate_direction(wave(theta), DOA_RATE, DEFAULT_SOUND_GEOMETRY)
+                self.assertLess(abs(angle - theta), 10.0)
+                self.assertGreater(confidence, 0.25)
+
+    def test_a_voice_behind_a_line_reads_as_its_mirror_in_front(self):
+        angle, _ = estimate_direction(wave(150), DOA_RATE, DEFAULT_SOUND_GEOMETRY)
+        self.assertLess(abs(angle - 30), 10.0)
+
+    def test_the_line_the_other_way_round_turns_the_other_way(self):
+        reversed_line = ";".join(reversed(DEFAULT_SOUND_GEOMETRY.split(";")))
+        angle, _ = estimate_direction(wave(40), DOA_RATE, reversed_line)
+        self.assertLess(abs(angle + 40), 10.0)
 
     def test_bad_geometry_is_no_direction(self):
         self.assertIsNone(estimate_direction(wave(30), DOA_RATE, "nope"))

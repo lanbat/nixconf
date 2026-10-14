@@ -84,8 +84,10 @@ DEFAULT_SAD_WORDS = (
     "error",
 )
 
-# The PlayStation Eye's four mics, metres from its centre (docs/stackchan.md).
-DEFAULT_SOUND_GEOMETRY = "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
+# The PlayStation Eye's four mics: a line across its front, 2 cm apart, in
+# metres from its centre (docs/stackchan.md). Which end is channel 0 depends on
+# how the camera faces the robot: reverse the order if the head turns away.
+DEFAULT_SOUND_GEOMETRY = "-0.03,0;-0.01,0;0.01,0;0.03,0"
 
 
 def log(msg: str) -> None:
@@ -647,9 +649,11 @@ async def follow_mouth(send) -> None:
 # a front mic over its rear partner scales with cos θ and the lead of the right
 # mic over its left one with −sin θ (θ from straight ahead, positive to the
 # robot's left, its yaw sign), so two short cross-correlations per axis and an
-# atan2 give the angle. Pure Python on a 0.3 s window: a few milliseconds, run
-# in a worker thread. The mics' channel order is a calibration step (docs/
-# stackchan.md).
+# atan2 give the angle. Mics in a line (the PlayStation Eye's) have no front
+# and back: the leads across the line give sin θ alone, a voice behind reads as
+# its mirror in front, which is where the head should turn anyway. Pure Python
+# on a 0.3 s window: a few milliseconds, run in a worker thread. The mics'
+# channel order is a calibration step (docs/stackchan.md).
 DOA_RATE = 48000  # the card's own rate: no resampling
 DOA_CHANNELS = 4
 DOA_WINDOW_S = 0.3
@@ -661,6 +665,7 @@ CAPTURE_TIMEOUT_S = 5.0  # the robot answers a capture with a face_image
 _DOA_MIN_SAMPLES = 512
 _DOA_CONFIDENCE_MIN = 0.25  # below this the mics do not agree on a direction
 _DOA_MIN_BASELINE = 0.005  # 5 mm: an axis that short cannot be read
+_DOA_LINE_TOLERANCE = 0.001  # mics within 1 mm of one line are a line
 
 
 def parse_geometry(geometry: str) -> list[tuple[float, float]] | None:
@@ -712,6 +717,8 @@ def estimate_direction(channels: list[list[float]], fs: int, geometry: str,
         return None
     if min(len(c) for c in channels) < _DOA_MIN_SAMPLES:
         return None
+    if max(p[1] for p in points) - min(p[1] for p in points) < _DOA_LINE_TOLERANCE:
+        return _line_direction(channels, fs, points, speed_of_sound)
     by_x = sorted(range(4), key=lambda i: (points[i][0], points[i][1]))
     by_y = sorted(range(4), key=lambda i: (points[i][1], points[i][0]))
     y_pairs = [sorted(pair, key=lambda i: points[i][1]) for pair in (by_x[:2], by_x[2:])]  # (rear, front)
@@ -734,6 +741,31 @@ def estimate_direction(channels: list[list[float]], fs: int, geometry: str,
     if confidence < _DOA_CONFIDENCE_MIN:
         return None
     return math.degrees(math.atan2(sin_part, cos_part)), confidence
+
+
+def _line_direction(channels: list[list[float]], fs: int, points: list[tuple[float, float]],
+                    speed_of_sound: float) -> tuple[float, float] | None:
+    """estimate_direction for mics in a line along x: each pair's lead of its
+    right mic over its left one is −sin θ · spacing / c. Neighbouring pairs and
+    the outer pair are summed, so the long outer baseline weighs most."""
+    order = sorted(range(4), key=lambda i: points[i][0])
+    pairs = [(order[k], order[k + 1]) for k in range(3)] + [(order[0], order[3])]
+    spans = [points[r][0] - points[l][0] for l, r in pairs]
+    if min(spans) < _DOA_MIN_BASELINE:
+        return None
+    max_lag = int(math.ceil(max(spans) * fs / speed_of_sound)) + 2
+    energy = [sum(map(mul, c, c)) for c in channels]
+    leads = []
+    for l, r in pairs:
+        out = _pair_lead(channels[l], channels[r], max_lag, energy[l], energy[r])
+        if out is None:
+            return None
+        leads.append(out)
+    confidence = sum(c for _, c in leads) / len(leads)
+    if confidence < _DOA_CONFIDENCE_MIN:
+        return None
+    sin_theta = -sum(lead for lead, _ in leads) * speed_of_sound / fs / sum(spans)
+    return math.degrees(math.asin(max(-1.0, min(1.0, sin_theta)))), confidence
 
 
 class MicWindow:

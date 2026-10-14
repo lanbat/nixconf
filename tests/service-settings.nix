@@ -867,7 +867,7 @@ let
       && unit.environment.SOUND_DIRECTION == "1"
       && unit.environment.SOUND_OFFSET_DEG == "0"
       && unit.environment.SOUND_TURN_MIN_DEG == "15"
-      && unit.environment.SOUND_MIC_GEOMETRY == "-0.01,-0.01;0.01,-0.01;0.01,0.01;-0.01,0.01"
+      && unit.environment.SOUND_MIC_GEOMETRY == "-0.03,0;-0.01,0;0.01,0;0.03,0"
       && unit.environment.SOUND_SOURCE == "lanbat_ps_eye_capture"
       && !(unit.environment ? SAD_WORDS)
       && !(unit.environment ? WIFI_HOST)
