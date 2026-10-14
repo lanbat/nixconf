@@ -111,6 +111,36 @@ def log(msg: str) -> None:
         _last_error["text"] = msg[:80]
 
 
+def _settings_path() -> str | None:
+    state = os.environ.get("STATE_DIRECTORY")
+    return os.path.join(state, "settings.json") if state else None
+
+
+def load_settings() -> dict:
+    """Settings Home Assistant changed, kept across restarts (the state dir)."""
+    path = _settings_path()
+    try:
+        with open(path or "", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_settings(changes: dict) -> None:
+    path = _settings_path()
+    if not path:
+        return
+    data = {**load_settings(), **changes}
+    tmp = path + ".new"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, path)
+    except OSError as err:
+        log(f"settings not saved: {err}")
+
+
 def last_error() -> str | None:
     """The last line that reported a problem (80 characters at most)."""
     return _last_error["text"]
@@ -250,6 +280,9 @@ class Brain:
     psram_kb: int | None = None
     nfc_mode: str | None = None  # "tag" (for phones) or "reader" (for cards)
     pi_undervolt: bool | None = None  # this Pi's supply sagging (None: can't tell)
+    # The voice's direction mirrored (left for right): the satellite's mics the
+    # other way round from the robot. Home Assistant's switch; kept on the Pi.
+    sound_mirror: bool = False
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -301,6 +334,7 @@ class Brain:
                 "psram_kb": self.psram_kb,
                 "nfc_mode": self.nfc_mode,
                 "pi_undervolt": self.pi_undervolt,
+                "sound_mirror": self.sound_mirror,
                 "bridge_error": last_error()}
 
     def _listening(self) -> bool:
@@ -501,6 +535,10 @@ class Brain:
             out.append(("device", {"yaw": yaw * 10}))
         if type(act.get("nap")) is bool:
             out.append(("device", {"nap": act["nap"]}))
+        if type(act.get("mirror")) is bool and act["mirror"] != self.sound_mirror:
+            self.sound_mirror = act["mirror"]
+            out.append(("save", {"sound_mirror": self.sound_mirror}))
+            out.append(("log", f"voice direction {'mirrored' if self.sound_mirror else 'as measured'}"))
         if act.get("listen") == "start":
             out.append(("lva", {"command": "start_listening"}))
         elif act.get("listen") == "stop":
@@ -656,7 +694,7 @@ class Brain:
         estimate wobbles a few degrees between windows, and a turn is not a
         free gesture."""
         self.now = now
-        target = angle + self.config.sound_offset_deg
+        target = (-angle if self.sound_mirror else angle) + self.config.sound_offset_deg
         self.voice_dir = int(round(target))
         if _angle_moved(target, self.sound_angle) < self.config.sound_turn_min_deg:
             return []
@@ -1119,6 +1157,8 @@ class Bridge:
                         await self.router_ws.send(json.dumps(value))
                     except Exception as err:  # pylint: disable=broad-except
                         log(f"router write failed: {err}")
+            elif kind == "save":
+                save_settings(value)
             elif kind == "ear":
                 await self.ear(value)
             elif kind == "log":
@@ -1380,6 +1420,7 @@ def main() -> None:
         wifi_details=wifi_details,
         phones=read_phones(),
     )
+    bridge.brain.sound_mirror = load_settings().get("sound_mirror") is True
     asyncio.run(bridge.run())
 
 
