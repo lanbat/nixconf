@@ -167,6 +167,34 @@ in
         };
       };
 
+      adaptiveVolume = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = ''
+            Speak up in a loud room: the satellite takes a one-second level of
+            its microphone every 30 s while idle, and a reply is played louder
+            the further the room is above quiet (half a dB per dB, at most
+            ``maxBoostDb``), never past full scale. In a quiet room replies are
+            at Home Assistant's volume for the satellite, so set that for a
+            quiet room. Only levels are kept, never audio. Needs a microphone
+            node (the PlayStation Eye, or echo cancellation).
+          '';
+        };
+
+        quietDb = mkOption {
+          type = types.int;
+          default = -55;
+          description = "The microphone level, in dBFS, of a quiet room: no boost at or below it.";
+        };
+
+        maxBoostDb = mkOption {
+          type = types.int;
+          default = 8;
+          description = "The most a reply is raised above Home Assistant's volume, in dB (also capped at full scale).";
+        };
+      };
+
       snapcastDucking = {
         enable = mkOption {
           type = types.bool;

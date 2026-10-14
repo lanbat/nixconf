@@ -164,6 +164,7 @@
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };
+        lva-snapcast-duck = import ./tests/lva-snapcast-duck.nix { inherit pkgs; };
         doa-order = import ./tests/doa-order.nix { inherit pkgs; };
         plugins = import ./tests/plugins.nix { inherit lib pkgs; };
         endpoints-table = import ./tests/endpoints-table.nix { inherit lib pkgs; };

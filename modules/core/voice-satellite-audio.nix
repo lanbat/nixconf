@@ -41,6 +41,21 @@ let
   usbId = lib.splitString ":" cfg.microphone.usbId;
   captureNode = "lanbat_ps_eye_capture";
   lvaSnapcastDuck = pkgs.callPackage ../../pkgs/lva-snapcast-duck { };
+  ducking = cfg.lva.snapcastDucking.enable && config.lanbat.snapclient.enable;
+  # The microphone LVA records from (voice-satellite-lva.nix): the echo
+  # cancelled one when there is one, so the satellite's own voice isn't
+  # counted as the room.
+  roomMic =
+    if !cfg.lva.adaptiveVolume.enable then
+      null
+    else if cfg.lva.audioInputDevice != null then
+      cfg.lva.audioInputDevice
+    else if cfg.echoCancellation.enable then
+      cfg.echoCancellation.pulseSourceName
+    else if cfg.microphone.usbId == "1415:2000" then
+      captureNode
+    else
+      null;
 in
 {
   config = lib.mkIf (cfg.enable && cfg.backend == "lva") {
@@ -123,17 +138,12 @@ in
     };
 
     # Music fades down while the assistant listens and answers, on any host
-    # with a satellite and a Snapcast client (pkgs/lva-snapcast-duck).
+    # with a satellite and a Snapcast client, and replies speak up in a loud
+    # room (adaptiveVolume) (pkgs/lva-snapcast-duck).
     systemd.services.lva-snapcast-duck =
-      lib.mkIf
-        (
-          cfg.enable
-          && cfg.backend == "lva"
-          && cfg.lva.snapcastDucking.enable
-          && config.lanbat.snapclient.enable
-        )
+      lib.mkIf (cfg.enable && cfg.backend == "lva" && (ducking || roomMic != null))
         {
-          description = "Duck Snapcast while Linux Voice Assistant is active";
+          description = "Duck Snapcast while Linux Voice Assistant is active, and speak up in a loud room";
           after = [
             "linux-voice-assistant.service"
             "pipewire.service"
@@ -151,7 +161,15 @@ in
             WPCTL = "${config.services.pipewire.wireplumber.package}/bin/wpctl";
             DUCK_VOLUME = cfg.lva.snapcastDucking.volume;
             DUCK_LISTEN_VOLUME = cfg.lva.snapcastDucking.listenVolume;
-            DUCK_BINARIES = lib.concatStringsSep "," cfg.lva.snapcastDucking.programs;
+            # Nothing to duck when ducking is off: the unit runs for the voice alone.
+            DUCK_BINARIES = lib.optionalString ducking (
+              lib.concatStringsSep "," cfg.lva.snapcastDucking.programs
+            );
+            ADAPT_MIC_NODE = if roomMic == null then "" else roomMic;
+            ADAPT_QUIET_DB = toString cfg.lva.adaptiveVolume.quietDb;
+            ADAPT_MAX_BOOST_DB = toString cfg.lva.adaptiveVolume.maxBoostDb;
+            LVA_PREFS = "/var/lib/linux-voice-assistant/prefs.json";
+            PW_RECORD = "${config.services.pipewire.package}/bin/pw-record";
             # Kept across restarts of the unit (not reboots): a ducker stopped
             # with the music down finds the volumes to put back here.
             STATE_FILE = "/run/lva-snapcast-duck/saved.json";
