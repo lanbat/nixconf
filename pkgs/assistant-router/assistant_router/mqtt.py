@@ -199,6 +199,10 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:stop"),
         entity("button", "read_card", "Read a card", command_topic=f"{base}/cmd/read_card", payload_press="ON",
                icon="mdi:nfc-search-variant"),
+        # Two minutes of what its camera sees on its screen, the faces it finds
+        # boxed (yellow a candidate, green the face it follows).
+        entity("button", "camera_view", "Show camera view", command_topic=f"{base}/cmd/debug",
+               payload_press="camera", icon="mdi:camera-iris", entity_category="diagnostic"),
     ]
     # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
     out.append((f"{DISCOVERY}/tag/{uid}/nfc/config", {"topic": f"{base}/tag", "device": device}))
@@ -359,6 +363,8 @@ def command(name: str, payload: str) -> dict | None:
         return {"yaw": value} if -70 <= value <= 70 else None
     if name == "nap" and text == "ON":
         return {"nap": True}
+    if name == "debug" and text in ("camera", "off"):
+        return {"debug": text}
     if name == "mirror" and text in ("ON", "OFF"):
         return {"mirror": text == "ON"}
     if name == "auto_turn" and text in ("ON", "OFF"):

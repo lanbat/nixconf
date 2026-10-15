@@ -676,6 +676,9 @@ class Brain:
             self.sound_mirror = act["mirror"]
             out.append(("save", {"sound_mirror": self.sound_mirror}))
             out.append(("log", f"voice direction {'mirrored' if self.sound_mirror else 'as measured'}"))
+        if act.get("debug") in ("camera", "off"):
+            # Two minutes of the camera on its screen, faces boxed; the counts come back as log lines.
+            out.append(("device", {"debug": act["debug"]}))
         if act.get("listen") == "start":
             out.append(("lva", {"command": "start_listening"}))
         elif act.get("listen") == "stop":

@@ -243,7 +243,9 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   sleep and wake up, nap now, mirror the voice direction (a switch, for a camera that
   faces the other way), set its mood, where to look (track, you, up, ahead) and a
   head turn (−70…70°), start listening and stop the reply, read a card (30 s, for the
-  tag scanner while it is a tag for phones), its screen brightness, a caption on its
+  tag scanner while it is a tag for phones), **Show camera view** (two minutes of what its
+  camera sees on its screen, each face it finds boxed: yellow a candidate, green the face
+  it follows; the counts every 2 s in the bridge's journal), its screen brightness, a caption on its
   screen, and its LEDs as a light: an RGB notification lamp (a reminder, the washing
   machine) that shows while nothing else is on its LEDs.
 - **Who:** "Probably speaking" (who spoke to it last, with how sure and how it knew, for

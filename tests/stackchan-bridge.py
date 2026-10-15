@@ -1078,6 +1078,14 @@ class BesideTheMics(unittest.TestCase):
         self.assertFalse(Config.from_env({}).sound_over_wifi)
 
 
+class CameraView(unittest.TestCase):
+    def test_home_assistant_can_show_what_the_camera_sees(self):
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(device(b.on_router({"act": {"debug": "camera"}}, NOON)), [{"debug": "camera"}])
+        self.assertEqual(device(b.on_router({"act": {"debug": "off"}}, NOON)), [{"debug": "off"}])
+        self.assertEqual(device(b.on_router({"act": {"debug": "nfc"}}, NOON)), [])
+
+
 class Greeting(unittest.TestCase):
     """The router recognised someone arriving: the robot greets them."""
 
