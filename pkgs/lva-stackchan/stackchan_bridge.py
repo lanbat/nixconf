@@ -231,6 +231,87 @@ class Timer:
     ringing: bool = False
 
 
+# ── learning the turn to a voice ───────────────────────────────────────────
+# After each voice estimate the robot reports where it then sees the person
+# ({"face_at": …}, firmware): pairs of (the raw estimate, the face's direction).
+# A straight line through them is the turn: its slope fixes short turns and a
+# mirrored array (negative), its offset where the mics sit. Used only once it
+# is clearly right; until then the manual mirror switch and offset apply.
+TURN_MIN_SAMPLES = 6
+TURN_MIN_SPREAD = 30.0  # degrees of raw estimate the samples must cover
+TURN_KEEP = 40
+TURN_MAX_RMS = 12.0
+FACE_AT_MS = 2500  # how long the robot looks for the face after a turn
+FACE_LIMIT = 68  # a face at the head's limit (±70°) may be further out: not a sample
+
+
+def _line(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+    n = len(points)
+    if n < 2:
+        return None
+    mx = sum(v for v, _ in points) / n
+    my = sum(t for _, t in points) / n
+    sxx = sum((v - mx) ** 2 for v, _ in points)
+    if sxx <= 0:
+        return None
+    a = sum((v - mx) * (t - my) for v, t in points) / sxx
+    return a, my - a * mx
+
+
+def fit_turn(samples: list[tuple[float, float]]) -> dict | None:
+    """{"gain", "offset", "rms", "n"} for `turn = gain·raw + offset`, or None
+    while the samples don't make it clear."""
+    def spread(pts):
+        return max(v for v, _ in pts) - min(v for v, _ in pts) if pts else 0.0
+    if len(samples) < TURN_MIN_SAMPLES or spread(samples) < TURN_MIN_SPREAD:
+        return None
+    line = _line(samples)
+    if line is None:
+        return None
+    res = sorted(abs(t - (line[0] * v + line[1])) for v, t in samples)
+    mad = res[len(res) // 2]
+    limit = max(15.0, 2.5 * mad)
+    keep = [(v, t) for v, t in samples if abs(t - (line[0] * v + line[1])) <= limit]
+    if len(keep) < TURN_MIN_SAMPLES or spread(keep) < TURN_MIN_SPREAD:
+        return None
+    line = _line(keep)
+    if line is None:
+        return None
+    a, b = line
+    rms = math.sqrt(sum((t - (a * v + b)) ** 2 for v, t in keep) / len(keep))
+    if not 0.3 <= abs(a) <= 3.0 or rms > TURN_MAX_RMS:
+        return None
+    return {"gain": round(a, 3), "offset": round(b, 1), "rms": round(rms, 1), "n": len(keep)}
+
+
+class TurnCalibration:
+    def __init__(self, samples=None) -> None:
+        self.samples: list[tuple[float, float]] = []
+        for s in samples or []:
+            if isinstance(s, (list, tuple)) and len(s) == 2 and all(type(x) in (int, float) for x in s):
+                self.samples.append((float(s[0]), float(s[1])))
+        self.samples = self.samples[-TURN_KEEP:]
+        self.fit = fit_turn(self.samples)
+
+    def add(self, raw: float, face: float) -> bool:
+        """A sample; True when it made the calibration (newly) usable."""
+        before = self.fit is not None
+        self.samples = (self.samples + [(float(raw), float(face))])[-TURN_KEEP:]
+        self.fit = fit_turn(self.samples)
+        return self.fit is not None and not before
+
+    def turn(self, raw: float) -> float | None:
+        return None if self.fit is None else self.fit["gain"] * raw + self.fit["offset"]
+
+    def reset(self) -> None:
+        self.samples, self.fit = [], None
+
+    def status(self) -> str:
+        if self.fit is None:
+            return f"learning ({min(len(self.samples), TURN_MIN_SAMPLES)}/{TURN_MIN_SAMPLES})"
+        return "calibrated, mirrored" if self.fit["gain"] < 0 else "calibrated"
+
+
 @dataclass
 class Brain:
     """Decisions only. Every method returns a list of actions:
@@ -283,6 +364,10 @@ class Brain:
     # The voice's direction mirrored (left for right): the satellite's mics the
     # other way round from the robot. Home Assistant's switch; kept on the Pi.
     sound_mirror: bool = False
+    # The turn learned from where the robot then sees the person (TurnCalibration).
+    calibration: "TurnCalibration" = field(default_factory=lambda: TurnCalibration())
+    auto_turn: bool = True
+    last_voice: dict | None = None  # the last estimate, waiting for the robot's face_at
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -335,6 +420,12 @@ class Brain:
                 "nfc_mode": self.nfc_mode,
                 "pi_undervolt": self.pi_undervolt,
                 "sound_mirror": self.sound_mirror,
+                "auto_turn": self.auto_turn,
+                "turn_cal": self.calibration.status(),
+                "turn_gain": (self.calibration.fit or {}).get("gain"),
+                "turn_offset": (self.calibration.fit or {}).get("offset"),
+                "turn_rms": (self.calibration.fit or {}).get("rms"),
+                "turn_samples": len(self.calibration.samples),
                 "bridge_error": last_error()}
 
     def _listening(self) -> bool:
@@ -538,6 +629,12 @@ class Brain:
             out.append(("device", {"yaw": yaw * 10}))
         if type(act.get("nap")) is bool:
             out.append(("device", {"nap": act["nap"]}))
+        if type(act.get("auto_turn")) is bool and act["auto_turn"] != self.auto_turn:
+            self.auto_turn = act["auto_turn"]
+            out.append(("save", {"auto_turn": self.auto_turn}))
+        if act.get("reset_turn") is True:
+            self.calibration.reset()
+            out += [("save", {"turn_samples": []}), ("log", "turn calibration reset: learning again")]
         if type(act.get("mirror")) is bool and act["mirror"] != self.sound_mirror:
             self.sound_mirror = act["mirror"]
             out.append(("save", {"sound_mirror": self.sound_mirror}))
@@ -583,6 +680,8 @@ class Brain:
             self.present_at = now
             out.append(("router", {"state": self.router_state(now)}))
             out.append(("router", {"event": {"face": face}}))
+        if "face_at" in msg:
+            out += self._face_at(msg["face_at"], now)
         health = msg.get("health")
         if isinstance(health, dict):
             # Every minute from the robot: kept for Home Assistant, as given
@@ -690,6 +789,30 @@ class Brain:
             out.append(("log", f"robot: {msg['log']}"))
         return out
 
+    def _face_at(self, seen, now: float) -> list:
+        """The robot's answer after a turn to a voice: a calibration sample,
+        or, before there is a fit, one look at the mirror angle."""
+        voice, out = self.last_voice, []
+        if voice is None or now - voice["at"] > 8:
+            return out
+        if isinstance(seen, dict) and seen.get("faces") == 1 and type(seen.get("yaw")) is int \
+                and abs(seen["yaw"]) < FACE_LIMIT:
+            self.last_voice = None
+            if self.calibration.add(voice["raw"], seen["yaw"]):
+                f = self.calibration.fit
+                out.append(("log", f"turning calibrated: gain {f['gain']}, offset {f['offset']} degrees, "
+                                   f"rms {f['rms']} ({f['n']} samples)"))
+            out.append(("save", {"turn_samples": self.calibration.samples}))
+            return out
+        if seen is None and not voice["probed"] and self.auto_turn and self.calibration.fit is None:
+            # Nobody where it turned: the array may be mirrored. Look once the other way.
+            voice["probed"] = True
+            mirror = max(-70.0, min(70.0, -voice["manual"]))
+            self.sound_angle = mirror
+            return [("device", {"yaw": int(round(mirror * 10))}), ("device", {"face_at": FACE_AT_MS}),
+                    ("log", f"nobody at {voice['manual']:.0f} degrees: looking at {mirror:.0f}")]
+        return out
+
     def on_sound(self, angle: float, confidence: float, now: float) -> list:
         """The voice's direction (estimate_direction, from the satellite's
         microphones): the head turns to it so the camera meets the speaker.
@@ -697,16 +820,23 @@ class Brain:
         estimate wobbles a few degrees between windows, and a turn is not a
         free gesture."""
         self.now = now
-        target = (-angle if self.sound_mirror else angle) + self.config.sound_offset_deg
+        manual = (-angle if self.sound_mirror else angle) + self.config.sound_offset_deg
+        fitted = self.calibration.turn(angle) if self.auto_turn else None
+        target = manual if fitted is None else fitted
         self.voice_dir = int(round(target))
+        # Then, wherever the head ends up, where the person turns out to be:
+        # a sample for the calibration (on_device, face_at).
+        self.last_voice = {"raw": angle, "at": now, "target": target, "manual": manual, "probed": False}
+        ask = [("device", {"face_at": FACE_AT_MS})]
         if _angle_moved(target, self.sound_angle) < self.config.sound_turn_min_deg:
-            return []
+            return ask
         self.sound_angle = target
         yaw = int(round(max(-70.0, min(70.0, target)) * 10))
         return [
             ("device", {"yaw": yaw}),
-            ("log", f"voice at {angle:.0f} degrees (confidence {confidence:.2f}): turning"),
-        ]
+            ("log", f"voice at {angle:.0f} degrees (confidence {confidence:.2f}): turning"
+                    + (" (calibrated)" if fitted is not None else "")),
+        ] + ask
 
     def tick(self, now: float) -> list:
         out: list = []
@@ -1423,7 +1553,10 @@ def main() -> None:
         wifi_details=wifi_details,
         phones=read_phones(),
     )
-    bridge.brain.sound_mirror = load_settings().get("sound_mirror") is True
+    settings = load_settings()
+    bridge.brain.sound_mirror = settings.get("sound_mirror") is True
+    bridge.brain.auto_turn = settings.get("auto_turn") is not False
+    bridge.brain.calibration = TurnCalibration(settings.get("turn_samples"))
     asyncio.run(bridge.run())
 
 

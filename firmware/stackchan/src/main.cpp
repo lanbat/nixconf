@@ -28,6 +28,7 @@
 //   {"tap": {"url": "https://..."}}  the link it is a tag with, for phones (nfc.h)
 //   {"nfc_read": seconds}           read cards instead, for a while
 //   {"nap": true|false}             nap now, or wake from a nap
+//   {"face_at": ms}                 within ms, where the face is once the head is still
 //   {"config": {..., "auto_brightness": bool}}  the screen follows the room's light
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
@@ -49,6 +50,8 @@
 //   {"tapped": true}                 a phone read its link (its tag, nfc.h)
 //   {"health": {"rssi", "heap_kb", "psram_kb", "uptime_s", "nfc": "tag|reader",
 //               "yaw"}}             every minute: how it is doing (yaw in degrees)
+//   {"face_at": {"yaw", "faces"} | null}  the answer to face_at: a face's direction
+//                                    in the head's degrees, and how many faces
 //   {"log": "..."}
 //
 // Without a line for 10 s on either link it takes the Pi for gone and shows it.
@@ -74,7 +77,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.3";
+constexpr const char* kFirmware = "1.9.4";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -167,6 +170,11 @@ struct Keyframe {
   uint16_t ms;
 };
 const Keyframe* gesture = nullptr;
+// {"face_at": ms}: the Pi learns its turns to a voice from where the face then
+// is. Answered once the head has been still for kStillMs, or with null.
+uint32_t faceAtUntil = 0;
+uint32_t lastMoveAt = 0;  // when the last move ends (a move takes its speed, in ms)
+constexpr uint32_t kStillMs = 400;
 int gestureLength = 0, gestureStep = 0;
 uint32_t gestureStepAt = 0;
 
@@ -255,6 +263,7 @@ void sendEvent(const char* key, const char* value, const char* zone = nullptr) {
 }
 
 void startGesture(const Keyframe* frames, int length) {
+  lastMoveAt = millis();
   gesture = frames;
   gestureLength = length;
   gestureStep = 0;
@@ -264,6 +273,7 @@ void startGesture(const Keyframe* frames, int length) {
 #define GESTURE(k) startGesture(k, sizeof(k) / sizeof(k[0]))
 
 void pointHead(int yaw, int pitch, int speed) {
+  lastMoveAt = millis() + speed;
   targetYaw = constrain(yaw, kYawMin, kYawMax);
   targetPitch = constrain(pitch, kPitchMin, kPitchMax);
   M5StackChan.Motion.move(targetYaw, targetPitch, speed);
@@ -509,6 +519,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
     showText();
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
+  if (doc["face_at"].is<int>()) faceAtUntil = millis() + constrain(doc["face_at"].as<int>(), 100, 10000);
   if (doc["nap"].is<bool>()) {
     // {"nap": true|false}: from Home Assistant; not at night, which has its own rest.
     if (doc["nap"].as<bool>() && !napping && !asleep) startNap();
@@ -775,6 +786,13 @@ void follow() {
     // Where the face is, in the head's angles: the camera turns with the head.
     lastFaceYaw = constrain(targetYaw + s.x * kHalfFovYaw, (float)kYawMin, (float)kYawMax);
     lastFacePitch = constrain(targetPitch + s.y * kHalfFovPitch, (float)kPitchMin, (float)kPitchMax);
+    if (faceAtUntil && !gesture && (int32_t)(now - lastMoveAt) > (int32_t)kStillMs) {
+      JsonDocument d;
+      d["face_at"]["yaw"] = (int)lroundf(lastFaceYaw / 10);
+      d["face_at"]["faces"] = s.faces;
+      send(d);
+      faceAtUntil = 0;
+    }
     if (!faceVisible) {
       faceVisible = true;
       sendEvent("face", "new");
@@ -918,6 +936,12 @@ void loop() {
   wander();
   runGesture();
   if (captionUntil && millis() > captionUntil) showText();
+  if (faceAtUntil && millis() > faceAtUntil) {
+    faceAtUntil = 0;
+    JsonDocument d;
+    d["face_at"] = nullptr;  // nobody seen with the head still
+    send(d);
+  }
   lights::update();
 
   // Once, 15 s after boot: whether the camera delivers frames.

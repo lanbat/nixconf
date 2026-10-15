@@ -145,6 +145,7 @@ void detectTask(void*) {
       s.x = kMirrorX * (bx * 2 - 1);
       s.y = -(by * 2 - 1);
       s.size = bw;
+      s.faces = (uint8_t)min<size_t>(candidates.size(), 9);
     }
 
     xSemaphoreTake(lock, portMAX_DELAY);

@@ -315,6 +315,19 @@ the mic **channel order**, and a per-room **offset**.
   head turns that way, which is where it should look anyway. With a different card whose
   mics form a square, set its points here and it gets front and back too; two mics closer
   than 5 mm apart make an axis that can't be read.
+- **It calibrates itself.** After each wake word it turns to the voice and then looks at
+  where the person actually is: the robot reports the face's direction once its head is
+  still (`face_at`), and the bridge pairs that with the raw estimate. With six or more
+  such turns, spread over at least 30°, a straight line through them becomes the turn:
+  its slope fixes turns that are too short and a mirrored array (a negative slope, so
+  the "Mirror voice direction" switch isn't needed), its offset where the mics sit
+  relative to the robot. Only turns where exactly one face is in view count, and wild
+  ones are dropped. Before it has a line, if nobody is where it turned, it looks once the
+  other way, which is how a mirrored array is found. The samples are kept on the Pi and
+  keep refining it. In Home Assistant: *Turn calibration* (learning 3/6, calibrated,
+  calibrated and mirrored, with the gain and offset), *Auto-calibrate turning* (on), and
+  *Reset turn calibration* after moving the robot or the camera. Until it's calibrated
+  (or with the switch off), the settings below apply.
 - **Which way round.** The Eye's channel 0 is at one end of the line, and which end that
   is as the robot sees it depends on how the camera faces. Say the wake word from the
   robot's left: the journal should show a positive angle (`voice at 50 degrees`) and the
@@ -381,6 +394,7 @@ robot is plugged in.
 | `{"debug": "senses"}` | For 30 s, the light and proximity sensor's raw readings in the journal, 5 a second |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"nap": true\|false}` | Nap now, or wake from a nap (not at night) |
+| `{"face_at": ms}` | Within `ms`, report where the face is once the head is still (the turn calibration) |
 | `{"debug": "nfc"}` | For 30 s, what its NFC is doing (tag or reader, reads, field) in the bridge's journal every 2 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |
@@ -398,6 +412,7 @@ robot is plugged in.
 | `{"senses": {"lux", "prox", "near"}}` | Light at the sensor and the proximity echo, when the hand near it comes or goes or the light changes |
 | `{"nfc": "<UID hex>"}` | A tag or card tapped on it, once per tap (phones' random IDs are left out) |
 | `{"tapped": true}` | A phone read its link, once per tap |
+| `{"face_at": {"yaw", "faces"}}` or `{"face_at": null}` | The answer to `face_at`: the face's direction in the head's degrees and how many faces are in view, or nobody seen in time |
 | `{"health": {"rssi", "heap_kb", "psram_kb", "uptime_s", "nfc", "yaw"}}` | Every minute: Wi-Fi signal (on Wi-Fi only), free memory and PSRAM, uptime, NFC mode (`tag` or `reader`), the head's direction in degrees |
 | `{"wave": true}` | A hand waved across the proximity sensor (near and gone within 0.6 s) |
 | `{"seen": [{"person", "rssi"}]}` | Phones it heard in the last minute (median strength), every 15 s; the bridge passes them to the router |
