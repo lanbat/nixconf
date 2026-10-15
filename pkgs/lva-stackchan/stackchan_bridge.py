@@ -396,6 +396,10 @@ class Brain:
     calibration: "TurnCalibration" = field(default_factory=lambda: TurnCalibration())
     auto_turn: bool = True
     last_voice: dict | None = None  # the last estimate, waiting for the robot's face_at
+    # Nobody where it turned: look once the other way (a mirrored array). Off
+    # after nobody either way (in the dark it sees nobody anywhere, and would
+    # turn away from every voice), until the camera sees a face again.
+    mirror_probe: bool = True
     # Faces shown to the router (face_probe), so it can say who is here.
     probes: bool = False  # the router has a face library (its body_hello)
     probe_at: float | None = None  # when one went last
@@ -714,6 +718,8 @@ class Brain:
         if face in ("new", "lost") and (face == "new") != self.present:
             self.present = face == "new"
             self.present_at = now
+            if self.present:
+                self.mirror_probe = True  # it can see someone: worth looking the other way again
             out.append(("router", {"state": self.router_state(now)}))
             out.append(("router", {"event": {"face": face}}))
             out += self._probe(now, PROBE_GAP_S)
@@ -856,10 +862,13 @@ class Brain:
 
     def _face_at(self, seen, now: float) -> list:
         """The robot's answer after a turn to a voice: a calibration sample,
-        or, before there is a fit, one look at the mirror angle."""
+        or, before there is a fit, one look at the mirror angle; nobody there
+        either, back to the voice."""
         voice, out = self.last_voice, []
         if voice is None or now - voice["at"] > 8:
             return out
+        if isinstance(seen, dict):
+            self.mirror_probe = True  # a face, wherever: the camera can see
         if isinstance(seen, dict) and seen.get("faces") == 1 and type(seen.get("yaw")) is int \
                 and abs(seen["yaw"]) < FACE_LIMIT:
             self.last_voice = None
@@ -869,7 +878,16 @@ class Brain:
                                    f"rms {f['rms']} ({f['n']} samples)"))
             out.append(("save", {"turn_samples": self.calibration.samples}))
             return out
-        if seen is None and not voice["probed"] and self.auto_turn and self.calibration.fit is None:
+        if seen is None and voice["probed"]:
+            # Nobody that way either: back to the voice, and no more looking
+            # away until the camera has seen someone again.
+            self.last_voice, self.mirror_probe = None, False
+            target = max(-70.0, min(70.0, voice["target"]))
+            self.sound_angle = target
+            return [("device", {"yaw": int(round(target * 10))}),
+                    ("log", f"nobody either way: back to {target:.0f} degrees, and no more looking away "
+                            "until it sees someone")]
+        if seen is None and self.mirror_probe and self.auto_turn and self.calibration.fit is None:
             # Nobody where it turned: the array may be mirrored. Look once the other way.
             voice["probed"] = True
             mirror = max(-70.0, min(70.0, -voice["manual"]))

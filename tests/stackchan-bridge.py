@@ -992,11 +992,23 @@ class TurnLearning(unittest.TestCase):
         out = b.on_device({"face_at": None}, NOON + 3)
         self.assertIn(("device", {"yaw": -300}), out)
         self.assertIn(("device", {"face_at": 2500}), out)
-        self.assertEqual(b.on_device({"face_at": None}, NOON + 6), [])  # once only
-        b.on_sound(30, 0.9, NOON + 20)
-        b.on_device({"face_at": None}, NOON + 23)
-        out = b.on_device({"face_at": {"yaw": -31, "faces": 1}}, NOON + 26)  # found on the other side
+        b.on_device({"face": "new"}, NOON + 4)  # someone there after all
+        out = b.on_device({"face_at": {"yaw": -31, "faces": 1}}, NOON + 5)  # found on the other side
         self.assertEqual(b.calibration.samples, [(30.0, -31.0)])
+
+    def test_nobody_either_way_goes_back_to_the_voice_and_stops_looking_away(self):
+        # In the dark the camera sees nobody anywhere: it would turn away from every voice.
+        b = self.brain()
+        b.on_sound(30, 0.9, NOON)
+        b.on_device({"face_at": None}, NOON + 3)  # looks at -30
+        out = b.on_device({"face_at": None}, NOON + 6)
+        self.assertEqual(device(out), [{"yaw": 300}])  # back to the voice
+        b.on_sound(-25, 0.9, NOON + 20)
+        self.assertEqual(device(b.on_device({"face_at": None}, NOON + 23)), [])  # stays with the voice
+        b.on_device({"face": "new"}, NOON + 30)  # it can see someone again
+        b.on_device({"face": "lost"}, NOON + 40)
+        b.on_sound(30, 0.9, NOON + 50)
+        self.assertIn({"yaw": -300}, device(b.on_device({"face_at": None}, NOON + 53)))  # looks away once more
 
     def test_the_switch_and_the_reset(self):
         b = self.brain()
