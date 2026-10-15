@@ -830,8 +830,10 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         person = hit.get("name") if hit and hit.get("success") else None
                         known = person in people.names if person else False
                         if known:
-                            # The robot turned to the voice first: likely the speaker.
-                            people.observe(room, "aimed", person, hit.get("confidence"), clock())
+                            # After a turn to the voice, likely the speaker ("aimed");
+                            # a face that came into view is someone here ("seen").
+                            source = "seen" if data.get("why") == "seen" else "aimed"
+                            people.observe(room, source, person, hit.get("confidence"), clock())
                         await ws.send_json({"face_result": {
                             "person": people.names[person] if known else None,
                             "confidence": hit.get("confidence") if hit else None}})

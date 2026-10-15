@@ -10,6 +10,9 @@ a prompt. The sources:
   is loudest, or in each room within ROOM_MARGIN_DB of that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
+- "seen": a face that came into the room's robot's view (it shows the router
+  one on arrival and every minute while someone stays), last 90 s: they are
+  here, not necessarily the speaker;
 - "card": a person's NFC card tapped on the room's robot (cards.py),
   last 2 min: strong, it names them unless the voice clearly disagrees;
 - "tap": a person's phone held to the room's robot, and their login on its
@@ -41,9 +44,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-SOURCES = ("face", "aimed", "phone", "card", "tap", "voice")
-WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0, "card": 120.0, "tap": 120.0, "voice": 300.0}
-MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5, "card": 0.5, "tap": 0.5, "voice": 0.7}
+SOURCES = ("face", "aimed", "seen", "phone", "card", "tap", "voice")
+WINDOW = {"face": 10.0, "aimed": 10.0, "seen": 90.0, "phone": 120.0, "card": 120.0, "tap": 120.0,
+          "voice": 300.0}
+MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "seen": 0.6, "phone": 0.5, "card": 0.5, "tap": 0.5,
+                  "voice": 0.7}
 
 # The weights. Tuned on the scenarios in tests/test_people.py.
 PRIOR = 0.05            # every enrolled person
@@ -171,9 +176,10 @@ class People:
         """What each source says about `room` now: person key -> confidence,
         per source. For Home Assistant's view of the recognition; the same
         evidence assess() weighs, with nothing added."""
+        seen, aimed = self._recent(room, "seen", now), self._recent(room, "aimed", now)
         out = {
             "camera": self._recent(room, "face", now),
-            "robot": self._recent(room, "aimed", now),
+            "robot": {p: max(seen.get(p, 0.0), aimed.get(p, 0.0)) for p in {**seen, **aimed}},
             "bluetooth": {p: 1.0 for p in self._placed(room, now, only="ble")},
             "wifi": {p: 1.0 for p in self._placed(room, now, only="wifi")},
             "card": {**self._recent(room, "card", now), **self._recent(room, "tap", now)},
@@ -201,7 +207,7 @@ class People:
                 by = found.setdefault(person, {})
                 by[source] = max(chance, by.get(source, 0.0))
 
-        for source, name in (("face", "camera"), ("aimed", "robot"), ("voice", "voice")):
+        for source, name in (("face", "camera"), ("aimed", "robot"), ("seen", "robot"), ("voice", "voice")):
             for person, confidence in self._recent(room, source, now).items():
                 add(name, person, confidence)
         for source in ("card", "tap"):
@@ -298,6 +304,7 @@ class People:
         phones.update({p: 1.0 for p in self._placed(room, now)})
         faces = self._recent(room, "face", now)
         aimed = self._recent(room, "aimed", now)
+        seen = self._recent(room, "seen", now)
         home = self.home(now)
         cards = self._recent(room, "card", now)
         taps = self._recent(room, "tap", now)
@@ -315,6 +322,8 @@ class People:
             if person in cards or person in taps:
                 w *= CARD
             if person in faces:
+                w *= FACE
+            if person in seen:
                 w *= FACE
             if person in heard:
                 w *= VOICE_PRESENT
@@ -345,7 +354,8 @@ class People:
                     by.append("card")
                 if top in taps:
                     by.append("phone tap")
-                a.how = " and ".join(by) or ("presence" if top in phones or top in faces else "conversation")
+                a.how = " and ".join(by) or (
+                    "presence" if top in phones or top in faces or top in seen or top in heard else "conversation")
                 second = max([v for k, v in voice.items() if k != top], default=0.0)
                 # A tap or a card names them for sure: what they say teaches the voice.
                 if aimed.get(top, 0.0) >= LEARN_AIMED or top in cards or top in taps or (

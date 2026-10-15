@@ -45,17 +45,22 @@ means adding photos to their entry in Frigate's face library; the person mapper 
 
 ## Faces on the robot
 
-A robot can name the speaker without a room camera. When it turns its head toward the
-voice ([stackchan.md](stackchan.md)), it captures a frame and sends it to the router; the
-router runs it against the **same Frigate face library** and reports the result back. The
-robot never recognises anything itself — it only captures and transmits — and a frame is
-sent only when the router says it has a face library to check against, so a robot on a
-router without Frigate just stays quiet.
+A robot can name people without a room camera. It captures a frame and sends it to the
+router, which runs it against the **same Frigate face library** and reports the result
+back. It does so at two moments:
 
-The recognised key lands in the router exactly like a camera face does (a `face` signal
-for the room), so the combining rules below are the same. Enrolling a person the robot can
-name is the same as enrolling for the cameras: add photos to their entry in Frigate's face
-library.
+- **After turning toward the voice** ([stackchan.md](stackchan.md)): the face it then sees
+  is most likely the speaker's, so it can name the speaker ("aimed", 10 s).
+- **As someone comes into view, and every minute while they stay:** that face is someone
+  in the room ("seen", 90 s), as a room camera's would be, without saying who is
+  speaking. Over Wi-Fi the frames are a minute apart at most; they are 320×240 either way.
+
+The robot never recognises anything itself — it only captures and transmits — and a frame
+is sent only when the router says it has a face library to check against, so a robot on a
+router without Frigate just stays quiet. Nothing is sent while it is asleep. The combining
+rules below are the same as for the cameras. To enrol a face the robot can name, tap your
+phone on it or say "remember me" ([Meeting Nabu](#meeting-nabu)), or add photos to your
+entry in Frigate's face library.
 
 ## Phones in the room
 
