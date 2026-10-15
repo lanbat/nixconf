@@ -76,6 +76,15 @@ GESTURES = ("perk", "nod", "shake", "wiggle", "tilt", "dance", "look_around")
 LOOKS = ("track", "user", "up", "center")
 # How long the router's mood waits for the reply it was chosen for.
 ROUTER_MOOD_SECONDS = 10
+# Why the robot last started, as its hello says (firmware 1.9.6): the first
+# four mean something went wrong.
+RESET_REASONS = ("panic", "brownout", "task-watchdog", "interrupt-watchdog", "watchdog", "power-on",
+                 "software", "external", "deep-sleep", "sdio", "other")
+# A line from the robot that isn't JSON is boot noise from the ROM, unless it
+# is a crash's report: that goes to the journal (a few lines a minute at most).
+CRASH_MARKERS = ("Guru Meditation", "Backtrace", "abort()", "assert failed", "Brownout", "rst:", "panic",
+                 "Rebooting")
+CRASH_LINES_PER_MIN = 30
 
 DEFAULT_SAD_WORDS = (
     "sorry",
@@ -364,6 +373,7 @@ class Brain:
     charging: bool | None = None
     link: str | None = None  # "usb" or "wifi", from the robot's hello
     firmware: str | None = None
+    restart: str | None = None  # why the robot last started (its hello): "panic", "brownout", ...
     lux: int | None = None  # light at the sensor (behind the glass: relative)
     near: bool = False  # a hand close to its screen
     ear: bool = False  # the robot has a microphone (its hello), and a router listens
@@ -429,6 +439,7 @@ class Brain:
                 "mood": self.mood,
                 "brightness": self.config.brightness,
                 "fw": self.firmware,
+                "restart": self.restart,
                 "lux": self.lux,
                 "near": self.near,
                 "phase": self.phase,
@@ -739,7 +750,12 @@ class Brain:
             link = hello.get("link", "usb")  # firmware before 1.2 had USB only
             self.link = link if link in ("usb", "wifi") else None
             self.firmware = str(hello.get("fw"))[:16] if hello.get("fw") else None
-            out.append(("log", f"robot firmware {hello.get('fw', '?')}, protocol {hello.get('proto', '?')}, over {link}"))
+            reset = hello.get("reset")
+            self.restart = reset if reset in RESET_REASONS else None
+            up = hello.get("up_s")
+            out.append(("log", f"robot firmware {hello.get('fw', '?')}, protocol {hello.get('proto', '?')}, over {link}"
+                        + (f"; started by {self.restart}" if self.restart else "")
+                        + (f", {up} s ago" if type(up) is int else "")))
             if hello.get("proto") != PROTOCOL:
                 out.append(("log", f"the robot speaks protocol {hello.get('proto')}, this bridge {PROTOCOL}: reflash it (docs/stackchan.md)"))
             if hello.get("camera") is False:
@@ -1244,6 +1260,7 @@ class Bridge:
         self.config = config
         self.mic_window: MicWindow | None = None
         self.router_faces = False  # the router has a face library to probe
+        self.crash_lines = (0, 0)  # (minute, lines of a crash's report logged in it)
         self.face_waiter: asyncio.Future | None = None  # a capture in flight
         self.router_sent: dict | None = None  # the last state the router got
         self.ear_audio = bytearray()  # the sentence the robot is recording
@@ -1288,7 +1305,16 @@ class Bridge:
         try:
             msg = json.loads(raw)
         except ValueError:
-            return  # boot noise from the ROM before the firmware speaks
+            # Boot noise from the ROM before the firmware speaks, or a crash's report.
+            text = raw.decode("utf-8", "replace").strip()
+            if text and any(m in text for m in CRASH_MARKERS):
+                minute = int(time.monotonic() // 60)
+                if self.crash_lines[0] != minute:
+                    self.crash_lines = (minute, 0)
+                if self.crash_lines[1] < CRASH_LINES_PER_MIN:
+                    self.crash_lines = (minute, self.crash_lines[1] + 1)
+                    log(f"robot says: {text[:200]}")
+            return
         if not isinstance(msg, dict):
             return
         if "audio" in msg:

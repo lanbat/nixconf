@@ -279,6 +279,17 @@ async def test_who_is_here_and_where_everyone_is():
     assert raw("lanbat/people/maria/where") == ""
 
 
+async def test_why_a_robot_last_restarted_is_a_diagnostic():
+    bodies, _, ha, _, _ = setup()
+    bodies.update("Living room", {"restart": "brownout"}, 100.0)
+    bodies.update("Living room", {"restart": "melted"}, 100.0)  # not a reason it knows
+    broker = Broker()
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/stackchan/living_room/state")["restart"] == "brownout"
+    config = dict(robot_discovery("Living room"))["homeassistant/sensor/lanbat_stackchan_living_room/restart/config"]
+    assert config["name"] == "Last restart" and config["entity_category"] == "diagnostic"
+
+
 async def test_a_greeting_is_a_recognized_event():
     bodies, _, ha, _, _ = setup()
     broker = Broker()

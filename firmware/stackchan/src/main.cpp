@@ -38,7 +38,8 @@
 // and hears back:
 //
 //   {"hello": {"fw", "proto", "link": "usb|wifi", "wifi": "<id>", "camera": bool,
-//              "ear": bool, "phones": "<id>", "nfc": bool}}
+//              "ear": bool, "phones": "<id>", "nfc": bool, "reset": "<why it
+//              last started>", "up_s": seconds since}}
 //                                    when a link comes up; the Pi answers
 //                                    with the whole state
 //   {"touch": "tap|stroke", "zone": "front|middle|back|screen"}
@@ -64,6 +65,7 @@
 #include <M5StackChan.h>
 #include <M5Unified.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include <freertos/idf_additions.h>
 
@@ -79,7 +81,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.5";
+constexpr const char* kFirmware = "1.9.6";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -882,6 +884,25 @@ void runGesture() {
 
 }  // namespace
 
+// Why the chip last started. A crash, a brownout or a watchdog says something
+// went wrong; power-on (plugged in, or the power chip cut it off), software
+// (a restart, a flash) and the reset button don't.
+const char* resetReason() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_EXT: return "external";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt-watchdog";
+    case ESP_RST_TASK_WDT: return "task-watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep";
+    case ESP_RST_BROWNOUT: return "brownout";
+    case ESP_RST_SDIO: return "sdio";
+    default: return "other";
+  }
+}
+
 void helloLine(JsonDocument& doc) {
   doc["hello"]["fw"] = kFirmware;
   doc["hello"]["proto"] = kProtocol;
@@ -891,6 +912,8 @@ void helloLine(JsonDocument& doc) {
   doc["hello"]["ear"] = hasEar;
   doc["hello"]["phones"] = phones::configId();
   doc["hello"]["nfc"] = hasNfc;
+  doc["hello"]["reset"] = resetReason();
+  doc["hello"]["up_s"] = millis() / 1000;
 }
 
 void setup() {

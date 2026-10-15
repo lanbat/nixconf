@@ -154,6 +154,9 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
         entity("sensor", "bridge_error", "Last problem", state_topic=state,
                value_template="{{ value_json.bridge_error }}", icon="mdi:alert-circle-outline",
                entity_category="diagnostic"),
+        entity("sensor", "restart", "Last restart", state_topic=state,
+               value_template="{{ value_json.restart }}", icon="mdi:restart-alert",
+               entity_category="diagnostic"),
         entity("binary_sensor", "pi_undervolt", "Pi under-voltage", state_topic=state, device_class="problem",
                value_template="{{ 'ON' if value_json.pi_undervolt else 'OFF' }}", entity_category="diagnostic"),
         # What it did.
@@ -252,7 +255,8 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
         return None
     return {"present": s.present, "battery": s.battery, "charging": s.charging, "battery_low": s.battery_low,
             "link": s.link, "mood": s.mood, "nap": s.nap, "night": s.night, "brightness": s.brightness,
-            "fw": s.fw, "lux": s.lux, "near": s.near, "phase": s.phase or "idle",
+            "fw": s.fw, "restart": s.restart or "unknown", "lux": s.lux, "near": s.near,
+            "phase": s.phase or "idle",
             "voice_dir": s.voice_dir, "head_yaw": s.head_yaw, "rssi": s.rssi, "heap_kb": s.heap_kb,
             "psram_kb": s.psram_kb, "nfc_mode": s.nfc_mode, "pi_undervolt": s.pi_undervolt,
             "bridge_error": s.bridge_error or "none", "sound_mirror": s.sound_mirror,
