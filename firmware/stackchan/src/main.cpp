@@ -74,7 +74,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.2";
+constexpr const char* kFirmware = "1.9.3";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -125,6 +125,11 @@ uint32_t lastLine = 0;
 bool piPresent = false;
 bool faceVisible = false;
 uint32_t lastFaceSeen = 0;
+// The last time anything happened with it: a turn (its moods), a touch, a
+// hand, a tag, a command, waking from a nap. A nap or a doze counts from the
+// later of this and the last face, so that a robot whose camera doesn't see
+// you (at a desk, in the dark) stays awake after you've talked to it.
+uint32_t lastActive = 0;
 uint32_t lastFaceFrame = 0;
 float lastFaceYaw = 0, lastFacePitch = kPitchRest;
 bool drowsy = false;
@@ -266,6 +271,7 @@ void pointHead(int yaw, int pitch, int speed) {
 
 void setMood(const String& m) {
   mood = m;
+  if (m != "sleepy") lastActive = millis();
   if (m == "happy" || m == "excited") {
     avatar.setExpression(Expression::Happy);
   } else if (m == "sad") {
@@ -319,6 +325,7 @@ void startNap() {
 }
 
 void endNap() {
+  lastActive = millis();
   if (!napping) return;
   napping = drowsy = false;
   avatar.setIsAutoBlink(true);
@@ -476,6 +483,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
   if (doc["caption"].is<JsonObject>()) {
     caption = doc["caption"]["text"] | "";
     captionUntil = millis() + (doc["caption"]["ms"] | 8000);
+    lastActive = millis();  // something to read: not the moment to doze off
     showText();
   } else if (doc["caption"].isNull() && !doc["caption"].isUnbound()) {
     captionUntil = 0;
@@ -643,6 +651,7 @@ void runSenses() {
     send(w);
   }
   if (r.near && !wasNear && !asleep) {
+    lastActive = millis();
     if (napping) {
       endNap();
     } else if (drowsy) {
@@ -737,6 +746,7 @@ void readTouch() {
     setMood("happy");
     GESTURE(kNod);
   }
+  if (stroke || ts.wasPressed()) lastActive = millis();
   if (napping && (stroke || ts.wasPressed())) endNap();
   if (drowsy && (stroke || ts.wasPressed())) {
     drowsy = false;
@@ -798,11 +808,12 @@ void follow() {
 void wander() {
   uint32_t now = millis();
   if (asleep || napping || look != "track" || faceVisible || gesture || mood != "neutral") return;
-  if (napAfterMs && now - lastFaceSeen > napAfterMs) {
+  uint32_t idle = now - max(lastFaceSeen, lastActive);
+  if (napAfterMs && idle > napAfterMs) {
     startNap();
     return;
   }
-  if (!drowsy && now - lastFaceSeen > kDrowsyAfterMs) {  // since boot, if nobody yet
+  if (!drowsy && idle > kDrowsyAfterMs) {  // since boot, if nobody yet
     // Nobody for a while: it dozes, head down, until someone shows up.
     drowsy = true;
     avatar.setExpression(Expression::Sleepy);
