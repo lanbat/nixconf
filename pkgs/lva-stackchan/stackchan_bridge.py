@@ -25,6 +25,9 @@ This decides what it should feel and say:
 - Who is here: with the router's face library it also shows the router a
   face as it comes into view, and again every minute while someone stays, so
   the router knows who is in the room without anyone speaking.
+- Greeting: when the router recognises someone arriving (its "greet" act),
+  the robot wakes, looks happy, wags and nods with three green breaths, and
+  shows "Hi <name>!"; not while asleep, nor in the middle of a turn.
 - The link: USB serial when the robot is plugged into this Pi, otherwise
   Wi-Fi (WIFI_HOST): the robot dials a TLS port here, pinned to this
   bridge's own certificate, and gets in with a token. The Wi-Fi details
@@ -255,6 +258,7 @@ PROBE_GAP_S = 10.0
 PROBE_AGAIN_S = 60.0
 PROBE_WIFI_S = 60.0
 PROBE_SETTLE_S = 0.6  # a face just came into view: a moment to settle in the frame
+GREET_MS = 8000  # "Hi <name>!" stays this long, and the happy face with it
 
 
 def _line(points: list[tuple[float, float]]) -> tuple[float, float] | None:
@@ -383,6 +387,7 @@ class Brain:
     # Faces shown to the router (face_probe), so it can say who is here.
     probes: bool = False  # the router has a face library (its body_hello)
     probe_at: float | None = None  # when one went last
+    greeted_until: float | None = None  # a greeting's happy face lasts until then
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -667,6 +672,9 @@ class Brain:
         caption = act.get("caption")
         if isinstance(caption, str) and caption.strip():
             out.append(("device", {"caption": {"text": caption.strip()[:200], "who": "status", "ms": 15000}}))
+        greet = act.get("greet")
+        if isinstance(greet, dict) and isinstance(greet.get("name"), str) and greet["name"].strip():
+            out += self._greet(greet["name"].strip()[:40], now)
         brightness = act.get("brightness")
         if type(brightness) is int and 0 <= brightness <= 255:
             # The day's brightness until the bridge restarts; at night it stays dim.
@@ -805,6 +813,17 @@ class Brain:
             out.append(("log", f"robot: {msg['log']}"))
         return out
 
+    def _greet(self, name: str, now: float) -> list:
+        """Someone it knows came by (the router): awake, happy, a wag and a
+        nod with three green breaths, and "Hi <name>!". Not while asleep, nor
+        in the middle of a turn."""
+        if self.asleep or self.in_turn:
+            return []
+        self.greeted_until = now + GREET_MS / 1000
+        return [self._mood("happy"), ("device", {"greet": True}),
+                ("device", {"caption": {"text": f"Hi {name}!", "who": "status", "ms": GREET_MS}}),
+                ("log", f"greeting {name}")]
+
     def _probe(self, now: float, gap: float) -> list:
         """Show the router the face in view, so it can say who is here: not
         while asleep, and not more often than `gap` (a minute over Wi-Fi)."""
@@ -883,6 +902,10 @@ class Brain:
             del self.timers[tid]
         if self.timers or stale:
             out.append(self._timers(now))
+        if self.greeted_until is not None and now >= self.greeted_until:
+            self.greeted_until = None  # the greeting is over: back to its usual face
+            if not self.in_turn and not self.asleep and self.mood == "happy":
+                out.append(self._mood("neutral"))
         out += self._probe(now, PROBE_AGAIN_S)  # someone still here: who, again
         return out
 

@@ -14,6 +14,7 @@ import json
 from .body import Bodies
 from .cards import Cards
 from .frigate import Frigate
+from .greet import Greeter
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
@@ -74,11 +75,14 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 password = f.read().strip()
         ha = HomeAssistant(bodies, people, time.monotonic)
         mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
+    greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
+        if a.body_port and not a.no_greet else None
     try:
         await asyncio.Event().wait()
     finally:
-        if mqtt is not None:
-            mqtt.cancel()
+        for task in (mqtt, greeter):
+            if task is not None:
+                task.cancel()
         for runner in runners:
             await runner.cleanup()
 
@@ -99,6 +103,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--no-log-text", action="store_true", help="log tier, route and timing, not what was said")
     p.add_argument("--no-offer-to-meet", action="store_true",
                    help="don't ask an unknown voice's name (identity.py, \"Meeting Nabu\")")
+    p.add_argument("--no-greet", action="store_true",
+                   help="the robots don't greet the people they recognise (greet.py)")
     p.add_argument("--body-host", default="127.0.0.1", help="where robot bodies connect (assistant_router/body.py)")
     p.add_argument("--body-port", type=int, default=0, help="0: no bodies")
     p.add_argument("--persona-file", help="who the assistant is when a body is in the room")

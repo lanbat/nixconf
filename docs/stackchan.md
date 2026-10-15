@@ -231,7 +231,8 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   for automations: a stroke on its head could dim the lights, a wave skip a song. So are
   the **wake word**, each **gesture** it plays, a **face** arriving or leaving, a **phone
   tap**, a **card** (waiting after "remember this card", learned, forgotten, with the
-  person) and a **servo fault**. What was said and replied never goes to Home Assistant.
+  person), a **recognized** person (greeted, with who and by what) and a **servo fault**.
+  What was said and replied never goes to Home Assistant.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
   sleep and wake up, nap now, mirror the voice direction (a switch, for a camera that
   faces the other way), set its mood, where to look (track, you, up, ahead) and a
@@ -279,6 +280,14 @@ and the assistant knows it has a body:
   comes into view, and again every minute while someone stays (a minute apart at most over
   Wi-Fi), so the router knows who is in the room without anyone speaking. See
   [people.md](people.md#faces-on-the-robot) for how that becomes a name.
+- **It greets you.** When the router is sure you have come into its room (80 % or more
+  by any one source: a tap or a card, its own look, a clear voice, your phone placed
+  there; [people.md](people.md#how-the-router-combines-it)), the robot wakes from a nap
+  or a doze, looks happy, wags and nods with three green breaths of its LEDs, and shows
+  "Hi Kiril!" (your first name) for 8 s. Once per arrival: not while you stay, not again
+  in that room within half an hour, and not if you have just been talking to it. Not at
+  night, and a greeting due in the middle of a conversation waits for its end. Turn it
+  off with `lanbat.services.assistant-router.settings.greet = false`.
 
 Only fixed fields pass between the robot and the router (yes/no, seconds, names from
 fixed lists), so nothing the robot sends becomes text in a prompt. The router listens
@@ -400,6 +409,7 @@ robot is plugged in.
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"nap": true\|false}` | Nap now, or wake from a nap (not at night) |
 | `{"face_at": ms}` | Within `ms`, report where the face is once the head is still (the turn calibration) |
+| `{"greet": true}` | Someone it knows came by: awake, happy, a wag and a nod, three green breaths (not at night) |
 | `{"debug": "nfc"}` | For 30 s, what its NFC is doing (tag or reader, reads, field) in the bridge's journal every 2 s |
 | `{"record": true\|false}` | Microphone on from the wake word to the sentence's transcript (15 s at most), with the router |
 | `{"wifi": {"ssid", "password", "host", "port", "fingerprint", "token", "id"}}` | Wi-Fi details to keep; `null` forgets them. Over USB only, when the hello's `wifi` differs from `id` |

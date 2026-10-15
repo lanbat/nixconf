@@ -14,6 +14,7 @@ enum class Scene {
   Error,      // three red flashes
   Greeting,   // a warm glow that fades
   Happy,      // a short pink sparkle
+  Pulse,      // breathing in one colour, a breath a second (pulse())
 };
 
 void setScene(Scene scene);
@@ -29,6 +30,9 @@ void setLowBattery(bool low);
 // while nothing else is showing (a conversation or a ringing timer wins; the
 // mute and battery lights stay). Shown at night too: someone asked for it.
 void setNotify(bool on, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
+// The whole body breathing in a colour, a breath a second, for ms; then the
+// usual lights again.
+void pulse(uint8_t r, uint8_t g, uint8_t b, uint32_t ms);
 
 // Call from loop(): renders at about 30 fps.
 void update();

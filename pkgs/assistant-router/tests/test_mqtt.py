@@ -279,6 +279,22 @@ async def test_who_is_here_and_where_everyone_is():
     assert raw("lanbat/people/maria/where") == ""
 
 
+async def test_a_greeting_is_a_recognized_event():
+    bodies, _, ha, _, _ = setup()
+    broker = Broker()
+    bodies.announce("Living room", {"recognized": "Kiril", "how": ["card", "voice"]})
+    task = asyncio.create_task(ha.events(broker.publish))
+    for _ in range(50):
+        if "lanbat/stackchan/living_room/event/recognized" in broker.topics():
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    assert broker.last("lanbat/stackchan/living_room/event/recognized") == {
+        "event_type": "recognized", "person": "Kiril", "how": ["card", "voice"]}
+    config = dict(robot_discovery("Living room"))["homeassistant/event/lanbat_stackchan_living_room/recognized/config"]
+    assert config["name"] == "Recognized" and config["event_types"] == ["recognized"]
+
+
 async def test_the_mirror_switch():
     assert command("mirror", "ON") == {"mirror": True}
     assert command("mirror", "OFF") == {"mirror": False}

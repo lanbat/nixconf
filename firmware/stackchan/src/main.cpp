@@ -29,6 +29,8 @@
 //   {"nfc_read": seconds}           read cards instead, for a while
 //   {"nap": true|false}             nap now, or wake from a nap
 //   {"face_at": ms}                 within ms, where the face is once the head is still
+//   {"greet": true}                 someone it knows: awake, happy, a wag and a nod,
+//                                    three green breaths
 //   {"config": {..., "auto_brightness": bool}}  the screen follows the room's light
 //   {"record": true|false}          the microphone on from the wake word to the
 //                                    end of the sentence (ear.h), 15 s at most
@@ -77,7 +79,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.4";
+constexpr const char* kFirmware = "1.9.5";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -188,6 +190,9 @@ const Keyframe kDance[] = {{-200, 80, 250}, {200, 0, 250}, {-200, 80, 250}, {200
                            {300, 40, 450}, {0, 0, 350}};
 const Keyframe kStretch[] = {{0, 220, 600}, {0, 220, 700}, {0, 0, 500}};
 const Keyframe kLookAround[] = {{-450, 60, 700}, {-450, 60, 600}, {450, 60, 1100}, {450, 60, 600}, {0, 0, 700}};
+// Joy, then yes: a wag (kWiggle) and a nod (kNod), for someone it knows.
+const Keyframe kGreet[] = {{-90, 30, 120}, {90, 30, 120}, {-90, 30, 120}, {90, 30, 120},
+                           {0, -120, 220}, {0, 40, 200}, {0, 0, 250}};
 
 // The day's brightness, dimmed in a dim room: a bright face in the dark is
 // glaring, a dim one in daylight unreadable. Relative to the brightest light
@@ -348,6 +353,20 @@ void endNap() {
   setMood("neutral");
   pointHead(0, kPitchRest, 300);
   GESTURE(kStretch);
+}
+
+// Someone it knows came by: awake, happy, a wag and a nod, three green breaths.
+// Not at night: the night's rest goes on.
+void greet() {
+  if (asleep) return;
+  endNap();  // and counts as activity
+  if (drowsy) {
+    drowsy = false;
+    pointHead(0, kPitchRest, 300);
+  }
+  setMood("happy");
+  GESTURE(kGreet);
+  lights::pulse(0, 220, 60, 3000);
 }
 
 void setAsleep(bool a) {
@@ -520,6 +539,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
   }
   if (doc["sleep"].is<bool>()) setAsleep(doc["sleep"].as<bool>());
   if (doc["face_at"].is<int>()) faceAtUntil = millis() + constrain(doc["face_at"].as<int>(), 100, 10000);
+  if (doc["greet"].is<bool>() && doc["greet"].as<bool>()) greet();
   if (doc["nap"].is<bool>()) {
     // {"nap": true|false}: from Home Assistant; not at night, which has its own rest.
     if (doc["nap"].as<bool>() && !napping && !asleep) startNap();

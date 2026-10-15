@@ -298,7 +298,9 @@ confidence and sources as attributes), and who is home
 ([stackchan.md](stackchan.md#in-home-assistant)). The People device has a **Where is
 <name>** sensor per person: the room they are most likely in, "home" or "away", with the
 confidence and sources. It is added, renamed (when you rename yourself in Authentik) and
-removed with the person. They are as uncertain as the line the cloud model gets, and for
+removed with the person. When a robot greets someone arriving
+([stackchan.md](stackchan.md#4-nabu-with-a-body)), its **Recognized** event says who and by
+what, for automations. They are as uncertain as the line the cloud model gets, and for
 the same uses.
 
 Behind them, each robot has a diagnostic sensor per source, so you can see what led to a
