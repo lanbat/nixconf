@@ -110,6 +110,16 @@ let
       (pkgs/assistant-router identity.py, docs/people.md).
     '';
   };
+  routerSettings.options.greet = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      The robots greet the people they recognise as they arrive: awake, happy,
+      a wag and a nod, three green breaths and "Hi <name>!", once per arrival
+      and not twice in a room within half an hour (pkgs/assistant-router
+      greet.py, docs/stackchan.md). Home Assistant gets a "Recognized" event.
+    '';
+  };
   routerSettings.options.tap = mkOption {
     type = types.bool;
     default = true;
@@ -218,6 +228,7 @@ in
             ]
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
             ++ lib.optionals (!cfg.offerToMeet) [ "--no-offer-to-meet" ]
+            ++ lib.optionals (!cfg.greet) [ "--no-greet" ]
             ++ lib.optionals tapping (
               [
                 "--tap-url https://who.${config.lanbat.deployment.domain}"

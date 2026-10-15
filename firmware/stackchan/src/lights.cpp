@@ -20,6 +20,9 @@ struct Rgb {
   uint8_t r, g, b;
 };
 
+Rgb pulseColour = {0, 0, 0};
+uint32_t pulseMs = 0;
+
 Rgb scale(Rgb c, float k) {
   k = constrain(k, 0.0f, 1.0f);
   return {(uint8_t)(c.r * k), (uint8_t)(c.g * k), (uint8_t)(c.b * k)};
@@ -54,6 +57,12 @@ Rgb notifyColour = {0, 0, 0};
 void setNotify(bool on, uint8_t r, uint8_t g, uint8_t b) {
   notifyOn = on;
   notifyColour = {r, g, b};
+}
+void pulse(uint8_t r, uint8_t g, uint8_t b, uint32_t ms) {
+  pulseColour = {r, g, b};
+  pulseMs = ms;
+  sceneSince = millis();
+  scene = Scene::Pulse;
 }
 
 void update() {
@@ -99,6 +108,13 @@ void update() {
       } else {
         scene = Scene::Off;
       }
+      break;
+    case Scene::Pulse:
+      // In and out once a second, from dark, then back to nothing.
+      if (t < pulseMs)
+        for (auto& c : frame) c = scale(pulseColour, 0.5f - 0.5f * cosf(2 * PI * (t % 1000) / 1000.0f));
+      else
+        scene = Scene::Off;
       break;
   }
 

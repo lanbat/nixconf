@@ -167,6 +167,8 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:cellphone-nfc"),
         entity("event", "card", "Card", state_topic=f"{base}/event/card",
                event_types=["waiting", "learned", "forgotten"], icon="mdi:card-account-details"),
+        entity("event", "recognized", "Recognized", state_topic=f"{base}/event/recognized",
+               event_types=["recognized"], icon="mdi:account-check"),
         entity("event", "servo_fault", "Servo fault", state_topic=f"{base}/event/servo_fault",
                event_types=["fault"], icon="mdi:alert", entity_category="diagnostic"),
         # More to tell it.
@@ -320,6 +322,9 @@ def _event_payload(event: dict) -> tuple[str, dict] | None:
         return "servo_fault", {"event_type": "fault", "servo": event["servo_fault"]}
     if "card" in event:
         return "card", {"event_type": event["card"], "person": event.get("person")}
+    if "recognized" in event:
+        return "recognized", {"event_type": "recognized", "person": event["recognized"],
+                              "how": event.get("how") or []}
     return None
 
 

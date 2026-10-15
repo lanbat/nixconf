@@ -1015,6 +1015,30 @@ class TurnLearning(unittest.TestCase):
         self.assertIsNotNone(again.fit)
 
 
+class Greeting(unittest.TestCase):
+    """The router recognised someone arriving: the robot greets them."""
+
+    def test_someone_it_knows_is_greeted_and_it_calms_down_after(self):
+        b = Brain(Config(), now=NOON)
+        out = device(b.on_router({"act": {"greet": {"name": "Kiril"}}}, NOON))
+        self.assertEqual(out[:2], [{"mood": "happy"}, {"greet": True}])
+        self.assertIn({"caption": {"text": "Hi Kiril!", "who": "status", "ms": 8000}}, out)
+        self.assertNotIn({"mood": "neutral"}, device(b.tick(NOON + 3)))
+        self.assertIn({"mood": "neutral"}, device(b.tick(NOON + 9)))
+        self.assertNotIn({"mood": "neutral"}, device(b.tick(NOON + 12)))  # once
+
+    def test_not_asleep_nor_in_a_turn_nor_without_a_name(self):
+        b = Brain(Config(), now=NOON)
+        b.asleep = True
+        self.assertEqual(device(b.on_router({"act": {"greet": {"name": "Kiril"}}}, NOON)), [])
+        c = Brain(Config(), now=NOON)
+        c.on_lva("wake_word_detected", {}, NOON)
+        self.assertEqual(device(c.on_router({"act": {"greet": {"name": "Kiril"}}}, NOON)), [])
+        d = Brain(Config(), now=NOON)
+        for bad in ({"name": ""}, {"name": 3}, "Kiril", None):
+            self.assertEqual(device(d.on_router({"act": {"greet": bad}}, NOON)), [])
+
+
 class Glance(unittest.TestCase):
     """It shows the router who is in front of it, without anyone speaking."""
 
