@@ -1047,6 +1047,25 @@ class Restarts(unittest.TestCase):
         self.assertEqual(len(logged), 30)  # a few lines a minute at most
 
 
+class BesideTheMics(unittest.TestCase):
+    """A robot unplugged only for its power still turns to the voice."""
+
+    def test_on_usb_always_on_wifi_only_when_told(self):
+        quiet = Bridge(Config(), device="/nonexistent", lva_url="")
+        self.assertFalse(quiet.beside_mics())
+        quiet.serial_writer = object()
+        self.assertTrue(quiet.beside_mics())  # plugged in
+        away = Bridge(Config(), device="/nonexistent", lva_url="")
+        away.wifi_writer = object()
+        self.assertFalse(away.beside_mics())  # on Wi-Fi: elsewhere in the room
+        beside = Bridge(Config(sound_over_wifi=True), device="/nonexistent", lva_url="")
+        self.assertFalse(beside.beside_mics())  # not connected at all
+        beside.wifi_writer = object()
+        self.assertTrue(beside.beside_mics())
+        self.assertTrue(Config.from_env({"SOUND_OVER_WIFI": "1"}).sound_over_wifi)
+        self.assertFalse(Config.from_env({}).sound_over_wifi)
+
+
 class Greeting(unittest.TestCase):
     """The router recognised someone arriving: the robot greets them."""
 

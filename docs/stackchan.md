@@ -187,9 +187,12 @@ lanbat.stackchan.wifi = {
    and conversations go on as before.
 
 USB always wins: plugged back in, the robot talks over USB at once and switches Wi-Fi
-off 10 s later. A robot running on Wi-Fi does less than one on USB in one way: the head
-turns toward the voice only on USB, since the Pi's microphones are only beside a robot
-that is plugged into it.
+off 10 s later. A robot running on Wi-Fi does less than one on USB in two ways. Its ear
+works on USB only. And the head turns toward the voice only on USB, since a robot on
+Wi-Fi is taken to be away from the Pi's microphones. A robot that stays beside the
+satellite and is unplugged only for its power (a charger of its own, so the Pi's USB
+doesn't have to feed it) keeps turning, and calibrating, with
+`lanbat.stackchan.wifi.besideMicrophones = true`.
 
 How it is kept safe:
 
