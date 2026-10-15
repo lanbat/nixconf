@@ -49,6 +49,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
             return await forget_person(key, people_store, voice, frigate, cards)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
+                    runtime=people_store.has if people_store is not None else None,
                     user_header=a.tap_user_header, name_header=a.tap_name_header)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards))]

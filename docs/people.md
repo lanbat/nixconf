@@ -145,7 +145,10 @@ asks Authentik's login, once per phone, and then:
 
 - you are the likely speaker in that room for two minutes, as strongly as a card;
 - you are a person the assistant knows by your Authentik username (the profile's person
-  when it has that key, else added, with your Authentik name);
+  when it has that key, else added, with your Authentik name). Your name follows
+  Authentik's: rename yourself there, and the next tap or visit to the page renames you
+  here too (in Home Assistant, the greeting and what the assistant calls you). A person
+  the profile lists keeps the profile's name;
 - the server looks up the phone's Wi-Fi address for the address it came from, and
   `wifi-presence` counts you home whenever that phone is on the network (above). That
   needs the phone on the home Wi-Fi, in the server's subnet, over IPv4.

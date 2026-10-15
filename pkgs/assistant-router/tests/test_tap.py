@@ -145,3 +145,42 @@ async def test_robots_get_links_and_the_house_sensor_gets_phones(aiohttp_client,
     assert await house.receive_json() == {"phones": {}}
     taps.learn("02:00:00:00:00:01", "kiril")
     assert await house.receive_json() == {"phones": {"02:00:00:00:00:01": "kiril"}}
+
+
+def test_renaming_yourself_in_authentik_renames_you_here(setup, tmp_path):
+    taps, people, _, _ = setup
+    runtime = {"akadmin"}
+    renamed = []
+
+    def remember(key, name):
+        renamed.append((key, name))
+        people.add(key, name)
+
+    taps._remember, taps._runtime = remember, runtime.__contains__
+    people.add("akadmin", "authentik Default Admin")
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "akadmin", "Kiril", "", ["Kitchen"])
+    assert got["name"] == "Kiril" and people.names["akadmin"] == "Kiril"
+    # The same name again, no name header, or a profile's person: nothing changes.
+    taps.tap("kitchen", nonce(taps.link("Kitchen")), "akadmin", "Kiril", "", ["Kitchen"])
+    taps.refresh_name("akadmin", "", "akadmin")
+    taps.refresh_name("kiril", "Someone Else", "kiril")
+    assert renamed == [("akadmin", "Kiril")] and people.names["kiril"] == "Kiril"
+
+
+def test_a_stale_link_renames_nobody(setup):
+    taps, people, clock, _ = setup
+    taps._runtime = {"akadmin"}.__contains__
+    people.add("akadmin", "Old Name")
+    old = nonce(taps.link("Kitchen"))
+    clock.t += 180
+    taps.tap("kitchen", old, "akadmin", "New Name", "", ["Kitchen"])
+    assert people.names["akadmin"] == "Old Name"
+
+
+async def test_opening_the_page_picks_up_the_new_name(aiohttp_client, setup):
+    taps, people, _, _ = setup
+    taps._runtime = {"akadmin"}.__contains__
+    people.add("akadmin", "authentik Default Admin")
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    r = await c.get("/", headers={"X-Authentik-Username": "akadmin", "X-Authentik-Name": "Kiril"})
+    assert "Hi Kiril!" in await r.text() and people.names["akadmin"] == "Kiril"
