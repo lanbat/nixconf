@@ -542,7 +542,7 @@ class Sound(unittest.TestCase):
     def test_the_offset_shifts_the_target(self):
         b = Brain(Config(sound_turn_min_deg=15.0, sound_offset_deg=5.0), now=NOON)
         out = b.on_sound(10, 0.9, NOON)  # target 15: far enough from 0
-        self.assertEqual([a[1]["yaw"] for a in out if a[0] == "device"], [150])
+        self.assertEqual([a[1]["yaw"] for a in out if a[0] == "device" and "yaw" in a[1]], [150])
 
     def test_the_yaw_is_clamped_to_the_servo(self):
         self.assertEqual(self.yaw(80), 700)  # clamped to +70 degrees
@@ -933,6 +933,86 @@ class Mirror(unittest.TestCase):
                     os.environ.pop("STATE_DIRECTORY")
                 else:
                     os.environ["STATE_DIRECTORY"] = old
+
+
+class TurnLearning(unittest.TestCase):
+    """The turn to a voice is learned from where the robot then sees the person."""
+
+    def samples(self, gain=-2.3, offset=8.0, raws=(-25, -15, -8, 0, 6, 14, 22, 28), noise=(1, -2, 0, 2, -1, 1, -2, 1)):
+        return [(v, gain * v + offset + n) for v, n in zip(raws, noise)]
+
+    def test_a_mirrored_short_turning_array_is_recovered(self):
+        import stackchan_bridge as sb
+        fit = sb.fit_turn(self.samples())
+        self.assertIsNotNone(fit)
+        self.assertLess(abs(fit["gain"] + 2.3) / 2.3, 0.05)
+        self.assertLess(abs(fit["offset"] - 8.0), 2.0)
+
+    def test_outliers_are_dropped(self):
+        import stackchan_bridge as sb
+        pts = self.samples() + [(10, -60.0)]  # someone else talking
+        fit = sb.fit_turn(pts)
+        self.assertLess(abs(fit["gain"] + 2.3) / 2.3, 0.05)
+        self.assertEqual(fit["n"], 8)
+
+    def test_not_until_it_is_clear(self):
+        import stackchan_bridge as sb
+        self.assertIsNone(sb.fit_turn(self.samples()[:5]))  # too few
+        self.assertIsNone(sb.fit_turn([(v / 4, t) for v, t in self.samples()]))  # too little spread
+        self.assertIsNone(sb.fit_turn([(v, 0.1 * v) for v, _ in self.samples()]))  # gain too small to be real
+
+    def brain(self):
+        return Brain(Config(sound_turn_min_deg=1.0), now=NOON)
+
+    def test_samples_come_from_the_face_the_robot_sees_after_a_turn(self):
+        b = self.brain()
+        for i, (v, t) in enumerate(self.samples()):
+            out = b.on_sound(v, 0.9, NOON + i * 10)
+            self.assertIn(("device", {"face_at": 2500}), out)
+            out = b.on_device({"face_at": {"yaw": int(round(t)), "faces": 1}}, NOON + i * 10 + 2)
+        self.assertEqual(b.calibration.status(), "calibrated, mirrored")
+        self.assertTrue(any(a == ("save", {"turn_samples": b.calibration.samples}) for a in out))
+        # From now on the learned turn is used: a voice at +20 raw is -2.3·20+8 = -38.
+        out = b.on_sound(20, 0.9, NOON + 200)
+        yaw = [a[1]["yaw"] for a in out if a[0] == "device" and "yaw" in a[1]][0]
+        self.assertLess(abs(yaw + 380), 30)
+        self.assertEqual(b.router_state(NOON)["turn_cal"], "calibrated, mirrored")
+
+    def test_two_faces_or_one_at_the_limit_teach_nothing(self):
+        b = self.brain()
+        b.on_sound(20, 0.9, NOON)
+        b.on_device({"face_at": {"yaw": 30, "faces": 2}}, NOON + 1)
+        b.on_sound(20, 0.9, NOON + 10)
+        b.on_device({"face_at": {"yaw": 69, "faces": 1}}, NOON + 11)
+        self.assertEqual(b.calibration.samples, [])
+
+    def test_nobody_there_looks_once_the_other_way(self):
+        b = self.brain()
+        b.on_sound(30, 0.9, NOON)  # manual: +30
+        out = b.on_device({"face_at": None}, NOON + 3)
+        self.assertIn(("device", {"yaw": -300}), out)
+        self.assertIn(("device", {"face_at": 2500}), out)
+        self.assertEqual(b.on_device({"face_at": None}, NOON + 6), [])  # once only
+        b.on_sound(30, 0.9, NOON + 20)
+        b.on_device({"face_at": None}, NOON + 23)
+        out = b.on_device({"face_at": {"yaw": -31, "faces": 1}}, NOON + 26)  # found on the other side
+        self.assertEqual(b.calibration.samples, [(30.0, -31.0)])
+
+    def test_the_switch_and_the_reset(self):
+        b = self.brain()
+        b.calibration = __import__("stackchan_bridge").TurnCalibration(self.samples())
+        self.assertIn(("save", {"auto_turn": False}), b.on_router({"act": {"auto_turn": False}}, NOON))
+        out = b.on_sound(20, 0.9, NOON)  # manual again: +20
+        self.assertIn(("device", {"yaw": 200}), out)
+        b.on_router({"act": {"reset_turn": True}}, NOON)
+        self.assertEqual((b.calibration.samples, b.calibration.status()), ([], "learning (0/6)"))
+
+    def test_samples_survive_a_restart(self):
+        import stackchan_bridge as sb
+        kept = sb.TurnCalibration(self.samples()).samples
+        again = sb.TurnCalibration([list(s) for s in kept] + [["junk"], [1]])
+        self.assertEqual(again.samples, kept)
+        self.assertIsNotNone(again.fit)
 
 
 class Phones(unittest.TestCase):

@@ -169,6 +169,16 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:eye"),
         entity("number", "turn", "Head turn", command_topic=f"{base}/cmd/turn", min=-70, max=70, step=5,
                unit_of_measurement="°", icon="mdi:head-sync-outline", mode="slider"),
+        entity("sensor", "turn_cal", "Turn calibration", state_topic=state,
+               value_template="{{ value_json.turn_cal }}", json_attributes_topic=state,
+               json_attributes_template="{{ {'gain': value_json.turn_gain, 'offset': value_json.turn_offset, "
+                                        "'rms': value_json.turn_rms, 'samples': value_json.turn_samples} | tojson }}",
+               icon="mdi:target", entity_category="diagnostic"),
+        entity("switch", "auto_turn", "Auto-calibrate turning", command_topic=f"{base}/cmd/auto_turn",
+               state_topic=state, value_template="{{ 'ON' if value_json.auto_turn else 'OFF' }}",
+               icon="mdi:target-account", entity_category="config"),
+        entity("button", "reset_turn", "Reset turn calibration", command_topic=f"{base}/cmd/reset_turn",
+               payload_press="ON", icon="mdi:restore", entity_category="config"),
         entity("switch", "mirror", "Mirror voice direction", command_topic=f"{base}/cmd/mirror",
                state_topic=state, value_template="{{ 'ON' if value_json.sound_mirror else 'OFF' }}",
                icon="mdi:swap-horizontal", entity_category="config"),
@@ -211,7 +221,9 @@ def robot_state(bodies: Bodies, room: str) -> dict | None:
             "fw": s.fw, "lux": s.lux, "near": s.near, "phase": s.phase or "idle",
             "voice_dir": s.voice_dir, "head_yaw": s.head_yaw, "rssi": s.rssi, "heap_kb": s.heap_kb,
             "psram_kb": s.psram_kb, "nfc_mode": s.nfc_mode, "pi_undervolt": s.pi_undervolt,
-            "bridge_error": s.bridge_error or "none", "sound_mirror": s.sound_mirror}
+            "bridge_error": s.bridge_error or "none", "sound_mirror": s.sound_mirror,
+            "auto_turn": s.auto_turn, "turn_cal": s.turn_cal or "unknown", "turn_gain": s.turn_gain,
+            "turn_offset": s.turn_offset, "turn_rms": s.turn_rms, "turn_samples": s.turn_samples}
 
 
 def _names(people: People, keys) -> str:
@@ -294,6 +306,10 @@ def command(name: str, payload: str) -> dict | None:
         return {"nap": True}
     if name == "mirror" and text in ("ON", "OFF"):
         return {"mirror": text == "ON"}
+    if name == "auto_turn" and text in ("ON", "OFF"):
+        return {"auto_turn": text == "ON"}
+    if name == "reset_turn" and text == "ON":
+        return {"reset_turn": True}
     if name == "listen" and text in ("start", "stop"):
         return {"listen": text}
     if name == "led":

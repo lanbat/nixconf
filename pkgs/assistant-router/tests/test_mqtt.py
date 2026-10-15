@@ -261,3 +261,23 @@ async def test_the_mirror_switch():
     assert broker.last("lanbat/stackchan/living_room/state")["sound_mirror"] is True
     switch = dict(robot_discovery("Living room"))["homeassistant/switch/lanbat_stackchan_living_room/mirror/config"]
     assert switch["command_topic"] == "lanbat/stackchan/living_room/cmd/mirror"
+
+
+async def test_the_turn_calibration_in_home_assistant():
+    assert command("auto_turn", "OFF") == {"auto_turn": False}
+    assert command("reset_turn", "ON") == {"reset_turn": True}
+    assert command("reset_turn", "maybe") is None
+    bodies, _, ha, _, _ = setup()
+    bodies.update("Living room", {"turn_cal": "calibrated, mirrored", "turn_gain": -2.31, "turn_offset": 7.9,
+                                  "turn_rms": 4.2, "turn_samples": 9, "auto_turn": True}, 100.0)
+    broker = Broker()
+    await ha.tick(broker.publish)
+    s = broker.last("lanbat/stackchan/living_room/state")
+    assert (s["turn_cal"], s["turn_gain"], s["turn_samples"], s["auto_turn"]) == ("calibrated, mirrored", -2.31, 9, True)
+    bodies.update("Living room", {"turn_cal": "anything; rm -rf", "turn_gain": 99}, 101.0)
+    await ha.tick(broker.publish)
+    s = broker.last("lanbat/stackchan/living_room/state")
+    assert (s["turn_cal"], s["turn_gain"]) == ("unknown", None)
+    configs = dict(robot_discovery("Living room"))
+    assert "homeassistant/sensor/lanbat_stackchan_living_room/turn_cal/config" in configs
+    assert "homeassistant/switch/lanbat_stackchan_living_room/auto_turn/config" in configs

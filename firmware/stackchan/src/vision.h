@@ -10,6 +10,7 @@ struct Sighting {
   float x = 0;          // its centre, -1 (robot's left) .. 1 (robot's right)
   float y = 0;          // -1 (down) .. 1 (up)
   float size = 0;       // box width as a share of the frame
+  uint8_t faces = 0;    // faces in the frame (the Pi only learns its turns from one)
   uint32_t at = 0;      // millis() of the frame
 };
 

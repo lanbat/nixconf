@@ -119,6 +119,12 @@ class BodyState:
     pi_undervolt: bool | None = None  # its Pi's supply sagging
     bridge_error: str | None = None  # the bridge's last problem, short
     sound_mirror: bool = False  # the voice's direction mirrored (its bridge's setting)
+    auto_turn: bool = True  # the turn to a voice learned from what the robot then sees
+    turn_cal: str | None = None  # "learning (3/6)", "calibrated", "calibrated, mirrored"
+    turn_gain: float | None = None
+    turn_offset: float | None = None
+    turn_rms: float | None = None
+    turn_samples: int | None = None
 
 
 def _key(room: str) -> str:
@@ -253,6 +259,19 @@ class Bodies:
             state.nfc_mode = fields["nfc_mode"] if fields["nfc_mode"] in ("tag", "reader") else None
         if type(fields.get("sound_mirror")) is bool:
             state.sound_mirror = fields["sound_mirror"]
+        if type(fields.get("auto_turn")) is bool:
+            state.auto_turn = fields["auto_turn"]
+        if "turn_cal" in fields:
+            cal = fields["turn_cal"]
+            state.turn_cal = cal if isinstance(cal, str) and re.fullmatch(
+                r"learning \(\d/6\)|calibrated|calibrated, mirrored", cal) else None
+        for name, lo, hi in (("turn_gain", -3.0, 3.0), ("turn_offset", -90.0, 90.0), ("turn_rms", 0.0, 90.0)):
+            if name in fields:
+                value = fields[name]
+                setattr(state, name, float(value) if type(value) in (int, float) and lo <= value <= hi else None)
+        if "turn_samples" in fields:
+            n = fields["turn_samples"]
+            state.turn_samples = n if type(n) is int and 0 <= n <= 1000 else None
         if "pi_undervolt" in fields:
             state.pi_undervolt = fields["pi_undervolt"] if type(fields["pi_undervolt"]) is bool else None
         if "bridge_error" in fields:
