@@ -8,7 +8,9 @@ a client's own is dropped; X-Authentik-Username) and where the
 request came from (X-Forwarded-For). So:
 
 - the signed-in user is a person here: their username is their key (a
-  profile's person when it matches one, else added at runtime, people_store);
+  profile's person when it matches one, else added at runtime, people_store).
+  A runtime person's name follows Authentik's on every visit, so renaming
+  yourself there renames you here; a profile's person keeps the profile's;
 - they are in that room, for two minutes ("tap" in people.py, as strong as a
   card): a hint for who is speaking, never authority over anything;
 - the phone's Wi-Fi address, from the server's ARP table for the address it
@@ -96,6 +98,7 @@ class Taps:
 
     def __init__(self, base_url: str, people: People, clock: Callable[[], float],
                  phones_path: str | None = None, remember: Callable[[str, str], None] | None = None,
+                 runtime: Callable[[str], bool] | None = None,
                  arp_path: str = "/proc/net/arp", user_header: str = "X-Authentik-Username",
                  name_header: str | None = "X-Authentik-Name") -> None:
         self.base_url = base_url.rstrip("/")
@@ -104,6 +107,7 @@ class Taps:
         self.phones_path = phones_path
         self.phones = _load(phones_path)
         self._remember = remember or people.add
+        self._runtime = runtime or (lambda key: False)  # added here, not by the profile
         self.arp_path = arp_path
         self.user_header = user_header
         self.name_header = name_header
@@ -156,6 +160,17 @@ class Taps:
             self._save()
         return len(gone)
 
+    def refresh_name(self, key: str, name: str, username: str) -> None:
+        """A runtime person's name from Authentik's, when it changed (the
+        user renamed themselves there). Never a profile's person, and never
+        to nothing: without the name header the stored name stays."""
+        if not name or key not in self.people.names or not self._runtime(key):
+            return
+        fresh = display_name(name, username)
+        if fresh != self.people.names[key]:
+            LOG.info(json.dumps({"renamed": key}))
+            self._remember(key, fresh)
+
     def tap(self, room: str, nonce: str, username: str, name: str, ip: str, rooms: list[str]) -> dict:
         """A phone opened a robot's link: what happened, for the page."""
         key = person_key(username)
@@ -169,6 +184,8 @@ class Taps:
             return out
         if key not in self.people.names:
             self._remember(key, display_name(name, username))
+        else:
+            self.refresh_name(key, name, username)
         out["name"] = self.people.names.get(key)
         out["room"] = room_name
         self.people.observe(room_name, "tap", key, 1.0, self.clock())
@@ -245,10 +262,11 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         return page(hi, body)
 
     async def index(request: web.Request) -> web.Response:
-        user, _name, _ip = who(request)
+        user, auth_name, _ip = who(request)
         key = person_key(user or "")
         if key is None:
             return page("Nabu", "<p>Sign in first.</p>", 403)
+        taps.refresh_name(key, auth_name, user or "")
         name = taps.people.names.get(key)
         body = "<p>Hold your phone to Nabu's head to say hello.</p>" + buttons(key)
         return page(f"Hi {name}!" if name else "Hi!", body)
