@@ -42,6 +42,9 @@ from typing import Any
 
 MOODS = ("happy", "excited", "sad", "curious", "surprised", "thinking", "sleepy", "neutral")
 PHASES = ("idle", "listening", "thinking", "speaking")
+# Why a robot last started (its hello, through the bridge): the first four mean a crash or a power dip.
+RESTARTS = ("panic", "brownout", "task-watchdog", "interrupt-watchdog", "watchdog", "power-on", "software",
+            "external", "deep-sleep", "sdio", "other")
 # Gestures the robot plays (the bridge's list), for Home Assistant's gesture event.
 GESTURE_EVENTS = ("perk", "nod", "shake", "wiggle", "tilt", "dance", "look_around")
 GESTURES = ("nod", "shake", "tilt", "wiggle", "dance", "look_around", "look_at_user")
@@ -107,6 +110,7 @@ class BodyState:
     mood: str | None = None
     brightness: int | None = None
     fw: str | None = None
+    restart: str | None = None  # why it last started (its bridge says): "panic", "brownout", "power-on", ...
     lux: int | None = None  # light at its sensor: relative (behind dark glass)
     near: bool = False  # a hand close to its screen
     phase: str | None = None  # idle, listening, thinking, speaking
@@ -248,6 +252,8 @@ class Bodies:
             state.near = fields["near"]
         if isinstance(fields.get("fw"), str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,16}", fields["fw"]):
             state.fw = fields["fw"]
+        if fields.get("restart") in RESTARTS:
+            state.restart = fields["restart"]
         if fields.get("phase") in PHASES:
             state.phase = fields["phase"]
         for name, lo, hi in (("voice_dir", -180, 180), ("head_yaw", -90, 90), ("rssi", -127, 0),

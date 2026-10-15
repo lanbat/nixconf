@@ -216,9 +216,12 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   asleep for the night, and the **conversation** (idle, listening, thinking or speaking).
 - **Diagnostics:** the last voice's direction and where the head points (degrees, +
   to its left), its Wi-Fi signal while on Wi-Fi, free memory and PSRAM, its NFC's mode
-  (tag for phones, or reading cards), the bridge's last problem (one short line), and
-  its Pi's under-voltage (the Pi's own alarm: a supply that sags under load). The robot
-  sends its part once a minute (`health`).
+  (tag for phones, or reading cards), the bridge's last problem (one short line), its
+  Pi's under-voltage (the Pi's own alarm: a supply that sags under load), and why it last
+  started (**Last restart**: `panic`, `brownout` or a `watchdog` mean something went
+  wrong; `power-on` and `software` don't). The robot sends its part once a minute
+  (`health`). A crash's report on USB (`Guru Meditation`, the backtrace) goes to the
+  bridge's journal, a few lines a minute at most.
 - **Tags:** an NFC tag tapped on the robot fires Home Assistant's own tag scanner
   (*Settings → Tags*; "when a tag is scanned" automations), and a person's card names
   them ([people.md](people.md#meeting-nabu)). It reads from the top of its head; it
@@ -416,7 +419,7 @@ robot is plugged in.
 
 | Robot → Pi | Meaning |
 |---|---|
-| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear", "phones", "nfc"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works, `phones` the id of the phones it looks for (`""` for none), `nfc` whether its NFC started. Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
+| `{"hello": {"fw", "proto", "link", "wifi", "camera", "ear", "phones", "nfc", "reset", "up_s"}}` | When a link comes up: `link` is `usb` or `wifi`, `wifi` the id of the details it keeps (`""` for none), `camera` whether its camera started, `ear` whether its microphone works, `phones` the id of the phones it looks for (`""` for none), `nfc` whether its NFC started, `reset` why it last started (`panic`, `brownout`, `task-watchdog`, `power-on`, `software`, …) and `up_s` the seconds since (firmware 1.9.6). Over Wi-Fi it opens the connection and carries the `token`. The bridge answers with the whole state |
 | `{"touch": "tap\|stroke", "zone": "front\|middle\|back\|screen"}` | Head tap or stroke, or a tap on the face |
 | `{"face": "new\|lost"}` | Someone came into view, or left it |
 | `{"rest": "nap\|awake"}` | It started or ended a nap |

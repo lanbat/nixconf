@@ -1015,6 +1015,38 @@ class TurnLearning(unittest.TestCase):
         self.assertIsNotNone(again.fit)
 
 
+class Restarts(unittest.TestCase):
+    """Why the robot last started reaches the journal and Home Assistant."""
+
+    def test_the_hello_says_why_it_started(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"hello": {"fw": "1.9.6", "proto": 1, "link": "usb", "reset": "panic", "up_s": 4}}, NOON)
+        self.assertIn(("log", "robot firmware 1.9.6, protocol 1, over usb; started by panic, 4 s ago"), out)
+        self.assertEqual(b.router_state(NOON)["restart"], "panic")
+        b.on_device({"hello": {"fw": "1.9.4", "proto": 1, "link": "usb"}}, NOON)  # older firmware: unknown
+        self.assertIsNone(b.router_state(NOON)["restart"])
+        b.on_device({"hello": {"fw": "1.9.6", "proto": 1, "reset": "<script>"}}, NOON)
+        self.assertIsNone(b.router_state(NOON)["restart"])
+
+    def test_a_crash_report_is_kept_and_boot_noise_is_not(self):
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+        logged = []
+        import stackchan_bridge
+        real = stackchan_bridge.log
+        stackchan_bridge.log = logged.append
+        try:
+            async def go():
+                await bridge.on_line(b"ESP-ROM:esp32s3-20210327")
+                await bridge.on_line(b"Guru Meditation Error: Core  1 panic'ed (LoadProhibited)")
+                for _ in range(40):
+                    await bridge.on_line(b"Backtrace: 0x4200abcd:0x3fcebd10")
+            asyncio.run(go())
+        finally:
+            stackchan_bridge.log = real
+        self.assertEqual(logged[0], "robot says: Guru Meditation Error: Core  1 panic'ed (LoadProhibited)")
+        self.assertEqual(len(logged), 30)  # a few lines a minute at most
+
+
 class Greeting(unittest.TestCase):
     """The router recognised someone arriving: the robot greets them."""
 
