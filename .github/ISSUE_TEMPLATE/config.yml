@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask a question or share your setup
+    url: https://github.com/lanbat/nixconf/discussions
+    about: Questions, ideas and show-and-tell live in Discussions.
   - name: Ask in #lanbat on Libera.Chat
     url: https://web.libera.chat/#lanbat
     about: Questions and help setting things up.
