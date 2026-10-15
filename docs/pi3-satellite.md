@@ -251,6 +251,16 @@ names the microphone's capture node `lanbat_ps_eye_capture` (mono) and sets up e
 cancellation when `echoCancellation.enable` is on. The Pis already run PipeWire for Snapcast;
 the server gets it for its satellite.
 
+**The microphone watchdog.** The PlayStation Eye runs at 16 kHz on its own USB clock and
+follows the speaker's. Now and then PipeWire's reads of it start failing, a few a minute at
+first, then every one of them, for hours, until it resyncs by itself. Meanwhile the wake word
+is never heard. `lanbat-mic-watchdog` follows PipeWire's log and, at 30 failures in a minute,
+turns the microphone's card off and on again, which reopens it cleanly. Then it restarts LVA,
+because the card change moves LVA's recording off the echo-cancelled microphone. It acts at
+most every five minutes. Look for it with `journalctl -u lanbat-mic-watchdog`, and for the
+failures with `journalctl -t pipewire | grep snd_pcm_mmap_commit`. Turn it off with
+`lanbat.voiceSatellite.microphone.watchdog = false`.
+
 `voice-satellite-diagnostics` (run with `sudo`) checks the satellite in one go: its services,
 Home Assistant's connection, Snapcast, the audio devices and streams, three seconds of
 microphone level, CPU, memory, temperature, undervoltage and recent errors. On the Pi 3,

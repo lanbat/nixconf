@@ -850,16 +850,27 @@ let
       && lvaPi3Aec.systemd.services.lva-snapcast-duck.environment.DUCK_VOLUME == "0.25"
     ))
 
-    (expect "lva: replies speak up in a loud room, measured on the echo-cancelled microphone" (
-      let
-        env = lvaPi3Aec.systemd.services.lva-snapcast-duck.environment;
-      in
-      env.ADAPT_MIC_NODE == "lanbat_aec_mic"
-      && env.ADAPT_QUIET_DB == "-55"
-      && env.ADAPT_MAX_BOOST_DB == "8"
-      && env.LVA_PREFS == "/var/lib/linux-voice-assistant/prefs.json"
-      && lib.hasSuffix "/bin/pw-record" env.PW_RECORD
-    ))
+    # One case for both (the parts take cases by position: a new case would
+    # move every later one to another part, and with it the variants it needs).
+    (expect
+      "lva: replies speak up in a loud room, measured on the echo-cancelled microphone; a microphone whose reads keep failing is reopened"
+      (
+        let
+          env = lvaPi3Aec.systemd.services.lva-snapcast-duck.environment;
+          watchdog = lvaPi3Aec.systemd.services.lanbat-mic-watchdog;
+        in
+        env.ADAPT_MIC_NODE == "lanbat_aec_mic"
+        && env.ADAPT_QUIET_DB == "-55"
+        && env.ADAPT_MAX_BOOST_DB == "8"
+        && env.LVA_PREFS == "/var/lib/linux-voice-assistant/prefs.json"
+        && lib.hasSuffix "/bin/pw-record" env.PW_RECORD
+        && watchdog.environment.MIC_USB_ID == lvaPi3Aec.lanbat.voiceSatellite.microphone.usbId
+        && lib.hasSuffix "/bin/wpctl" watchdog.environment.WPCTL
+        && lib.hasSuffix "/bin/journalctl" watchdog.environment.JOURNALCTL
+        && lib.hasSuffix "/bin/mic-watchdog" watchdog.serviceConfig.ExecStart
+        && lib.elem "multi-user.target" watchdog.wantedBy
+      )
+    )
 
     (expect "stackchan: the bridge follows LVA's peripheral API on the loopback" (
       let
