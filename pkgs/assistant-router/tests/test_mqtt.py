@@ -228,6 +228,10 @@ async def test_more_controls():
     assert command("listen", "start") == {"listen": "start"}
     assert command("listen", "stop") == {"listen": "stop"}
     assert command("listen", "now") is None
+    assert command("debug", "camera") == {"debug": "camera"} and command("debug", "off") == {"debug": "off"}
+    assert command("debug", "phones") is None  # the others stay on the robot's serial port
+    assert dict(robot_discovery("Living room"))[
+        "homeassistant/button/lanbat_stackchan_living_room/camera_view/config"]["payload_press"] == "camera"
     bodies, _, ha, socket, _ = setup()
     broker = Broker()
     await ha.handle("lanbat/stackchan/living_room/cmd/read_card", "ON", broker.publish)
