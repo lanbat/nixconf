@@ -925,6 +925,7 @@ let
         in
         unit.environment.WIFI_HOST == stackchanWifi.lanbat.hosts.pi-voice.networking.ip
         && unit.environment.WIFI_PORT == "8771"
+        && unit.environment.SOUND_OVER_WIFI == "0" # elsewhere in the room by default
         &&
           unit.serviceConfig.LoadCredential == [
             "stackchan-wifi:${stackchanWifi.lanbat.secrets.stackchan-wifi.path}"

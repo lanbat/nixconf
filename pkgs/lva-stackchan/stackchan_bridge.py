@@ -210,6 +210,7 @@ class Config:
     sound_turn_min_deg: float = 15.0  # the voice must move this far before a new turn
     sound_mic_geometry: str = DEFAULT_SOUND_GEOMETRY  # four "x,y" points in metres
     sound_source: str = "lanbat_ps_eye_capture"  # the microphone node to listen on
+    sound_over_wifi: bool = False  # on Wi-Fi too the robot is beside these mics (wifi.besideMicrophones)
 
     @classmethod
     def from_env(cls, env=os.environ) -> "Config":
@@ -234,6 +235,7 @@ class Config:
             sound_turn_min_deg=float(env.get("SOUND_TURN_MIN_DEG", "15")),
             sound_mic_geometry=env.get("SOUND_MIC_GEOMETRY", DEFAULT_SOUND_GEOMETRY),
             sound_source=env.get("SOUND_SOURCE", "lanbat_ps_eye_capture"),
+            sound_over_wifi=flag("SOUND_OVER_WIFI", False),
         )
 
 
@@ -1267,6 +1269,12 @@ class Bridge:
         self.ear_on = False
         self.capture_task: asyncio.Task | None = None
 
+    def beside_mics(self) -> bool:
+        """Whether the robot is beside this Pi's microphones: plugged into it,
+        or on Wi-Fi when it is only unplugged for its power
+        (wifi.besideMicrophones). Elsewhere these mics can't aim it."""
+        return self.serial_writer is not None or (self.config.sound_over_wifi and self.wifi_writer is not None)
+
     async def send_device(self, line: dict) -> None:
         """A line for the robot, over USB when it is plugged in, else over
         Wi-Fi. The Wi-Fi details and the phones' keys go over USB or not at all."""
@@ -1517,10 +1525,10 @@ class Bridge:
         its full channel count, not the mono LVA listens on."""
         delay = DOA_RETRY_S
         while True:
-            # Only while the robot is on this Pi's USB, next to these mics: on
-            # Wi-Fi it is elsewhere and hear_direction ignores them, so the
-            # four channels (and PipeWire's work for them) would be wasted.
-            while self.serial_writer is None:
+            # Only while the robot is next to these mics (on this Pi's USB, or
+            # on Wi-Fi beside them): elsewhere hear_direction ignores them, so
+            # the four channels (and PipeWire's work for them) would be wasted.
+            while not self.beside_mics():
                 self.mic_window = None
                 await asyncio.sleep(DOA_USB_POLL_S)
             self.mic_window = MicWindow(DOA_CHANNELS, int(DOA_WINDOW_S * DOA_RATE))
@@ -1537,9 +1545,9 @@ class Bridge:
                 )
                 if delay == DOA_RETRY_S:
                     log(f"hearing direction on {self.config.sound_source}")
-                while self.serial_writer is not None:
+                while self.beside_mics():
                     # A stalled recorder (no data in 2 s) is restarted, and the
-                    # robot leaving USB is seen even then.
+                    # robot leaving is seen even then.
                     self.mic_window.push(await asyncio.wait_for(
                         proc.stdout.readexactly(DOA_CHUNK * DOA_CHANNELS * 2), 2.0))
                 self.mic_window = None  # the robot left USB: wait for it, quietly
@@ -1563,7 +1571,7 @@ class Bridge:
     async def hear_direction(self) -> None:
         """The voice was just heard: turn to it, and with the head aimed take
         a frame of the speaker for the router's face library."""
-        if self.serial_writer is None:
+        if not self.beside_mics():
             return  # on Wi-Fi the robot is elsewhere: these mics can't aim it
         window = self.mic_window.snapshot() if self.mic_window is not None else None
         if window is None:

@@ -237,6 +237,17 @@ in
         default = 8771;
         description = "The TLS port the robot dials on this Pi.";
       };
+      besideMicrophones = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          The robot stays beside this Pi's microphones on Wi-Fi too: unplugged
+          for its power only (a charger of its own next to the satellite, so
+          the Pi's USB doesn't have to feed it). The head then still turns
+          toward the voice; otherwise a robot on Wi-Fi is taken to be away from
+          these mics, and doesn't. See docs/stackchan.md.
+        '';
+      };
       address = mkOption {
         type = types.str;
         default = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
@@ -267,6 +278,10 @@ in
 
   config = lib.mkIf (cfg.enable && satellite.enable) {
     assertions = [
+      {
+        assertion = !wifi.besideMicrophones || wifi.enable;
+        message = "lanbat.stackchan.wifi.besideMicrophones is about the robot on Wi-Fi: it needs lanbat.stackchan.wifi.enable.";
+      }
       {
         assertion = satellite.backend == "lva";
         message = "lanbat.stackchan follows Linux Voice Assistant's events: set lanbat.voiceSatellite.backend = \"lva\" (docs/stackchan.md), or disable the stackchan plugin.";
@@ -349,6 +364,7 @@ in
       // lib.optionalAttrs wifi.enable {
         WIFI_HOST = wifi.address;
         WIFI_PORT = wifiPort;
+        SOUND_OVER_WIFI = flag wifi.besideMicrophones;
       }
       // lib.optionalAttrs (phonesHere && beacons != "") {
         BEACONS = beacons;
