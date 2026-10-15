@@ -408,6 +408,19 @@ in
       description = "USB vendor:product ID of the microphone, as lsusb shows it. The default is the PlayStation Eye.";
     };
 
+    microphone.watchdog = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Backend "lva": reopen the microphone when PipeWire's reads of it keep
+        failing. A USB microphone that follows another card's clock (the
+        PlayStation Eye behind a USB speaker) can fall into a loop of failed
+        reads for hours, and the wake word goes unheard; 30 failures within a
+        minute turn its card off and on again and restart the voice assistant,
+        at most every five minutes (pkgs/mic-watchdog).
+      '';
+    };
+
     microphone.volumeMultiplier = mkOption {
       type = types.numbers.positive;
       default = if cfg.microphone.usbId == "1415:2000" then 6.0 else 1.0;

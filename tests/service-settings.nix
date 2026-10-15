@@ -861,6 +861,18 @@ let
       && lib.hasSuffix "/bin/pw-record" env.PW_RECORD
     ))
 
+    (expect "lva: a microphone whose reads keep failing is reopened (mic watchdog)" (
+      let
+        unit = lvaPi3Aec.systemd.services.lanbat-mic-watchdog;
+      in
+      unit.environment.MIC_USB_ID == lvaPi3Aec.lanbat.voiceSatellite.microphone.usbId
+      && lib.hasSuffix "/bin/wpctl" unit.environment.WPCTL
+      && lib.hasSuffix "/bin/pw-dump" unit.environment.PW_DUMP
+      && lib.hasSuffix "/bin/journalctl" unit.environment.JOURNALCTL
+      && lib.hasSuffix "/bin/mic-watchdog" unit.serviceConfig.ExecStart
+      && lib.elem "multi-user.target" unit.wantedBy
+    ))
+
     (expect "stackchan: the bridge follows LVA's peripheral API on the loopback" (
       let
         unit = stackchan.systemd.services.lva-stackchan;

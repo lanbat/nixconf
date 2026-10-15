@@ -29,6 +29,17 @@
 # cancelled, unless echoCancellation.includeMusic sends it through the sink too
 # (an experiment: it costs CPU for every second of music). On a TV box Kodi
 # follows includeMusic too (modules/storage/tv-box.nix).
+#
+# Watchdog (microphone.watchdog)
+# ------------------------------
+# The PlayStation Eye runs at 16 kHz on its own USB clock and follows the
+# speaker's (a USB speaker at 48 kHz on the Pi 5). Now and then PipeWire's
+# reads of it start failing ("snd_pcm_mmap_commit error ... Broken pipe"), a
+# few a minute at first, then every one, 25 a second, for hours, until it
+# resyncs by itself; meanwhile the wake word is never heard. pkgs/mic-watchdog
+# reads PipeWire's log and, at 30 failures in a minute, turns the card's profile
+# off and on, which reopens it cleanly, and restarts LVA, whose recording the
+# profile change moves off the echo-cancelled microphone.
 {
   config,
   lib,
@@ -41,6 +52,7 @@ let
   usbId = lib.splitString ":" cfg.microphone.usbId;
   captureNode = "lanbat_ps_eye_capture";
   lvaSnapcastDuck = pkgs.callPackage ../../pkgs/lva-snapcast-duck { };
+  micWatchdog = pkgs.callPackage ../../pkgs/mic-watchdog { };
   ducking = cfg.lva.snapcastDucking.enable && config.lanbat.snapclient.enable;
   # The microphone LVA records from (voice-satellite-lva.nix): the echo
   # cancelled one when there is one, so the satellite's own voice isn't
@@ -134,6 +146,31 @@ in
             };
           }
         ];
+      };
+    };
+
+    # The microphone reopened when PipeWire's reads of it keep failing (above).
+    # Root: it reads the journal and restarts LVA.
+    systemd.services.lanbat-mic-watchdog = lib.mkIf cfg.microphone.watchdog {
+      description = "Reopen the satellite's microphone when PipeWire's reads of it keep failing";
+      after = [
+        "pipewire.service"
+        "linux-voice-assistant.service"
+      ];
+      wantedBy = [ "multi-user.target" ];
+      environment = {
+        MIC_USB_ID = cfg.microphone.usbId;
+        PIPEWIRE_RUNTIME_DIR = "/run/pipewire";
+        PW_DUMP = "${config.services.pipewire.package}/bin/pw-dump";
+        WPCTL = "${config.services.pipewire.wireplumber.package}/bin/wpctl";
+        JOURNALCTL = "${config.systemd.package}/bin/journalctl";
+        SYSTEMCTL = "${config.systemd.package}/bin/systemctl";
+      };
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = lib.getExe micWatchdog;
+        Restart = "always";
+        RestartSec = "10s";
       };
     };
 
