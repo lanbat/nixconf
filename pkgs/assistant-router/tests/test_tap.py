@@ -184,3 +184,28 @@ async def test_opening_the_page_picks_up_the_new_name(aiohttp_client, setup):
     c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
     r = await c.get("/", headers={"X-Authentik-Username": "akadmin", "X-Authentik-Name": "Kiril"})
     assert "Hi Kiril!" in await r.text() and people.names["akadmin"] == "Kiril"
+
+
+def test_a_first_tap_links_the_person_nabu_met_by_voice(setup, tmp_path):
+    from assistant_router.people import Assessment
+    from assistant_router.people_store import PeopleStore
+    taps, people, clock, _ = setup
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    store.add("jane", "Jane")
+    taps._store, taps._runtime, taps._remember = store, store.has, store.add
+    people.remember("Kitchen", Assessment(speaker="jane", posterior=0.9, how="voice"), clock())
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "jdoe", "Jane Doe", "", ["Kitchen"])
+    assert got["key"] == "jane" and store.resolve("jdoe") == "jane"
+    assert people.names["jane"] == "Jane Doe" and "jdoe" not in people.names  # one person, Authentik's name
+    clock.t += 600  # later, nobody speaking: the login still names her
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "jdoe", "Jane Doe", "", ["Kitchen"])
+    assert got["key"] == "jane"
+
+
+def test_a_login_with_nobody_recognised_is_a_new_person(setup, tmp_path):
+    from assistant_router.people_store import PeopleStore
+    taps, people, _, _ = setup
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    taps._store, taps._runtime, taps._remember = store, store.has, store.add
+    got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "sam", "Sam", "", ["Kitchen"])
+    assert got["key"] == "sam" and people.names["sam"] == "Sam" and store.resolve("sam") is None

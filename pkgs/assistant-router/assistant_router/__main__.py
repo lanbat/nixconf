@@ -49,10 +49,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
             return await forget_person(key, people_store, voice, frigate, cards)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
-                    runtime=people_store.has if people_store is not None else None,
+                    runtime=people_store.has if people_store is not None else None, store=people_store,
                     user_header=a.tap_user_header, name_header=a.tap_name_header)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
-                                      capture_face=bodies.capture, voice=voice, cards=cards))]
+                                      capture_face=bodies.capture, voice=voice, cards=cards,
+                                      forget_phones=taps.forget_phones if taps is not None else None))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
@@ -95,6 +96,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--log-dir")
     p.add_argument("--log-days", type=int, default=14)
     p.add_argument("--no-log-text", action="store_true", help="log tier, route and timing, not what was said")
+    p.add_argument("--no-offer-to-meet", action="store_true",
+                   help="don't ask an unknown voice's name (identity.py, \"Meeting Nabu\")")
     p.add_argument("--body-host", default="127.0.0.1", help="where robot bodies connect (assistant_router/body.py)")
     p.add_argument("--body-port", type=int, default=0, help="0: no bodies")
     p.add_argument("--persona-file", help="who the assistant is when a body is in the room")
@@ -116,7 +119,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,
-                 log_dir=a.log_dir, log_days=a.log_days, log_text=not a.no_log_text)
+                 log_dir=a.log_dir, log_days=a.log_days, log_text=not a.no_log_text,
+                 offer_to_meet=not a.no_offer_to_meet)
     return cfg, a
 
 

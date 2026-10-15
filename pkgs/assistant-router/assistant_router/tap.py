@@ -42,6 +42,7 @@ from .people import People
 LOG = logging.getLogger("assistant_router")
 
 LINK_PERIOD_S = 60.0     # a new link every minute
+LINK_WITHIN_S = 120.0    # a first tap links the room's speaker of the last two minutes
 MAX_PHONES = 48          # wifi-presence's kernel filter holds 60, with the profile's
 PHONES_PER_PERSON = 4
 _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
@@ -98,7 +99,7 @@ class Taps:
 
     def __init__(self, base_url: str, people: People, clock: Callable[[], float],
                  phones_path: str | None = None, remember: Callable[[str, str], None] | None = None,
-                 runtime: Callable[[str], bool] | None = None,
+                 runtime: Callable[[str], bool] | None = None, store=None,
                  arp_path: str = "/proc/net/arp", user_header: str = "X-Authentik-Username",
                  name_header: str | None = "X-Authentik-Name") -> None:
         self.base_url = base_url.rstrip("/")
@@ -108,6 +109,7 @@ class Taps:
         self.phones = _load(phones_path)
         self._remember = remember or people.add
         self._runtime = runtime or (lambda key: False)  # added here, not by the profile
+        self._store = store  # people_store.PeopleStore: logins linked to people (aliases)
         self.arp_path = arp_path
         self.user_header = user_header
         self.name_header = name_header
@@ -173,7 +175,8 @@ class Taps:
 
     def tap(self, room: str, nonce: str, username: str, name: str, ip: str, rooms: list[str]) -> dict:
         """A phone opened a robot's link: what happened, for the page."""
-        key = person_key(username)
+        login = person_key(username)
+        key = (self._store.resolve(login) if self._store is not None and login else None) or login
         out: dict = {"key": key, "name": None, "room": None, "phone": False, "stale": False}
         if key is None:
             return out
@@ -182,6 +185,14 @@ class Taps:
             out["stale"] = True
             out["name"] = self.people.names.get(key) or display_name(name, username)
             return out
+        if key not in self.people.names and self._store is not None:
+            # A first tap by someone Nabu met by voice: the login becomes them,
+            # instead of a second person (identity.py, "Meeting Nabu").
+            spoke, _, _ = self.people.last_speaker(room_name, self.clock(), within=LINK_WITHIN_S)
+            if spoke and self._runtime(spoke) and not self._store.linked(spoke):
+                self._store.link(login, spoke)
+                LOG.info(json.dumps({"linked": spoke}))
+                key = out["key"] = spoke
         if key not in self.people.names:
             self._remember(key, display_name(name, username))
         else:

@@ -11,9 +11,7 @@ from test_server import Sock, fakes, post, req  # noqa: F401  (fakes is a fixtur
 
 
 @pytest.mark.parametrize("text,what", [
-    ("Remember this card", "remember"),
-    ("Okay Nabu, please learn my card.", "remember"),
-    ("Save my tag", "remember"),
+    ("Remember this card", None),  # cards go with "remember me" now (identity.py)
     ("Forget my card", "forget"),
     ("Please remove my cards", "forget"),
     ("Add a birthday card to the shopping list", None),
@@ -56,26 +54,6 @@ async def card_client(aiohttp_client, base, people, cards):
     bodies.connect("Bedroom 1", sock)
     app = make_app(cfg, State(), clock=lambda: 100.0, bodies=bodies, people=people, cards=cards)
     return await aiohttp_client(app), sock
-
-
-async def test_remember_this_card_asks_the_robot_to_read(aiohttp_client, fakes):
-    seen, _, _, base = fakes
-    people, cards = People({"kiril": "Kiril"}), Cards()
-    people.observe("Bedroom 1", "tap", "kiril", 1.0, 100.0)
-    c, sock = await card_client(aiohttp_client, base, people, cards)
-    said = (await post(c, req("Remember this card")))["message"]["content"]
-    assert said == "Okay, Kiril, hold your card on top of my head."
-    assert sock.sent == [{"nfc_read": READ_S}, {"act": {"mood": "curious"}}]
-    assert cards.tapped("Bedroom 1", "0435249AD11290", 101.0) == ("kiril", True)
-    assert seen["local"] == [] and seen["cloud"] == []
-
-
-async def test_remember_needs_to_know_who_you_are(aiohttp_client, fakes):
-    _, _, _, base = fakes
-    cards = Cards()
-    c, sock = await card_client(aiohttp_client, base, People({"kiril": "Kiril"}), cards)
-    said = (await post(c, req("Remember this card")))["message"]["content"]
-    assert "not sure who you are" in said and sock.sent == []
 
 
 async def test_forget_my_card(aiohttp_client, fakes):
