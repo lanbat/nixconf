@@ -410,6 +410,26 @@ async def test_a_face_probe_is_recognised_and_answered(aiohttp_client):
     await ws.close()
 
 
+async def test_a_face_that_came_into_view_is_here_not_the_speaker(aiohttp_client):
+    import base64
+    people = People({"kiril": "Kiril"})
+    frigate = FakeRecognizer({"success": True, "name": "kiril", "confidence": 0.91})
+    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0,
+                                           people=people, frigate=frigate))
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await ws.receive_json()  # body_hello
+    await ws.send_json({"face_probe": base64.b64encode(b"\xff\xd8face").decode(), "why": "seen"})
+    for _ in range(50):
+        if "face_result" in await ws.receive_json():
+            break
+    assert people.presence("Kitchen", 100.0)["kiril"] == (0.91, ["robot"])
+    assert people.evidence("Kitchen", 100.0)["robot"] == {"kiril": 0.91}
+    assert people.assess("Kitchen", 100.0).speaker is None  # someone here; who speaks, it can't say
+    assert "kiril" in people.here("Kitchen", 100.0 + 89) and "kiril" not in people.here("Kitchen", 100.0 + 91)
+    await ws.close()
+
+
 async def test_a_face_probe_with_no_match_or_no_frigate_is_said_so(aiohttp_client):
     import asyncio, base64
     frigate = FakeRecognizer({"success": False, "name": None, "confidence": None})

@@ -273,9 +273,12 @@ and the assistant knows it has a body:
   it takes a photo and registers your face with Frigate, so the assistant knows your name
   in this room. The photo only goes to Frigate's recognition library and is never used to
   unlock, disarm, open or allow anything.
-- **It knows who is talking.** When the router has a face library (Frigate), the robot
-  captures the speaker's face, right after it turns to them, and the router names it, so
-  the reply can be addressed. See [people.md](people.md) for how that becomes a name.
+- **It knows who is talking, and who is here.** When the router has a face library
+  (Frigate), the robot captures the speaker's face right after it turns to them, and the
+  router names it, so the reply can be addressed. It also shows the router a face as it
+  comes into view, and again every minute while someone stays (a minute apart at most over
+  Wi-Fi), so the router knows who is in the room without anyone speaking. See
+  [people.md](people.md#faces-on-the-robot) for how that becomes a name.
 
 Only fixed fields pass between the robot and the router (yes/no, seconds, names from
 fixed lists), so nothing the robot sends becomes text in a prompt. The router listens
@@ -421,8 +424,9 @@ robot is plugged in.
 
 `face_image` is the only line that can be large (a full-frame JPEG, base64). The robot
 only sends it in answer to a `capture`, never on its own. The bridge sends it on to the
-router: as `face_image` when the router asked (enrolment), or as a `face_probe` after the
-robot has turned to the speaker, which the router runs against Frigate.
+router: as `face_image` when the router asked (enrolment), or as a `face_probe`, which the
+router runs against Frigate: `"why": "turn"` after the robot has turned to the speaker,
+`"why": "seen"` for a face that came into view.
 
 ## Troubleshooting
 

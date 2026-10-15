@@ -22,6 +22,9 @@ This decides what it should feel and say:
   (the satellite's microphone array, not the mono LVA listens on) and turns
   to it, so the camera meets the speaker; with the router's face library a
   frame of the speaker is probed with it (docs/stackchan.md, docs/people.md).
+- Who is here: with the router's face library it also shows the router a
+  face as it comes into view, and again every minute while someone stays, so
+  the router knows who is in the room without anyone speaking.
 - The link: USB serial when the robot is plugged into this Pi, otherwise
   Wi-Fi (WIFI_HOST): the robot dials a TLS port here, pinned to this
   bridge's own certificate, and gets in with a token. The Wi-Fi details
@@ -244,6 +247,15 @@ TURN_MAX_RMS = 12.0
 FACE_AT_MS = 2500  # how long the robot looks for the face after a turn
 FACE_LIMIT = 68  # a face at the head's limit (±70°) may be further out: not a sample
 
+# Faces shown to the router (face_probe) so it can say who is in the room: one
+# as it comes into view (at most every PROBE_GAP_S), and again every
+# PROBE_AGAIN_S while someone stays; over Wi-Fi a minute apart at most. The
+# camera's frames are 320×240 already: small enough for the Wi-Fi link.
+PROBE_GAP_S = 10.0
+PROBE_AGAIN_S = 60.0
+PROBE_WIFI_S = 60.0
+PROBE_SETTLE_S = 0.6  # a face just came into view: a moment to settle in the frame
+
 
 def _line(points: list[tuple[float, float]]) -> tuple[float, float] | None:
     n = len(points)
@@ -368,6 +380,9 @@ class Brain:
     calibration: "TurnCalibration" = field(default_factory=lambda: TurnCalibration())
     auto_turn: bool = True
     last_voice: dict | None = None  # the last estimate, waiting for the robot's face_at
+    # Faces shown to the router (face_probe), so it can say who is here.
+    probes: bool = False  # the router has a face library (its body_hello)
+    probe_at: float | None = None  # when one went last
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -680,6 +695,7 @@ class Brain:
             self.present_at = now
             out.append(("router", {"state": self.router_state(now)}))
             out.append(("router", {"event": {"face": face}}))
+            out += self._probe(now, PROBE_GAP_S)
         if "face_at" in msg:
             out += self._face_at(msg["face_at"], now)
         health = msg.get("health")
@@ -789,6 +805,18 @@ class Brain:
             out.append(("log", f"robot: {msg['log']}"))
         return out
 
+    def _probe(self, now: float, gap: float) -> list:
+        """Show the router the face in view, so it can say who is here: not
+        while asleep, and not more often than `gap` (a minute over Wi-Fi)."""
+        if not self.probes or not self.present or self.asleep:
+            return []
+        if self.link == "wifi":
+            gap = max(gap, PROBE_WIFI_S)
+        if self.probe_at is not None and now - self.probe_at < gap:
+            return []
+        self.probe_at = now
+        return [("probe", "seen")]
+
     def _face_at(self, seen, now: float) -> list:
         """The robot's answer after a turn to a voice: a calibration sample,
         or, before there is a fit, one look at the mirror angle."""
@@ -855,6 +883,7 @@ class Brain:
             del self.timers[tid]
         if self.timers or stale:
             out.append(self._timers(now))
+        out += self._probe(now, PROBE_AGAIN_S)  # someone still here: who, again
         return out
 
 
@@ -1290,6 +1319,8 @@ class Bridge:
                         await self.router_ws.send(json.dumps(value))
                     except Exception as err:  # pylint: disable=broad-except
                         log(f"router write failed: {err}")
+            elif kind == "probe":
+                self._start_capture(value)
             elif kind == "save":
                 save_settings(value)
             elif kind == "ear":
@@ -1408,6 +1439,7 @@ class Bridge:
                         if isinstance(msg, dict):
                             if "body_hello" in msg:
                                 self.router_faces = bool((msg["body_hello"] or {}).get("faces"))
+                                self.brain.probes = self.router_faces
                             elif "face_result" in msg:
                                 result = msg["face_result"]
                                 if isinstance(result, dict) and result.get("person"):
@@ -1419,7 +1451,7 @@ class Bridge:
             except (OSError, websockets.exceptions.WebSocketException) as err:
                 log(f"router unreachable ({err}); retrying")
             self.router_ws = None
-            self.brain.router = False
+            self.brain.router = self.brain.probes = False
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60)
 
@@ -1494,11 +1526,15 @@ class Bridge:
         angle, confidence = est
         await self.act(self.brain.on_sound(angle, confidence, time.time()))
         if self.router_faces:
+            self.brain.probe_at = time.time()  # the minute's look, too
             self._start_capture()
 
-    def _start_capture(self) -> None:
+    def _start_capture(self, why: str = "turn") -> None:
+        """A frame for the router: of the speaker after a turn ("turn"), or of
+        whoever is in view ("seen")."""
         if self.capture_task is None or self.capture_task.done():
-            self.capture_task = asyncio.create_task(self.face_for_router(settle_s=CAPTURE_SETTLE_S))
+            settle = CAPTURE_SETTLE_S if why == "turn" else PROBE_SETTLE_S
+            self.capture_task = asyncio.create_task(self.face_for_router(settle_s=settle, why=why))
 
     async def face_capture(self, settle_s: float = 0.0) -> str | None:
         """A frame of whoever is in front ({"capture": true}), as base64; one at
@@ -1519,14 +1555,14 @@ class Bridge:
             if self.face_waiter is waiter:
                 self.face_waiter = None
 
-    async def face_for_router(self, settle_s: float = 0.0) -> None:
-        """A face of whoever is talking after a turn, sent to the router as a
-        probe so it can be recognised (the DOA flow; enrolment is the router's
-        own capture request)."""
+    async def face_for_router(self, settle_s: float = 0.0, why: str = "turn") -> None:
+        """A face sent to the router as a probe so it can be recognised: of
+        whoever is talking after a turn ("turn", the DOA flow), or of whoever
+        came into view ("seen"). Enrolment is the router's own capture request."""
         b64 = await self.face_capture(settle_s)
         if b64 and self.router_ws is not None:
             try:
-                await self.router_ws.send(json.dumps({"face_probe": b64}))
+                await self.router_ws.send(json.dumps({"face_probe": b64, "why": why}))
             except Exception as err:  # pylint: disable=broad-except
                 log(f"router write failed: {err}")
 

@@ -1015,6 +1015,70 @@ class TurnLearning(unittest.TestCase):
         self.assertIsNotNone(again.fit)
 
 
+class Glance(unittest.TestCase):
+    """It shows the router who is in front of it, without anyone speaking."""
+
+    def brain(self, link="usb"):
+        b = Brain(Config(), now=NOON)
+        b.probes, b.link = True, link
+        return b
+
+    @staticmethod
+    def probes(actions):
+        return [a for a in actions if a[0] == "probe"]
+
+    def test_a_face_coming_into_view_is_shown_to_the_router(self):
+        b = self.brain()
+        self.assertEqual(self.probes(b.on_device({"face": "new"}, NOON)), [("probe", "seen")])
+        b.on_device({"face": "lost"}, NOON + 2)
+        self.assertEqual(self.probes(b.on_device({"face": "new"}, NOON + 4)), [])  # flickering: not yet
+        b.on_device({"face": "lost"}, NOON + 6)
+        self.assertEqual(self.probes(b.on_device({"face": "new"}, NOON + 11)), [("probe", "seen")])
+
+    def test_someone_staying_is_shown_again_every_minute(self):
+        b = self.brain()
+        b.on_device({"face": "new"}, NOON)
+        self.assertEqual(self.probes(b.tick(NOON + 30)), [])
+        self.assertEqual(self.probes(b.tick(NOON + 61)), [("probe", "seen")])
+        b.on_device({"face": "lost"}, NOON + 70)
+        self.assertEqual(self.probes(b.tick(NOON + 200)), [])  # nobody there
+
+    def test_over_wifi_a_minute_apart_and_never_without_a_library_or_asleep(self):
+        b = self.brain("wifi")
+        self.assertEqual(self.probes(b.on_device({"face": "new"}, NOON)), [("probe", "seen")])
+        b.on_device({"face": "lost"}, NOON + 5)
+        self.assertEqual(self.probes(b.on_device({"face": "new"}, NOON + 20)), [])
+        self.assertEqual(self.probes(b.tick(NOON + 61)), [("probe", "seen")])
+        quiet = Brain(Config(), now=NOON)  # the router has no face library
+        self.assertEqual(self.probes(quiet.on_device({"face": "new"}, NOON)), [])
+        night = self.brain()
+        night.asleep = True
+        self.assertEqual(self.probes(night.on_device({"face": "new"}, NOON)), [])
+
+    def test_the_probe_says_why(self):
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+        bridge.router_ws = EarBridge.Router()
+        sent = []
+
+        async def send_device(line):
+            sent.append(line)
+
+        bridge.send_device = send_device
+
+        async def go():
+            await bridge._act([("probe", "seen")])
+            for _ in range(100):  # it settles first, then asks for the frame
+                if sent:
+                    break
+                await asyncio.sleep(0.02)
+            await bridge.on_line(json.dumps({"face_image": "AAAA"}).encode())
+            await bridge.capture_task
+
+        asyncio.run(go())
+        self.assertEqual(sent, [{"capture": True}])
+        self.assertEqual(bridge.router_ws.sent, [{"face_probe": "AAAA", "why": "seen"}])
+
+
 class Phones(unittest.TestCase):
     """The robot as a room sensor: keys over USB, sightings to the router."""
 
