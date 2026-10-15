@@ -22,12 +22,12 @@ from typing import Awaitable, Callable
 import aiohttp
 from aiohttp import web
 
-from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, triage
+from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity, triage
 from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
-from .people import People
+from .people import VOICE_UNKNOWN, People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
 from .state import State
@@ -84,6 +84,7 @@ FORGET_TOOL = {
 }
 
 SPEAKER_SECONDS = 300.0   # the speaker of a device's conversation, carried this long
+MEET_SECONDS = 60.0       # an answer to "What's your name?" is taken this long
 ENROL_SECONDS = 120.0     # a voice enrolment waits this long for the next sentence
 
 ENROLL_TAKEN = "That name is already taken."
@@ -136,6 +137,7 @@ class Config:
     log_dir: str | None = None
     log_days: int = 14
     log_text: bool = True
+    offer_to_meet: bool = True  # Nabu asks an unknown voice's name, once a room a day
 
 
 def _reply(text: str) -> dict:
@@ -185,7 +187,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              bodies: Bodies | None = None, people: People | None = None,
              people_store: PeopleStore | None = None, frigate: Frigate | None = None,
              capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
-             voice: VoiceIdClient | None = None, cards: Cards | None = None) -> web.Application:
+             voice: VoiceIdClient | None = None, cards: Cards | None = None,
+             forget_phones: Callable[[str], int] | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -193,6 +196,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     reports = VoiceReports()
     speakers: dict[str, tuple[str, float]] = {}       # device -> (person, when)
     enrolling: dict[str, tuple[str, str, float]] = {}  # device -> (key, name, when)
+    meeting: dict[str, tuple[str, float]] = {}  # device -> (room, when Nabu asked a name)
+    offered: dict[str, str] = {}  # room key -> the day Nabu last offered to meet there
 
     def last_speaker(device: str, now: float) -> str | None:
         hit = speakers.get(device)
@@ -340,7 +345,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         result = await voice.enrol(key, [text])
         if result.get("enrolled"):
             enrolling.pop(device, None)
-            remember(key, name)
+            if key not in people.names:  # the enroll tool's new person; a profile person stays one
+                remember(key, name)
             return finish(device, f"Got it, {name}, I'll know your voice now.", [])
         if result.get("available") is False or not result:
             enrolling.pop(device, None)
@@ -354,6 +360,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             return finish(device, "I'm not sure who you are, so I can't forget you.", tool_results)
         name = people.names.get(key, key)
         speakers.pop(device, None)
+        if forget_phones is not None:
+            forget_phones(key)
         if await forget_person(key, people_store, voice, frigate, cards):
             return finish(device, f"Okay, {name}, I've forgotten you: your face and your voice.", tool_results)
         return finish(device, f"Okay, {name}, I've forgotten your recordings. "
@@ -378,6 +386,120 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         await bodies.send(room, {"nfc_read": cards_mod.READ_S})
         await bodies.act(room, {"mood": "curious"})
         return finish(device, f"Okay, {name}, hold your card on top of my head.", [])
+
+    def _and(things: list[str]) -> str:
+        return things[0] if len(things) == 1 else ", ".join(things[:-1]) + " and " + things[-1]
+
+    async def _bind(device: str, room: str, key: str, texts: list[str], now: float,
+                    new: bool) -> tuple[list[str], bool, bool]:
+        """Everything Nabu can learn about `key` right now, in `room`: a face
+        from the robot's camera, the voice from this conversation, and a card
+        window. (what was bound, voice still needs sentences, card window open)."""
+        bound: list[str] = []
+        if frigate is not None and capture_face is not None and bodies.has(room):
+            try:
+                img = await capture_face(room)
+                if img:
+                    await frigate.enroll(key, img)
+                    bound.append("face")
+            except Exception:  # pylint: disable=broad-except
+                pass
+        more = False
+        if voice is not None:
+            # Someone known by a tap or a card may have no voiceprint yet (voice-id
+            # only refines one it has): this conversation then enrols them too.
+            prints = None if new else await voice.people()
+            if new or (prints is not None and key not in prints):
+                result = await voice.enrol(key, texts)
+                if result.get("enrolled"):
+                    bound.append("voice")
+                elif result.get("available") is not False and result:
+                    enrolling[device] = (key, people.names.get(key, key), now)
+                    more = True
+            elif texts and await voice.learn(key, texts[-1]):
+                bound.append("voice")
+        card = cards is not None and bodies.has(room)
+        if card:
+            cards.expect(room, key, now)
+            bodies.announce(room, {"card": "waiting", "person": people.names.get(key, key)})
+            await bodies.send(room, {"nfc_read": cards_mod.READ_S})
+        if bodies.has(room):
+            await bodies.act(room, {"mood": "happy", "gesture": "nod"})
+        return bound, more, card
+
+    async def _meet(device: str, room: str, name: str, texts: list[str], now: float) -> dict:
+        """Someone new told Nabu their name: they are a person now, with
+        whatever can be learned about them at once."""
+        key = _person_key(name)
+        if not key:
+            return finish(device, ENROLL_BAD_NAME, [])
+        base, n = key, 2
+        while key in people.names:  # another Jane: jane_2
+            key, n = f"{base}_{n}", n + 1
+        remember(key, name)
+        speakers[device] = (key, now)
+        LOG.info(json.dumps({"met": key, "room": room}))
+        bound, more, card = await _bind(device, room, key, texts, now, new=True)
+        said = f"Nice to meet you, {name}!"
+        if bound:
+            said += f" I've got your {_and(bound)}."
+        if card:
+            said += " " + identity.CARD_HINT
+        if more:
+            said += " " + identity.MORE_VOICE
+        # The router itself did what the reply says it did: honesty.check lets it through.
+        return finish(device, said, ["Success"] if bound else [])
+
+    async def _identity(device: str, room: str, what: str, value: str | None, known: str | None,
+                        texts: list[str], now: float) -> dict:
+        """"Remember me", "call me …", "forget my card"."""
+        if what == "forget_card":
+            return await _card(device, room, "forget", known, now)
+        if what == "call_me":
+            if known is None:
+                return await _meet(device, room, value or "", texts, now)  # an introduction
+            if people_store is None or not people_store.has(known):
+                return finish(device, "Your name is in the house settings, so it stays.", [])
+            if people_store.linked(known):
+                return finish(device, "Your name comes from your account. Change it there, and I'll follow.", [])
+            people_store.add(known, value or people.names[known])
+            return finish(device, f"Okay, I'll call you {value}.", [])
+        # "Remember me"
+        if known is None:
+            meeting[device] = (room, now)
+            return finish(device, identity.ASK_NAME, [])
+        bound, more, card = await _bind(device, room, known, texts, now, new=False)
+        said = f"Got it, {people.names.get(known, known)}!"
+        if bound:
+            said += f" I've added your {_and(bound)}."
+        if card:
+            said += " " + identity.CARD_HINT
+        if more:
+            said += " " + identity.MORE_VOICE
+        return finish(device, said, ["Success"] if bound else [])
+
+    def _offer(device: str, room: str, resp: dict, voice_scores: dict | None, speaker: str | None,
+               now: float) -> dict:
+        """After answering an unknown voice in a room with a robot: "What's
+        your name?", once a room a day. Never while anyone there is known."""
+        if not cfg.offer_to_meet or voice is None or not bodies.has(room) or speaker is not None:
+            return resp
+        if voice_scores and max(voice_scores.values()) >= VOICE_UNKNOWN:
+            return resp
+        if any(people.evidence(room, now).get(source) for source in ("card", "robot", "camera")):
+            return resp
+        today = datetime.date.today().isoformat()
+        if offered.get(room.strip().casefold()) == today:
+            return resp
+        message = ((resp.get("choices") or [{}])[0]).get("message") or {}
+        text = message.get("content")
+        if not isinstance(text, str) or not text.strip() or message.get("tool_calls") or text.rstrip().endswith("?"):
+            return resp
+        offered[room.strip().casefold()] = today
+        meeting[device] = (room, now)
+        message["content"] = text.rstrip() + " " + identity.OFFER
+        state.remember_reply(device, message["content"], now)
+        return resp
 
     async def from_cloud(device: str, ctx: Context | None, data: dict | None, tool_results: list[str],
                          texts: list[str] | None = None) -> dict:
@@ -438,6 +560,17 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(enrol_reply)
 
+        # The answer to "What's your name?": a name, a decline, or neither.
+        named = meeting.pop(device, None)
+        if named is not None and now - named[1] <= MEET_SECONDS:
+            kind, name = identity.answer(text)
+            if kind != "unclear":
+                resp = finish(device, identity.DECLINED, []) if kind == "decline" \
+                    else await _meet(device, named[0] or room, name or "", texts, now)
+                log({"conv": conv, "device": device, "room": room, "tier": "meet", "route": kind,
+                     "ms": int((time.monotonic() - started) * 1000)})
+                return web.json_response(resp)
+
         # Who is speaking: voice-id's scores for this sentence (it may still be
         # on its way), with who is in the room. A sure answer refines the voice.
         robot = bodies.state(room)
@@ -463,10 +596,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(finish(device, cmd[1], []))
 
-        card = cards_mod.command(text) if cards is not None and bodies.has(room) else None
-        if card is not None:
-            resp = await _card(device, room, card, last, now)
-            log({"conv": conv, "device": device, "room": room, "text": text, "tier": "body", "route": f"card-{card}",
+        said = identity.command(text) if (people_store is not None or cards is not None) else None
+        if said is not None:
+            resp = await _identity(device, room, said[0], said[1], last, texts, now)
+            log({"conv": conv, "device": device, "room": room, "text": text, "tier": "identity", "route": said[0],
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(resp)
 
@@ -494,6 +627,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             else:
                 tier, route = "cloud", "escalate"
                 resp = await from_cloud(device, ctx, await cloud(session, body, room, voice_scores, last), [], texts)
+                resp = _offer(device, room, resp, voice_scores, last, now)
         log({"conv": conv, "device": device, "room": ctx.room if ctx else "", "text": text,
              "tier": tier, "route": route, "ms": int((time.monotonic() - started) * 1000)})
         return web.json_response(resp)

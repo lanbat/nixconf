@@ -729,24 +729,32 @@ def test_person_key_from_a_name():
 
 # ── voice (assistant_router/voice.py, voice-id) ───────────────────────────────
 class FakeVoiceId:
-    """voice-id's API: enrols once it has three utterances from this conversation."""
+    """voice-id's API: enrols once it has three utterances from this conversation,
+    and refines only a voiceprint it has."""
 
-    def __init__(self, needed=3, available=True):
+    def __init__(self, needed=3, available=True, enrolled=()):
         self.needed, self.available = needed, available
         self.texts, self.learned, self.forgotten = {}, [], []
+        self.prints = set(enrolled)
 
     async def enrol(self, key, texts):
         got = self.texts.setdefault(key, [])
         got += [t for t in texts if t not in got]
         enrolled = self.available and len(got) >= self.needed
+        if enrolled:
+            self.prints.add(key)
         return {"enrolled": enrolled, "utterances": len(got), "needed": self.needed, "available": self.available}
 
     async def learn(self, key, text):
         self.learned.append((key, text))
-        return True
+        return key in self.prints
+
+    async def people(self):
+        return sorted(self.prints) if self.available else []
 
     async def forget(self, key):
         self.forgotten.append(key)
+        self.prints.discard(key)
         return True
 
 

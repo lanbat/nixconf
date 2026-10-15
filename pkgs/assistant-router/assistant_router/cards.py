@@ -26,13 +26,9 @@ _FORGET = re.compile(r"\b(forget|remove|delete)\b.*\b(this|my|the) (card|cards|t
 
 
 def command(text: str) -> str | None:
-    """"remember", "forget", or None: what was said about a card."""
+    """"forget", or None. Cards are learned with "remember me" (identity.py)."""
     said = re.sub(r"[^a-z' ]+", " ", (text or "").lower())
-    if _FORGET.search(said):
-        return "forget"
-    if _REMEMBER.search(said):
-        return "remember"
-    return None
+    return "forget" if _FORGET.search(said) else None
 
 
 def _key(room: str) -> str:

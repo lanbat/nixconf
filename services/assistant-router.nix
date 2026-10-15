@@ -98,6 +98,18 @@ let
       broker login is the mosquitto-assistant-router-pass secret.
     '';
   };
+  routerSettings.options.offerToMeet = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      Meeting Nabu: after answering a voice it doesn't know, in a room with a
+      robot, the assistant asks once "What's your name?" (a room at most once
+      a day). A name is consent: it learns the voice from that conversation,
+      the robot's camera adds the face, and a card held on its head is theirs.
+      A decline keeps nothing. "Remember me" does the same on request
+      (pkgs/assistant-router identity.py, docs/people.md).
+    '';
+  };
   routerSettings.options.tap = mkOption {
     type = types.bool;
     default = true;
@@ -205,6 +217,7 @@ in
               "--people-state /var/lib/assistant-router/people.json"
             ]
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
+            ++ lib.optionals (!cfg.offerToMeet) [ "--no-offer-to-meet" ]
             ++ lib.optionals tapping (
               [
                 "--tap-url https://who.${config.lanbat.deployment.domain}"

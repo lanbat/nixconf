@@ -7,6 +7,11 @@ two are merged, the overlay winning, so an enrolled person is recognised again.
 
 Only the runtime-added people are written, never the whole set: dropping
 someone from the Nix file still takes effect on the next start.
+
+Aliases tie a login (an Authentik username, from a phone tap) to a person met
+by voice before they had one, so the tap names the person Nabu already knows
+instead of making a second one ("Meeting Nabu", docs/people.md). They are kept
+next to the people, in `<name>-aliases.json`.
 """
 from __future__ import annotations
 
@@ -42,6 +47,8 @@ class PeopleStore:
         self._overlay = _load(path)
         for key, name in self._overlay.items():
             people.names[key] = name
+        self.aliases_path = os.path.splitext(path)[0] + "-aliases.json"
+        self._aliases = _load(self.aliases_path)  # login -> key
 
     def add(self, key: str, name: str) -> None:
         key, name = str(key), str(name)
@@ -58,3 +65,19 @@ class PeopleStore:
         self.people.remove(key)
         self._overlay.pop(key, None)
         _persist(self.path, self._overlay)
+        if any(k == key for k in self._aliases.values()):
+            self._aliases = {login: k for login, k in self._aliases.items() if k != key}
+            _persist(self.aliases_path, self._aliases)
+
+    def link(self, login: str, key: str) -> None:
+        """`login` is the person `key` from now on."""
+        self._aliases[str(login)] = str(key)
+        _persist(self.aliases_path, self._aliases)
+
+    def resolve(self, login: str) -> str | None:
+        """The person a login is linked to, or None."""
+        return self._aliases.get(str(login))
+
+    def linked(self, key: str) -> bool:
+        """Whether a login is linked to `key` (its name then follows the login)."""
+        return str(key) in self._aliases.values()

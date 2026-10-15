@@ -163,23 +163,44 @@ The phone has to trust the site's certificate: install the home CA from
 `https://ca.<domain>` first ([deployment checklist](deployment-checklist.md)). Turn it
 off with `lanbat.services.assistant-router.settings.tap = false`.
 
-## Cards
+## Meeting Nabu
 
-A card or tag of yours (a transport card, a building fob, an NFC sticker), tapped on a
-Stack-chan, names you as the likely speaker in that room for two minutes, unless your
-voice clearly says otherwise. Nothing is listed in the profile: once Nabu recognises
-you (a phone tap, your voice or your face), say **"Remember this card"** to the robot
-and hold the card on top of its head within 30 seconds. It nods and shows "Got it". From
-then on that card works on any robot. **"Forget my card"** drops yours, and so does
-*Forget me*.
+Nobody needs a phone, an app or an account to be known: just talk to Nabu.
+
+- **Nabu asks once.** After answering a voice it doesn't know, in a room with a robot, it
+  adds *"By the way, I don't think we've met. What's your name?"*: a room at most once a
+  day, and never when it already recognises someone there.
+  - Answering is consent: *"I'm Jane"* (or just *"Jane"*) → *"Nice to meet you, Jane!"*.
+  - *"No thanks"*, *"I'm just visiting"*, *"not now"* → *"No problem!"*, and nothing is
+    kept.
+  - Turn it off with `lanbat.services.assistant-router.settings.offerToMeet = false`.
+- **Or ask:** *"Okay Nabu, remember me"*. Someone it knows gets a top-up (a new face
+  picture, the voice refined, a card window); someone it doesn't is asked their name. *"My
+  name is Jane"* from an unknown voice is an introduction too. Someone it knows only by a
+  tap or a card has no voice yet: theirs is enrolled then, under the same person. So
+  you'd tap your phone first, then ask.
+- **One moment binds everything it can:**
+  - **the voice,** from that conversation's sentences. If voice-id wants one more, Nabu
+    asks *"Tell me a little about your day?"*;
+  - **the face,** from the robot's camera, if someone is in front of it;
+  - **a card:** *"If you have a card, hold it on my head now."* For 30 s the robot reads
+    cards instead of being a tag for phones, and the card tapped becomes theirs. From then
+    on it names them on any robot, for two minutes, unless their voice clearly says
+    otherwise.
+- **Phones and Authentik are optional.** A tap by someone Nabu just recognised (they
+  spoke in that room in the last two minutes) links their Authentik login to the person
+  they already are, instead of making a second one. From then on their name follows
+  Authentik's, and the phone's Wi-Fi address comes along.
+- **Renaming and forgetting:**
+  - *"call me Kiki"* renames someone met by voice; a linked person's name follows their
+    account;
+  - *"forget my card"* drops the cards;
+  - *"forget me"* removes everything: voice, faces, cards, phones and the link.
 
 Bank cards and phones show a new random UID (four bytes starting `08`) on every tap, so
-they can't be used. A card's UID is easy to copy: it personalises, it never allows
-anything. Cards are kept in `/var/lib/assistant-router/cards.json`.
-
-While the robot holds the "who tapped" link it is a tag for phones, and reads cards only
-for those 30 seconds. With `settings.tap = false` it reads cards all the time, and each
-tap also goes to Home Assistant's tag scanner (*Settings → Tags*).
+they can't be used as cards. A card's UID is easy to copy: it personalises, it never allows
+anything. People met this way are kept in `/var/lib/assistant-router/people.json`, their
+login links in `people-aliases.json`, cards in `cards.json`.
 
 ## Voices
 
@@ -190,10 +211,10 @@ against every enrolled person's voiceprint. The router gets all the scores, not 
 best one, and weighs them with who is in the room (below). A sentence with less than about
 a second of speech gives no scores: "lights off" says too little about who said it.
 
-- **Remember me.** "Okay Nabu, remember me, I'm Alex" enrols Alex's voice from that
-  conversation, and asks for a sentence or two more if it needs them ("Tell me a little
-  about your day…"). Where a robot can see, it registers the face at the same time.
-  "Stop" ends it.
+- **Remember me.** Meeting Nabu (above) enrols a voice from the conversation where
+  someone gives their name, and asks for a sentence or two more if it needs them ("Tell
+  me a little about your day…"). Where a robot can see, it registers the face at the same
+  time. "Stop" ends it.
 - **It gets better with use.** When the router is sure who spoke (a voice match well
   ahead of everyone else, or the face the robot turned to), that sentence refines the
   person's voiceprint: at most 40 kept per person, and a sentence too unlike the rest is
