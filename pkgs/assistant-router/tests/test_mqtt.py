@@ -250,6 +250,35 @@ async def test_each_recognition_source_is_a_sensor():
     assert voice["name"] == "Heard by voice" and voice["state_topic"].endswith("/evidence")
 
 
+async def test_who_is_here_and_where_everyone_is():
+    _, people, ha, _, clock = setup()
+    people.observe("Living room", "tap", "kiril", 1.0, clock[0])
+    people.note_voice("Living room", {"kiril": 0.8, "maria": 0.1}, clock[0])
+    people.observe_home(["maria"], clock[0])
+    broker = Broker()
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/stackchan/living_room/here") == {
+        "names": "Kiril", "people": {"Kiril": {"confidence": 1.0, "sources": ["card", "voice"]}}}
+    assert broker.last("lanbat/people/kiril/where") == {
+        "where": "Living room", "confidence": 1.0, "sources": ["card", "voice"]}
+    assert broker.last("lanbat/people/maria/where") == {"where": "home", "confidence": 0.2, "sources": ["home"]}
+    config = broker.last("homeassistant/sensor/lanbat_people/where_kiril/config")
+    assert config["name"] == "Where is Kiril" and config["state_topic"] == "lanbat/people/kiril/where"
+    assert config["device"]["name"] == "People"
+    here = dict(robot_discovery("Living room"))["homeassistant/sensor/lanbat_stackchan_living_room/here/config"]
+    assert here["name"] == "Probably here" and here["state_topic"] == "lanbat/stackchan/living_room/here"
+    # Renamed (in Authentik), and someone forgotten: the entities follow.
+    people.add("kiril", "Kiki")
+    people.remove("maria")
+    await ha.tick(broker.publish)
+    assert broker.last("homeassistant/sensor/lanbat_people/where_kiril/config")["name"] == "Where is Kiki"
+
+    def raw(topic):
+        return [p for t, p, _ in broker.messages if t == topic][-1]
+    assert raw("homeassistant/sensor/lanbat_people/where_maria/config") == ""  # removed from HA
+    assert raw("lanbat/people/maria/where") == ""
+
+
 async def test_the_mirror_switch():
     assert command("mirror", "ON") == {"mirror": True}
     assert command("mirror", "OFF") == {"mirror": False}

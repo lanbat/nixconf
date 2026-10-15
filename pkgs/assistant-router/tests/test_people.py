@@ -223,6 +223,66 @@ def test_evidence_shows_what_each_source_says():
     assert p.evidence("Bedroom", 101.0)["bluetooth"] == {}  # not where it's loudest
 
 
+def test_a_clear_voice_puts_them_in_the_room_for_five_minutes():
+    p = People(NAMES)
+    p.note_voice("Kitchen", scores(kiril=0.8), now=100.0)
+    assert p.presence("Kitchen", 101.0)["kiril"] == (0.8, ["voice"])
+    assert "kiril" in p.here("Kitchen", 101.0) and p.here("Bedroom 1", 101.0) == {}
+    assert "kiril" not in p.presence("Kitchen", 100.0 + 301)
+    # Too weak, or too close to someone else's: nobody is placed.
+    q = People(NAMES)
+    q.note_voice("Kitchen", scores(kiril=0.65), now=100.0)
+    q.note_voice("Hall", scores(kiril=0.8, maria=0.7), now=100.0)
+    assert q.presence("Kitchen", 101.0) == {} and q.presence("Hall", 101.0) == {}
+
+
+def test_a_voice_heard_counts_for_the_next_request():
+    p = People(NAMES)
+    p.note_voice("Kitchen", scores(maria=0.85), now=100.0)
+    a = p.assess("Kitchen", now=160.0)  # a sentence voice-id has no word on
+    assert a.speaker is None and a.nearby == ["maria"]
+    # It tips a close call her way, as a face in the room would.
+    close = scores(maria=0.55, ivo=0.5)
+    assert p.assess("Kitchen", now=160.0, voice=close).speaker == "maria"
+    assert People(NAMES).assess("Kitchen", now=160.0, voice=close).speaker is None
+
+
+def test_presence_puts_the_sources_together():
+    p = People(NAMES)
+    p.observe("Kitchen", "tap", "kiril", 1.0, now=100.0)
+    p.note_voice("Kitchen", scores(kiril=0.8), now=100.0)
+    p.observe_phone("Kitchen", "maria", -60, 100.0, via="wifi")
+    p.observe_home(["maria", "ivo"], now=100.0)
+    found = p.presence("Kitchen", 101.0)
+    assert found["kiril"] == (round(1 - 0.02 * 0.2, 3), ["card", "voice"])  # either would do
+    assert found["maria"] == (round(1 - 0.2 * 0.8, 3), ["home", "wifi"])
+    assert found["ivo"] == (0.2, ["home"])
+    assert set(p.here("Kitchen", 101.0)) == {"kiril", "maria"}  # home alone isn't here
+
+
+def test_where_is_the_room_they_most_likely_are_in():
+    p = People(NAMES)
+    p.observe_phone("Kitchen", "kiril", -60, 100.0, via="ble")
+    p.note_voice("Bedroom 1", scores(kiril=0.9), now=100.0)
+    assert p.where("kiril", 101.0) == ("Bedroom 1", 0.9, ["voice"])
+    p.observe_phone("Kitchen", "kiril", -60, 400.0, via="ble")  # the voice is old now
+    assert p.where("kiril", 401.0) == ("Kitchen", 0.8, ["bluetooth"])
+    p.observe_home(["maria"], now=401.0)
+    assert p.where("maria", 402.0) == ("home", 0.2, ["home"])
+    assert p.where("ivo", 402.0) == ("away", 0.0, [])
+
+
+def test_a_tap_or_a_card_teaches_their_voice_for_two_minutes():
+    p = People(NAMES)
+    p.observe("Kitchen", "tap", "maria", 1.0, now=100.0)
+    a = p.assess("Kitchen", now=110.0)
+    assert a.speaker == "maria" and a.learn == "maria"
+    assert p.bound("Kitchen", 110.0) == ("maria", 100.0)
+    p.observe("Kitchen", "card", "ivo", 1.0, now=150.0)
+    assert p.bound("Kitchen", 160.0) == ("ivo", 150.0)  # the latest
+    assert p.bound("Kitchen", 271.0) == (None, 0.0) and p.bound("Hall", 160.0) == (None, 0.0)
+
+
 def test_old_or_unclear_voice_is_not_shown():
     p = People({"kiril": "Kiril"})
     p.note_voice("Kitchen", {"kiril": 0.1}, 100.0)

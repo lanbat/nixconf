@@ -216,10 +216,17 @@ a second of speech gives no scores: "lights off" says too little about who said 
   me a little about your day…"). Where a robot can see, it registers the face at the same
   time. "Stop" ends it.
 - **It gets better with use.** When the router is sure who spoke (a voice match well
-  ahead of everyone else, or the face the robot turned to), that sentence refines the
-  person's voiceprint: at most 40 kept per person, and a sentence too unlike the rest is
-  refused, so one mistake cannot snowball. Only enrolled people are ever learned from;
-  other voices are kept in memory for ten minutes, for a "remember me", and never stored.
+  ahead of everyone else, the face the robot turned to, or their tap or card), that
+  sentence refines the person's voiceprint: at most 40 kept per person, and a sentence too
+  unlike the rest is refused, so one mistake cannot snowball. Other voices are kept in
+  memory for ten minutes, for a "remember me", and never stored.
+- **A tap teaches.** For two minutes after you tap your phone or card on a robot, what you
+  say to that room's satellite is yours: it refines your voiceprint, or, if you have none
+  yet, starts one once there are three sentences. Meanwhile, if the robot sees someone
+  in front of it, it adds up to three pictures, 10 s apart, to your faces
+  ([Frigate's library](#faces-on-the-cameras)). Someone else talking or standing in front
+  of it in those two minutes would be taken for you, so tap when it's you at the robot.
+  The page your phone opens says so, and "Forget me" removes both.
 - **Forget me.** "Okay Nabu, forget me" removes the voiceprint and the faces of the
   person it recognises as speaking, and their name if they enrolled themselves; people
   listed in `deploy.nix` keep their name. It does nothing when it isn't sure who is
@@ -250,15 +257,26 @@ and an extra one stands for someone not enrolled.
 - **A tap** of their card or phone on the room's robot (last 2 minutes) names them unless
   the voice clearly disagrees.
 - **Presence** raises a candidate's weight: their phone in the room (last 2 minutes),
-  their face on a room camera (last 10 s), having been the speaker earlier in this
-  conversation, and, less, their phone on the home network (last 3 minutes). Absence lowers it but never rules anyone out, so a phone left in another
+  their face on a room camera (last 10 s), their voice clearly heard in the room (a match
+  of 0.7 or more, well ahead of anyone else's, in the last 5 minutes), having been the
+  speaker earlier in this conversation, and, less, their phone on the home network (last
+  3 minutes). Absence lowers it but never rules anyone out, so a phone left in another
   room doesn't overrule a clear voice.
 - **Evidence** multiplies in: the voice scores of this sentence, and above all the face
   the robot saw after turning to the voice.
 - **The speaker** is named only when one candidate clearly leads (80 % and three times
   the next); otherwise nobody is: unknown beats wrong. Presence is what makes a close
   voice call decidable: two people who sound alike, only one of them in the room.
-- **Nearby** are the others present.
+- **Nearby** are the others in the room (below).
+
+**Who is in a room** puts the same evidence together per person, rather than per
+sentence. Each source is a chance that they are there: a tap or card 98 %, a face on a
+camera, the robot's look or their voice its own confidence, their phone placed in the room
+80 %, their phone on the home network 20 % (for the whole house). The chances combine as
+independent ones (two sources that each say 80 % make 96 %). Someone counts as in the
+room from 50 %, and only with something more than the home network. The room a person is
+most likely in is where they are; with nothing but the home network they are "home", and
+with nothing at all "away".
 
 The weights are in one place (`people.py`), tested on these situations.
 
@@ -270,8 +288,13 @@ never sees it, and device actions are the same whoever asks.
 ## In Home Assistant
 
 The router publishes its guesses as sensors, named "Probably …": who spoke last to each
-robot and who is nearby it, and who is home ([stackchan.md](stackchan.md#in-home-assistant)).
-They are as uncertain as the line the cloud model gets, and for the same uses.
+robot, who else is nearby it, who is in its room (**Probably here**, with each person's
+confidence and sources as attributes), and who is home
+([stackchan.md](stackchan.md#in-home-assistant)). The People device has a **Where is
+<name>** sensor per person: the room they are most likely in, "home" or "away", with the
+confidence and sources. It is added, renamed (when you rename yourself in Authentik) and
+removed with the person. They are as uncertain as the line the cloud model gets, and for
+the same uses.
 
 Behind them, each robot has a diagnostic sensor per source, so you can see what led to a
 guess: **Seen by the cameras**, **Seen by the robot** (its own camera, after turning to

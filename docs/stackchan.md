@@ -240,9 +240,11 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   screen, and its LEDs as a light: an RGB notification lamp (a reminder, the washing
   machine) that shows while nothing else is on its LEDs.
 - **Who:** "Probably speaking" (who spoke to it last, with how sure and how it knew, for
-  five minutes) and "Probably nearby" per robot, and "Probably home" on a People
-  device. They are guesses, named as such: use them to personalise, never to unlock,
-  disarm or allow anything ([people.md](people.md#never-authority)).
+  five minutes), "Probably nearby" and "Probably here" (everyone in its room, with how
+  sure and by what) per robot; "Probably home" and a "Where is <name>" per person on a
+  People device ([people.md](people.md#in-home-assistant)). They are guesses, named as
+  such: use them to personalise, never to unlock, disarm or allow anything
+  ([people.md](people.md#never-authority)).
 
 The router publishes all of it: it is connected to every robot's bridge already, so
 only the server has a broker login. Home Assistant's commands reach a robot over the

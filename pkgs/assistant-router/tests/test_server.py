@@ -784,6 +784,58 @@ async def voice_client(aiohttp_client, base, people, voice, store=None, frigate=
                                          bodies=bodies, capture_face=capture, voice=voice))
 
 
+async def test_after_a_tap_what_they_say_teaches_their_voice(aiohttp_client, fakes):
+    _, _, _, base = fakes
+    people = People({"kiril": "Kiril", "maria": "Maria"})
+    voice = FakeVoiceId()
+    c = await voice_client(aiohttp_client, base, people, voice)
+    import time
+    people.observe("Bedroom 1", "tap", "kiril", 1.0, time.monotonic())
+    # Nobody has a voiceprint: voice-id reports nothing, and keeps the sentences.
+    for text in ("Good morning", "What's the weather like", "Thanks a lot"):
+        await c.post("/v1/voice", json={"text": text, "scores": {}, "t": 0})
+        await post(c, req(text))
+    assert voice.prints == {"kiril"} and voice.learned == []
+    # From then on the same window refines it.
+    await c.post("/v1/voice", json={"text": "And tomorrow?", "scores": {"kiril": 0.5, "maria": 0.1}, "t": 0})
+    await post(c, req("And tomorrow?"))
+    assert voice.learned == [("kiril", "And tomorrow?")]
+
+
+async def test_without_a_tap_an_unknown_voice_teaches_nothing(aiohttp_client, fakes):
+    _, _, _, base = fakes
+    people = People({"kiril": "Kiril"})
+    voice = FakeVoiceId(needed=1)
+    c = await voice_client(aiohttp_client, base, people, voice)
+    import time
+    people.observe("Kitchen", "tap", "kiril", 1.0, time.monotonic())  # another room
+    await c.post("/v1/voice", json={"text": "Good morning", "scores": {}, "t": 0})
+    await post(c, req("Good morning"))
+    assert voice.prints == set() and voice.texts == {}
+
+
+async def test_after_a_tap_the_face_in_front_of_the_robot_is_theirs():
+    from test_body import CaptureSocket
+    now = [1000.0]
+    people, bodies, frigate = People({"kiril": "Kiril"}), Bodies("You are Nabu."), FakeFrigate()
+    bodies.connect("Bedroom 1", CaptureSocket(bodies, "Bedroom 1"))
+    bind = make_body_app(bodies, clock=lambda: now[0], people=people, frigate=frigate)["bind_faces"]
+    await bind()
+    assert frigate.enrolled == []  # nobody tapped
+    people.observe("Bedroom 1", "tap", "kiril", 1.0, now[0])
+    await bind()
+    assert frigate.enrolled == []  # nobody in front of it
+    bodies.update("Bedroom 1", {"present": True}, now[0])
+    for _ in range(12):  # a try every 10 s for two minutes: three frames at most
+        await bind()
+        now[0] += 10.0
+    assert [name for name, _, _ in frigate.enrolled] == ["kiril"] * 3
+    # A later tap, after the window, is a new window.
+    people.observe("Bedroom 1", "tap", "kiril", 1.0, now[0])
+    await bind()
+    assert len(frigate.enrolled) == 4
+
+
 async def test_a_voice_report_names_the_speaker_for_the_cloud(aiohttp_client, fakes):
     seen, _, _, base = fakes
     people = People({"kiril": "Kiril", "maria": "Maria"})
