@@ -14,9 +14,15 @@ a prompt. The sources:
   last 2 min: strong, it names them unless the voice clearly disagrees;
 - "tap": a person's phone held to the room's robot, and their login on its
   page (tap.py), last 2 min: as strong as a card;
+- "voice": an enrolled voice clearly matched in the room (note_voice), last
+  5 min: they are there, whoever speaks next;
 - home: a person's phone on the home network (pkgs/wifi-presence), for the
   whole house, last 3 min;
 - and, per request, the voice: a score for every enrolled person (voice-id).
+
+presence() puts the same evidence together per person, for "who is in this
+room" (Home Assistant) rather than "who is speaking", and where() picks the
+room a person is most likely in.
 
 Rather than eliminate people outright, each enrolled person is a candidate
 with a weight: everyone starts small, presence raises it (a phone, a face in
@@ -35,9 +41,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-SOURCES = ("face", "aimed", "phone", "card", "tap")
-WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0, "card": 120.0, "tap": 120.0}
-MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5, "card": 0.5, "tap": 0.5}
+SOURCES = ("face", "aimed", "phone", "card", "tap", "voice")
+WINDOW = {"face": 10.0, "aimed": 10.0, "phone": 120.0, "card": 120.0, "tap": 120.0, "voice": 300.0}
+MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "phone": 0.5, "card": 0.5, "tap": 0.5, "voice": 0.7}
 
 # The weights. Tuned on the scenarios in tests/test_people.py.
 PRIOR = 0.05            # every enrolled person
@@ -48,6 +54,7 @@ CARD = 100.0            # × prior: they just tapped their card, or their phone,
 HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
 ROOM_MARGIN_DB = 6      # a phone this much quieter than in its loudest room isn't there
 FACE = 6.0              # × prior: their face is in the room
+VOICE_PRESENT = FACE    # × prior: their voice was clearly heard in the room (last 5 min)
 CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
 VOICE_SHARPNESS = 10.0  # likelihood exp(k·cosine)
 VOICE_UNKNOWN = 0.25    # the cosine an unenrolled voice scores against itself
@@ -58,6 +65,13 @@ LEAD_MIN = 3.0          # × the runner-up (the unknown candidate included)
 LEARN_VOICE = 0.8       # a voice this close, and LEARN_MARGIN ahead, teaches itself
 LEARN_MARGIN = 0.2
 LEARN_AIMED = 0.8       # an aimed face this sure teaches the voice
+# presence(): how likely each source says someone is in the room, combined as
+# independent chances (noisy-OR). A face, the robot's look and a voice count
+# as their own confidence.
+PRESENT_CARD = 0.98     # a tap of their card or phone on the room's robot
+PRESENT_PHONE = 0.8     # their phone placed in the room
+PRESENT_HOME = 0.2      # their phone on the home network: somewhere in the house
+HERE_MIN = 0.5          # this sure, they count as in the room
 
 
 @dataclass
@@ -99,6 +113,8 @@ class People:
         self._home_at: float | None = None
         # room -> the last sentence's voice scores, and when (evidence())
         self._voice: dict[str, tuple[dict[str, float], float]] = {}
+        # room key -> the room's name as it was last given (where())
+        self._rooms: dict[str, str] = {}
 
     def add(self, key: str, name: str) -> None:
         self.names[str(key)] = str(name)
@@ -111,6 +127,7 @@ class People:
             return
         if type(confidence) not in (int, float) or not 0 <= confidence <= 1:
             return
+        self._rooms[_key(room)] = room.strip()
         self._seen.setdefault(_key(room), {}).setdefault(source, {})[person] = Evidence(
             person, float(confidence), now)
 
@@ -120,6 +137,7 @@ class People:
         Bluetooth and Wi-Fi are on different scales."""
         if person not in self.names or not room or type(rssi) is not int:
             return
+        self._rooms[_key(room)] = room.strip()
         self._signal.setdefault(person, {})[(str(via), _key(room))] = (rssi, now)
 
     def _placed(self, room: str, now: float, only: str | None = None) -> set[str]:
@@ -137,11 +155,17 @@ class People:
         return out
 
     def note_voice(self, room: str, voice: dict[str, float] | None, now: float) -> None:
-        """The last sentence's voice scores in `room`, for evidence()."""
+        """The last sentence's voice scores in `room`, for evidence(); and a
+        voice that clearly matches one enrolled person puts them in the room
+        ("voice", 5 min), as a face would."""
         if room and voice:
             scores = {k: float(v) for k, v in voice.items() if k in self.names and type(v) in (int, float)}
             if scores:
                 self._voice[_key(room)] = (scores, now)
+                best = max(scores, key=scores.get)
+                second = max([v for k, v in scores.items() if k != best], default=0.0)
+                if scores[best] >= MIN_CONFIDENCE["voice"] and scores[best] - second >= LEARN_MARGIN:
+                    self.observe(room, "voice", best, min(scores[best], 1.0), now)
 
     def evidence(self, room: str, now: float) -> dict[str, dict[str, float]]:
         """What each source says about `room` now: person key -> confidence,
@@ -163,6 +187,74 @@ class People:
             if voice[0][best] >= VOICE_UNKNOWN:
                 out["voice"] = {best: round(voice[0][best], 2)}
         return out
+
+    def presence(self, room: str, now: float) -> dict[str, tuple[float, list[str]]]:
+        """Who is in `room` now: person key -> (how sure, 0..1; the sources
+        that say so, as evidence() names them). Each source is a chance they
+        are here (a tap or card 0.98, a face, the robot's look or the voice
+        its confidence, their phone placed here 0.8, their phone at home 0.2),
+        combined as independent (noisy-OR)."""
+        found: dict[str, dict[str, float]] = {}
+
+        def add(source: str, person: str, chance: float) -> None:
+            if person in self.names:
+                by = found.setdefault(person, {})
+                by[source] = max(chance, by.get(source, 0.0))
+
+        for source, name in (("face", "camera"), ("aimed", "robot"), ("voice", "voice")):
+            for person, confidence in self._recent(room, source, now).items():
+                add(name, person, confidence)
+        for source in ("card", "tap"):
+            for person in self._recent(room, source, now):
+                add("card", person, PRESENT_CARD)
+        for person in self._placed(room, now, only="ble") | set(self._recent(room, "phone", now)):
+            add("bluetooth", person, PRESENT_PHONE)
+        for person in self._placed(room, now, only="wifi"):
+            add("wifi", person, PRESENT_PHONE)
+        for person in self.home(now):
+            add("home", person, PRESENT_HOME)
+        out = {}
+        for person, by in found.items():
+            missed = 1.0
+            for chance in by.values():
+                missed *= 1.0 - chance
+            out[person] = (round(1.0 - missed, 3), sorted(by))
+        return out
+
+    def here(self, room: str, now: float) -> dict[str, tuple[float, list[str]]]:
+        """presence() of those that count as in `room`: sure enough, and by
+        more than their phone being somewhere in the house."""
+        return {p: (sure, by) for p, (sure, by) in self.presence(room, now).items()
+                if sure >= HERE_MIN and set(by) - {"home"}}
+
+    def where(self, person: str, now: float) -> tuple[str, float, list[str]]:
+        """Where `person` most likely is: (the room, how sure, the sources);
+        ("home", 0.2, ["home"]) when only their phone on the home network says
+        so, and ("away", 0, []) when nothing does."""
+        rooms = {r for r, by in self._seen.items() if any(person in found for found in by.values())}
+        rooms |= {r for (_, r) in self._signal.get(person, {})}
+        best: tuple[str, float, list[str]] = ("", 0.0, [])
+        for room in sorted(rooms):
+            sure, by = self.here(room, now).get(person, (0.0, []))
+            if sure > best[1]:
+                best = (self._rooms.get(room, room), sure, by)
+        if best[0]:
+            return best
+        if person in self.home(now):
+            return "home", PRESENT_HOME, ["home"]
+        return "away", 0.0, []
+
+    def bound(self, room: str, now: float) -> tuple[str | None, float]:
+        """Who last tapped their phone or card on `room`'s robot, in the last
+        two minutes, and when; (None, 0) when nobody did. What the room notices
+        meanwhile (a face, a voice) may be learned as theirs."""
+        found = [e for source in ("tap", "card")
+                 for e in self._seen.get(_key(room), {}).get(source, {}).values()
+                 if now - e.at <= WINDOW[source] and e.person in self.names]
+        if not found:
+            return None, 0.0
+        latest = max(found, key=lambda e: e.at)
+        return latest.person, latest.at
 
     def remember(self, room: str, a: "Assessment", now: float) -> None:
         """Who spoke last in `room` (for Home Assistant's "probably" sensor)."""
@@ -209,6 +301,7 @@ class People:
         home = self.home(now)
         cards = self._recent(room, "card", now)
         taps = self._recent(room, "tap", now)
+        heard = self._recent(room, "voice", now)
         voice = {k: float(v) for k, v in (voice or {}).items()
                  if k in self.names and type(v) in (int, float)}
 
@@ -223,6 +316,8 @@ class People:
                 w *= CARD
             if person in faces:
                 w *= FACE
+            if person in heard:
+                w *= VOICE_PRESENT
             if person == last:
                 w *= CONTINUITY
             if voice:
@@ -252,11 +347,11 @@ class People:
                     by.append("phone tap")
                 a.how = " and ".join(by) or ("presence" if top in phones or top in faces else "conversation")
                 second = max([v for k, v in voice.items() if k != top], default=0.0)
-                if aimed.get(top, 0.0) >= LEARN_AIMED or (
+                # A tap or a card names them for sure: what they say teaches the voice.
+                if aimed.get(top, 0.0) >= LEARN_AIMED or top in cards or top in taps or (
                         voice.get(top, 0.0) >= LEARN_VOICE and voice[top] - second >= LEARN_MARGIN):
                     a.learn = top
-        a.nearby = [p for p in dict.fromkeys(list(faces) + list(aimed) + list(phones) + list(cards) + list(taps))
-                    if p != a.speaker]
+        a.nearby = [p for p in self.here(room, now) if p != a.speaker]
         return a
 
     def line(self, room: str, now: float, voice: dict[str, float] | None = None,

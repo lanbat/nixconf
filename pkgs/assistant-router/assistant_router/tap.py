@@ -101,7 +101,7 @@ class Taps:
                  phones_path: str | None = None, remember: Callable[[str, str], None] | None = None,
                  runtime: Callable[[str], bool] | None = None, store=None,
                  arp_path: str = "/proc/net/arp", user_header: str = "X-Authentik-Username",
-                 name_header: str | None = "X-Authentik-Name") -> None:
+                 name_header: str | None = "X-Authentik-Name", learns: tuple[str, ...] = ()) -> None:
         self.base_url = base_url.rstrip("/")
         self.people = people
         self.clock = clock
@@ -113,6 +113,7 @@ class Taps:
         self.arp_path = arp_path
         self.user_header = user_header
         self.name_header = name_header
+        self.learns = learns  # what a tap teaches the router meanwhile: "voice", "face" (the page says so)
         self._secret = secrets.token_bytes(16)  # links die with a restart; robots get new ones
         self.listeners: list[Callable[[dict[str, str]], Any]] = []
 
@@ -268,6 +269,10 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
             body = f"<p>Nabu knows you're in the {html.escape(got['room'])}.</p>"
             if got["phone"]:
                 body += "<p>Nabu will also know when this phone is home.</p>"
+            if taps.learns:
+                what = " and ".join(f"your {w}" for w in taps.learns)
+                body += (f"<p>For two minutes, Nabu learns {what} there, so it knows you next time. "
+                         "Forget me removes them.</p>")
         body += ('<p class="muted">A friendly guess for Nabu, never a key: it never decides or unlocks '
                  'anything because of it.</p>' + buttons(got["key"]))
         return page(hi, body)

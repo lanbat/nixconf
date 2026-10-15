@@ -120,6 +120,10 @@ async def test_the_page(aiohttp_client, setup):
     r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=me)
     text = await r.text()
     assert r.status == 200 and "Hi Kiril!" in text and "in the Kitchen" in text and "Forget my phone" in text
+    assert "learns" not in text  # no voice-id or Frigate to learn with
+    taps.learns = ("voice", "face")
+    r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=me)
+    assert "For two minutes, Nabu learns your voice and your face there" in await r.text()
     r = await c.get("/tap/kitchen?n=nope", headers=me)
     assert "expired" in await r.text()
     assert (await c.get("/tap/kitchen?n=x")).status == 403  # not signed in

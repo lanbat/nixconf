@@ -50,7 +50,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     runtime=people_store.has if people_store is not None else None, store=people_store,
-                    user_header=a.tap_user_header, name_header=a.tap_name_header)
+                    user_header=a.tap_user_header, name_header=a.tap_name_header,
+                    learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None))
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None))]

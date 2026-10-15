@@ -9,13 +9,15 @@ publishes them, with one broker login on the server:
   tag scanner (Home Assistant's own Tags: an NFC tag tapped on it); and
   controls: gestures, sleep and wake, mood, the screen's brightness, a caption,
   and its LEDs as a notification light;
-- in each robot's room, "probably" who spoke last and who is nearby, labelled
-  as guesses (never for anything that needs to be sure);
-- a "People" device: who is home (wifi-presence).
+- in each robot's room, "probably" who spoke last, who is nearby and who is
+  here, labelled as guesses (never for anything that needs to be sure);
+- a "People" device: who is home (wifi-presence), and for each person where
+  they probably are (People.where), added, renamed and removed with them.
 
 Topics, under PREFIX: stackchan/<room>/state (retained JSON), .../led,
-.../event/touch, .../availability, .../cmd/<name>; people/state; and the
-router's own availability, its MQTT will. Discovery configs go under
+.../event/touch, .../availability, .../cmd/<name>; people/state,
+people/<key>/where; and the router's own availability, its MQTT will.
+Discovery configs go under
 homeassistant/<component>/lanbat_stackchan_<room>/<object>/config, and again
 whenever Home Assistant says it came online (homeassistant/status).
 
@@ -118,6 +120,9 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
                icon="mdi:account-voice"),
         entity("sensor", "nearby", "Probably nearby", state_topic=f"{base}/identity",
                value_template="{{ value_json.nearby }}", icon="mdi:account-group"),
+        entity("sensor", "here", "Probably here", state_topic=f"{base}/here",
+               value_template="{{ value_json.names }}", json_attributes_topic=f"{base}/here",
+               json_attributes_template="{{ value_json.people | tojson }}", icon="mdi:account-multiple-check"),
         # What each recognition source says, behind the guesses above.
         *[entity("sensor", f"seen_{source}", name, state_topic=f"{base}/evidence",
                  value_template="{{ value_json." + source + ".names }}",
@@ -198,18 +203,45 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
     return out
 
 
-def people_discovery() -> list[tuple[str, dict]]:
-    uid = "lanbat_people"
-    return [(f"{DISCOVERY}/sensor/{uid}/home/config", {
+PEOPLE_UID = "lanbat_people"
+
+
+def _where_config_topic(key: str) -> str:
+    return f"{DISCOVERY}/sensor/{PEOPLE_UID}/where_{slug(key)}/config"
+
+
+def _where_topic(key: str) -> str:
+    return f"{PREFIX}/people/{slug(key)}/where"
+
+
+def people_discovery(names: dict[str, str] | None = None) -> list[tuple[str, dict]]:
+    """The People device: who is home, and a "Where is <name>" for each person
+    (`names`, key -> name)."""
+    uid = PEOPLE_UID
+    device = {"identifiers": [uid], "name": "People", "manufacturer": "lanbat",
+              "model": "Who is around (a guess)"}
+    out = [(f"{DISCOVERY}/sensor/{uid}/home/config", {
         "name": "Probably home", "unique_id": f"{uid}_home", "object_id": f"{uid}_home",
         "state_topic": f"{PREFIX}/people/state", "value_template": "{{ value_json.home }}",
         "json_attributes_topic": f"{PREFIX}/people/state",
         "json_attributes_template": "{{ {'people': value_json.people} | tojson }}",
         "icon": "mdi:home-account",
         "availability": [{"topic": ROUTER_AVAILABILITY}],
-        "device": {"identifiers": [uid], "name": "People", "manufacturer": "lanbat",
-                   "model": "Who is around (a guess)"},
+        "device": device,
     })]
+    for key, name in sorted((names or {}).items()):
+        obj = f"{uid}_where_{slug(key)}"
+        out.append((_where_config_topic(key), {
+            "name": f"Where is {name}", "unique_id": obj, "object_id": obj,
+            "state_topic": _where_topic(key), "value_template": "{{ value_json.where }}",
+            "json_attributes_topic": _where_topic(key),
+            "json_attributes_template": "{{ {'confidence': value_json.confidence, "
+                                        "'sources': value_json.sources} | tojson }}",
+            "icon": "mdi:map-marker-account",
+            "availability": [{"topic": ROUTER_AVAILABILITY}],
+            "device": device,
+        }))
+    return out
 
 
 def robot_state(bodies: Bodies, room: str) -> dict | None:
@@ -249,6 +281,20 @@ def evidence(people: People, room: str, now: float) -> dict:
                      "confidence": {people.names[k]: round(v, 2) for k, v in found.get(source, {}).items()
                                     if k in people.names}}
             for source, _, _ in SOURCES}
+
+
+def here(people: People, room: str, now: float) -> dict:
+    """Who is in the room by every source together (People.here): their names,
+    and per name how sure and by what."""
+    found = people.here(room, now)
+    return {"names": _names(people, found),
+            "people": {people.names[k]: {"confidence": round(sure, 2), "sources": by}
+                       for k, (sure, by) in sorted(found.items())}}
+
+
+def where(people: People, key: str, now: float) -> dict:
+    room, sure, by = people.where(key, now)
+    return {"where": room, "confidence": round(sure, 2), "sources": by}
 
 
 def identity(people: People, room: str, now: float) -> dict:
@@ -340,7 +386,7 @@ class HomeAssistant:
         self._published: dict[str, str] = {}  # topic -> payload, to send only changes
         self._discovered: dict[str, str | None] = {}  # room -> the firmware it was announced with
         self._leds: dict[str, dict] = {}  # room -> the light's state, as last commanded
-        self._people_announced = False
+        self._people_announced: dict[str, str] | None = None  # the people announced, key -> name
         bodies.events = asyncio.Queue(maxsize=64)
 
     async def _send(self, publish: Publish, topic: str, payload: Any, retain: bool = True,
@@ -355,18 +401,24 @@ class HomeAssistant:
         """Home Assistant restarted, or the broker connection is new: send it all again."""
         self._published.clear()
         self._discovered.clear()
-        self._people_announced = False
+        self._people_announced = None
 
     async def tick(self, publish: Publish) -> None:
         now = self.clock()
         rooms = self.bodies.rooms()
-        if not self._people_announced:
-            for topic, config in people_discovery():
+        names = dict(self.people.names)
+        if names != self._people_announced:
+            for topic, config in people_discovery(names):
                 await self._send(publish, topic, config)
-            self._people_announced = True
+            for key in set(self._people_announced or {}) - set(names):  # forgotten: their entity goes
+                await self._send(publish, _where_config_topic(key), "")
+                await self._send(publish, _where_topic(key), "")
+            self._people_announced = names
         home = sorted(self.people.home(now))
         await self._send(publish, f"{PREFIX}/people/state",
                          {"home": _names(self.people, home), "people": home})
+        for key in sorted(names):
+            await self._send(publish, _where_topic(key), where(self.people, key, now))
         for room in rooms:
             state = robot_state(self.bodies, room)
             if state is None:
@@ -379,6 +431,7 @@ class HomeAssistant:
             await self._send(publish, f"{_base(room)}/state", state)
             await self._send(publish, f"{_base(room)}/identity", identity(self.people, room, now))
             await self._send(publish, f"{_base(room)}/evidence", evidence(self.people, room, now))
+            await self._send(publish, f"{_base(room)}/here", here(self.people, room, now))
             if room not in self._leds:
                 self._leds[room] = {"state": "OFF", "color_mode": "rgb"}
             await self._send(publish, f"{_base(room)}/led", self._leds[room])

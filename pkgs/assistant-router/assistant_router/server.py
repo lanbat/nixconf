@@ -86,6 +86,11 @@ FORGET_TOOL = {
 SPEAKER_SECONDS = 300.0   # the speaker of a device's conversation, carried this long
 MEET_SECONDS = 60.0       # an answer to "What's your name?" is taken this long
 ENROL_SECONDS = 120.0     # a voice enrolment waits this long for the next sentence
+# After a tap or a card on a robot (two minutes, People.bound), the face in
+# front of it is learned as theirs: this many frames, this far apart.
+BIND_FACES = 3
+BIND_FACE_GAP_S = 10.0
+BIND_POLL_S = 2.0
 
 ENROLL_TAKEN = "That name is already taken."
 ENROLL_BAD_NAME = "I didn't catch a good name for you."
@@ -329,6 +334,22 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                                   "so I learn your voice too?", tool_results)
         return finish(device, f"Nice to meet you, {name}! Tell me a little about your day, "
                               "so I learn your voice?", tool_results)
+
+    async def _teach_voice(room: str, key: str, text: str, scores: dict, now: float) -> None:
+        """A sentence sure to be `key`'s refines their voiceprint (the scores
+        cover every voiceprint). Within two minutes of their tap or card in
+        the room, it starts one for someone who has none: voice-id keeps the
+        sentences until it has enough."""
+        if key in scores:
+            await voice.learn(key, text)
+            return
+        if people.bound(room, now)[0] != key:
+            return
+        prints = await voice.people()
+        if prints is not None and key not in prints:
+            result = await voice.enrol(key, [text])
+            if result.get("enrolled"):
+                LOG.info(json.dumps({"voice": "enrolled", "person": key, "room": room}))
 
     async def _keep_enrolling(device: str, text: str, now: float) -> dict | None:
         """The next sentence of a voice enrolment, or None if none is going on."""
@@ -575,8 +596,11 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         # on its way), with who is in the room. A sure answer refines the voice.
         robot = bodies.state(room)
         ear = robot is not None and robot.ear
-        voice_scores = (await reports.wait(text, EAR_WAIT_SECONDS if ear else WAIT_SECONDS, 2 if ear else 1)
-                        or None) if voice is not None else None
+        # The report, even an empty one (nobody enrolled, too little speech),
+        # means voice-id has heard this sentence.
+        report = (await reports.wait(text, EAR_WAIT_SECONDS if ear else WAIT_SECONDS, 2 if ear else 1)
+                  if voice is not None else None)
+        voice_scores = report or None
         last = last_speaker(device, now)
         assessment = people.assess(room, now, voice_scores, last)
         people.remember(room, assessment, now)
@@ -584,8 +608,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if assessment.speaker:
             speakers[device] = (assessment.speaker, now)
             last = assessment.speaker
-        if assessment.learn and voice_scores and voice is not None:
-            await voice.learn(assessment.learn, text)
+        if assessment.learn and report is not None and voice is not None:
+            await _teach_voice(room, assessment.learn, text, report, now)
 
         # A command to the room's body ("nod", "dance", "go to sleep") is
         # answered here, before the gate: "Nod." alone is a fragment to it.
@@ -830,15 +854,57 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 LOG.info(json.dumps({"body": "gone", "room": room}))
         return ws
 
+    # (room key, person, when they tapped) -> (faces learned, last try)
+    bound_faces: dict[tuple[str, str, float], tuple[int, float | None]] = {}
+
+    async def bind_faces() -> None:
+        """Within two minutes of a tap or a card on a robot, the face in front
+        of it is theirs: a frame into the face library now and then, at most
+        BIND_FACES for that tap."""
+        now = clock()
+        for k in [k for k in bound_faces if now - k[2] > 600]:
+            del bound_faces[k]
+        for room in bodies.rooms():
+            key, at = people.bound(room, now)
+            robot = bodies.state(room)
+            if key is None or robot is None or not robot.present:
+                continue
+            window = (room.strip().casefold(), key, at)
+            learned, tried = bound_faces.get(window, (0, None))
+            if learned >= BIND_FACES or (tried is not None and now - tried < BIND_FACE_GAP_S):
+                continue
+            bound_faces[window] = (learned, now)
+            img = await bodies.capture(room)
+            if not img:
+                continue
+            try:
+                await frigate.enroll(key, img)
+            except FrigateError:
+                continue
+            bound_faces[window] = (learned + 1, now)
+            LOG.info(json.dumps({"face": "learned", "person": key, "room": room}))
+
+    async def faces_loop() -> None:
+        while True:
+            await asyncio.sleep(BIND_POLL_S)
+            try:
+                await bind_faces()
+            except Exception as err:  # pylint: disable=broad-except
+                LOG.warning("learning a face: %s", err)
+
     async def start_links(app: web.Application) -> None:
         if taps is not None:
             app["links"] = asyncio.create_task(new_links())
+        if frigate is not None:
+            app["faces"] = asyncio.create_task(faces_loop())
 
     async def stop_links(app: web.Application) -> None:
-        if "links" in app:
-            app["links"].cancel()
+        for name in ("links", "faces"):
+            if name in app:
+                app[name].cancel()
 
     app = web.Application()
+    app["bind_faces"] = bind_faces
     app.router.add_get("/v1/body", socket)
     app.on_startup.append(start_links)
     app.on_cleanup.append(stop_links)
