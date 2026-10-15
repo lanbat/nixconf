@@ -176,7 +176,9 @@ Nobody needs a phone, an app or an account to be known: just talk to Nabu.
   - Turn it off with `lanbat.services.assistant-router.settings.offerToMeet = false`.
 - **Or ask:** *"Okay Nabu, remember me"*. Someone it knows gets a top-up (a new face
   picture, the voice refined, a card window); someone it doesn't is asked their name. *"My
-  name is Jane"* from an unknown voice is an introduction too.
+  name is Jane"* from an unknown voice is an introduction too. Someone it knows only by a
+  tap or a card has no voice yet: theirs is enrolled then, under the same person. So
+  you'd tap your phone first, then ask.
 - **One moment binds everything it can:**
   - **the voice,** from that conversation's sentences. If voice-id wants one more, Nabu
     asks *"Tell me a little about your day?"*;

@@ -2,7 +2,7 @@
 import pytest
 from assistant_router.body import Bodies
 from assistant_router.cards import READ_S, Cards
-from assistant_router.identity import ASK_NAME, CARD_HINT, DECLINED, OFFER, answer, command
+from assistant_router.identity import ASK_NAME, CARD_HINT, DECLINED, MORE_VOICE, OFFER, answer, command
 from assistant_router.people import Assessment, People
 from assistant_router.people_store import PeopleStore
 from assistant_router.server import Config, make_app
@@ -96,17 +96,35 @@ async def test_no_offer_to_a_known_voice_or_when_off(aiohttp_client, fakes):
 
 async def test_remember_me(aiohttp_client, fakes, tmp_path):
     _, _, _, base = fakes
-    people, voice, cards = People({"kiril": "Kiril"}), FakeVoiceId(), Cards()
-    people.observe("Bedroom 1", "tap", "kiril", 1.0, 100.0)
+    people, voice, cards = People({"kiril": "Kiril"}), FakeVoiceId(enrolled=["kiril"]), Cards()
     c, sock = await client(aiohttp_client, base, people, voice=voice, frigate=FakeFrigate(), cards=cards)
     import time
     people.observe("Bedroom 1", "tap", "kiril", 1.0, time.monotonic())
     said = (await post(c, turn("Remember me")))["message"]["content"]
     assert said.startswith("Got it, Kiril! I've added your face and voice.") and CARD_HINT in said
     assert ("kiril", "Remember me") in voice.learned and {"nfc_read": READ_S} in sock.sent
+    assert MORE_VOICE not in said
     # Someone unknown is asked their name.
     c2, _ = await client(aiohttp_client, base, People({}), voice=FakeVoiceId(), cards=Cards())
     assert (await post(c2, turn("Remember me")))["message"]["content"] == ASK_NAME
+
+
+async def test_remember_me_after_a_tap_enrols_a_voice_never_heard(aiohttp_client, fakes, tmp_path):
+    # Known by their phone, never by voice: voice-id has nothing to refine, so
+    # "remember me" starts their voiceprint, under the same key.
+    _, _, _, base = fakes
+    people = People({"kiril": "Kiril"})
+    store, voice = PeopleStore(people, str(tmp_path / "people.json")), FakeVoiceId()
+    c, _ = await client(aiohttp_client, base, people, store, voice, FakeFrigate(), Cards())
+    import time
+    people.observe("Bedroom 1", "tap", "kiril", 1.0, time.monotonic())
+    said = (await post(c, turn("Remember me")))["message"]["content"]
+    assert said.startswith("Got it, Kiril! I've added your face.") and said.endswith(MORE_VOICE)
+    assert voice.texts["kiril"] == ["Remember me"] and voice.learned == []
+    assert "Lovely" in (await post(c, turn("I like tea in the morning.")))["message"]["content"]
+    done = (await post(c, turn("And coffee after lunch.")))["message"]["content"]
+    assert done == "Got it, Kiril, I'll know your voice now." and voice.prints == {"kiril"}
+    assert not store.has("kiril")  # still the profile's person, not a second one
 
 
 async def test_call_me_renames_only_your_own_runtime_name(aiohttp_client, fakes, tmp_path):

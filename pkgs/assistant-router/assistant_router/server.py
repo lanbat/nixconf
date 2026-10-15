@@ -345,7 +345,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         result = await voice.enrol(key, [text])
         if result.get("enrolled"):
             enrolling.pop(device, None)
-            remember(key, name)
+            if key not in people.names:  # the enroll tool's new person; a profile person stays one
+                remember(key, name)
             return finish(device, f"Got it, {name}, I'll know your voice now.", [])
         if result.get("available") is False or not result:
             enrolling.pop(device, None)
@@ -405,7 +406,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                 pass
         more = False
         if voice is not None:
-            if new:
+            # Someone known by a tap or a card may have no voiceprint yet (voice-id
+            # only refines one it has): this conversation then enrols them too.
+            prints = None if new else await voice.people()
+            if new or (prints is not None and key not in prints):
                 result = await voice.enrol(key, texts)
                 if result.get("enrolled"):
                     bound.append("voice")
@@ -442,7 +446,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if card:
             said += " " + identity.CARD_HINT
         if more:
-            said += " Tell me a little about your day, so I learn your voice?"
+            said += " " + identity.MORE_VOICE
         # The router itself did what the reply says it did: honesty.check lets it through.
         return finish(device, said, ["Success"] if bound else [])
 
@@ -464,12 +468,14 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if known is None:
             meeting[device] = (room, now)
             return finish(device, identity.ASK_NAME, [])
-        bound, _, card = await _bind(device, room, known, texts, now, new=False)
+        bound, more, card = await _bind(device, room, known, texts, now, new=False)
         said = f"Got it, {people.names.get(known, known)}!"
         if bound:
             said += f" I've added your {_and(bound)}."
         if card:
             said += " " + identity.CARD_HINT
+        if more:
+            said += " " + identity.MORE_VOICE
         return finish(device, said, ["Success"] if bound else [])
 
     def _offer(device: str, room: str, resp: dict, voice_scores: dict | None, speaker: str | None,

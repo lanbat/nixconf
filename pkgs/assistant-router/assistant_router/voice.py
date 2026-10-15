@@ -101,6 +101,11 @@ class VoiceIdClient:
     async def learn(self, key: str, text: str) -> bool:
         return bool((await self._call("POST", "/learn", {"key": key, "text": text})).get("learned"))
 
+    async def people(self) -> list[str] | None:
+        """Who has a voiceprint; None when voice-id can't say."""
+        found = (await self._call("GET", "/status")).get("people")
+        return found if isinstance(found, list) else None
+
     async def embed(self, text: str, pcm: str) -> bool:
         """A robot's recording of a sentence (base64 s16le, 16 kHz mono):
         voice-id scores it and reports to /v1/voice like any other."""

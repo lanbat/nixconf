@@ -19,6 +19,7 @@ ASK_NAME = "Sure! What's your name?"
 DECLINED = "No problem!"
 NOT_SURE = "I'm not sure who you are yet. Tell me your name, and I'll remember you."
 CARD_HINT = "If you have a card, hold it on my head now."
+MORE_VOICE = "Tell me a little about your day, so I learn your voice?"
 
 _SAID = re.compile(r"[^a-z' -]+")
 
