@@ -343,7 +343,10 @@ the mic **channel order**, and a per-room **offset**.
   the "Mirror voice direction" switch isn't needed), its offset where the mics sit
   relative to the robot. Only turns where exactly one face is in view count, and wild
   ones are dropped. Before it has a line, if nobody is where it turned, it looks once the
-  other way, which is how a mirrored array is found. The samples are kept on the Pi and
+  other way, which is how a mirrored array is found. If nobody is there either (in the
+  dark it sees nobody anywhere), it turns back to the voice and doesn't look away again
+  until its camera has seen a face. It learns only from turns where it sees you, so in a
+  dark room it keeps its current turn. The samples are kept on the Pi and
   keep refining it. In Home Assistant: *Turn calibration* (learning 3/6, calibrated,
   calibrated and mirrored, with the gain and offset), *Auto-calibrate turning* (on), and
   *Reset turn calibration* after moving the robot or the camera. Until it's calibrated
