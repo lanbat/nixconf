@@ -27,6 +27,7 @@ from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
+from .irks import Irks
 from .people import VOICE_UNKNOWN, People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
@@ -690,7 +691,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
-                  cards: Cards | None = None, taps: Taps | None = None) -> web.Application:
+                  cards: Cards | None = None, taps: Taps | None = None,
+                  irks: Irks | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -731,6 +733,22 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
 
     if taps is not None:
         taps.listeners.append(lambda phones: spawn(tell_house(phones)))
+
+    sensors: set[web.WebSocketResponse] = set()  # room sensors, told the phones' Bluetooth keys
+
+    def known_irks() -> dict[str, list[str]]:
+        return {k: v for k, v in (irks.all() if irks is not None else {}).items() if k in people.names}
+
+    async def tell_sensors(_=None) -> None:
+        keys = known_irks()
+        for ws in list(sensors):
+            try:
+                await ws.send_json({"irks": keys})
+            except Exception:  # pylint: disable=broad-except
+                sensors.discard(ws)
+
+    if irks is not None:
+        irks.listeners.append(lambda _keys: spawn(tell_sensors()))
 
     async def new_links() -> None:
         # Every minute on the minute, so a link is good for one to two minutes.
@@ -792,6 +810,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     elif kind == "house-sensor" and taps is not None:
                         house.add(ws)
                         await tell_house(dict(taps.phones))
+                    elif kind == "room-sensor" and irks is not None:
+                        sensors.add(ws)
+                        await ws.send_json({"irks": known_irks()})
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
                     bodies.event(room, data["event"])
@@ -851,6 +872,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                                         clock())
         finally:
             house.discard(ws)
+            sensors.discard(ws)
             if room and kind not in non_bodies:
                 bodies.disconnect(room, ws)
                 LOG.info(json.dumps({"body": "gone", "room": room}))

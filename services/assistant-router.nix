@@ -235,6 +235,7 @@ in
                 "--tap-port ${toString tapPort}"
                 "--tap-user-header ${provider.userHeader}"
                 "--phones-state /var/lib/assistant-router/phones.json"
+                "--irks-state /var/lib/assistant-router/irks.json"
               ]
               # Authentik also passes the display name, after its check.
               ++ lib.optional (provider.userHeader == "X-Authentik-Username") "--tap-name-header X-Authentik-Name"

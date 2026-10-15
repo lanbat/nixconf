@@ -82,5 +82,16 @@ class Tracking(unittest.TestCase):
         self.assertEqual(t.report(now=200.0), [])
 
 
+class FromTheRouter(unittest.TestCase):
+    def test_the_routers_keys_recognise_a_phone_with_the_secrets(self):
+        from room_presence import Recogniser
+        r = Recogniser({}, {"sam": [bytes(16)]})
+        self.assertIsNone(r.person(SPEC_ADDRESS, {}))
+        self.assertEqual(r.from_router({"alex": [SPEC_IRK.hex()], "bad": ["xyz"], 3: ["00" * 16]}), 2)
+        self.assertEqual(r.person(SPEC_ADDRESS, {}), "alex")
+        self.assertEqual(r.from_router({}), 1)  # alex forgotten; the secret's key stays
+        self.assertIsNone(r.person(SPEC_ADDRESS, {}))
+
+
 if __name__ == "__main__":
     unittest.main(argv=[sys.argv[0], "-v"])

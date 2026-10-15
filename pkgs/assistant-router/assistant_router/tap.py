@@ -116,6 +116,7 @@ class Taps:
         self.learns = learns  # what a tap teaches the router meanwhile: "voice", "face" (the page says so)
         self._secret = secrets.token_bytes(16)  # links die with a restart; robots get new ones
         self.listeners: list[Callable[[dict[str, str]], Any]] = []
+        self.forgetters: list[Callable[[str], Any]] = []
 
     def _nonce(self, room: str, period: int) -> str:
         msg = f"{_key(room)}:{period}".encode()
@@ -156,6 +157,10 @@ class Taps:
         return True
 
     def forget_phones(self, key: str) -> int:
+        """`key`'s phones, by Wi-Fi address here and anywhere else told
+        (forgetters: their Bluetooth keys)."""
+        for forget in self.forgetters:
+            forget(key)
         gone = [m for m, k in self.phones.items() if k == key]
         for m in gone:
             del self.phones[m]

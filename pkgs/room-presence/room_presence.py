@@ -9,10 +9,12 @@ phone, since phones change their Bluetooth address every few minutes:
 
 - Android: the Home Assistant app's BLE transmitter sends an iBeacon with a
   fixed UUID, one per person (people.<key>.bleBeacon).
-- iPhone (and others): a resolvable private address is checked against the
-  phone's Identity Resolving Key (IRK), a secret: `room-presence-irks`,
-  lines of "<person key> <32 hex digits>". `room-presence --paired` prints
-  the IRKs of phones paired with this Pi.
+- Any phone (iPhone, Android without the app): a resolvable private address
+  is checked against the phone's Identity Resolving Key (IRK). The router
+  hands the keys of the phones paired once to every room sensor
+  ({"irks": {key: [32 hex]}}, kept in memory only); the room-presence-irks
+  secret, lines of "<person key> <32 hex digits>", adds more.
+  `room-presence --paired` prints the IRKs of phones paired with this host.
 
 A phone is a hint that someone is near, not that they are speaking, and never
 authority over anything (docs/people.md). Nothing but person keys and signal
@@ -114,8 +116,21 @@ class Tracker:
 
 class Recogniser:
     def __init__(self, beacons: dict[str, str], irks: dict[str, list[bytes]]) -> None:
-        self.beacons, self.irks = beacons, irks
+        self.beacons, self.file_irks = beacons, irks
+        self.irks = dict(irks)
         self._addresses: dict[str, str | None] = {}  # an address, once resolved
+
+    def from_router(self, keys) -> int:
+        """The router's keys ({key: [32 hex]}), with the secret's; how many."""
+        merged = {k: list(v) for k, v in self.file_irks.items()}
+        if isinstance(keys, dict):
+            for key, irks in keys.items():
+                for irk in irks if isinstance(irks, list) else []:
+                    if isinstance(key, str) and isinstance(irk, str) and re.fullmatch(r"[0-9A-Fa-f]{32}", irk):
+                        merged.setdefault(key, []).append(bytes.fromhex(irk))
+        self.irks = merged
+        self._addresses.clear()
+        return sum(map(len, merged.values()))
 
     def person(self, address: str, manufacturer_data: dict) -> str | None:
         uuid = parse_ibeacon(manufacturer_data)
@@ -153,7 +168,18 @@ async def scan(recogniser: Recogniser, tracker: Tracker) -> None:
         delay = min(delay * 2, 120)
 
 
-async def report(tracker: Tracker, url: str, room: str) -> None:
+async def listen(ws, recogniser: Recogniser) -> None:
+    """The router's messages: the phones' keys, now and on each change."""
+    async for raw in ws:
+        try:
+            msg = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and "irks" in msg:
+            log(f"the router knows {recogniser.from_router(msg['irks'])} phone key(s)")
+
+
+async def report(tracker: Tracker, url: str, room: str, recogniser: Recogniser | None = None) -> None:
     import websockets
 
     delay = 1
@@ -164,7 +190,10 @@ async def report(tracker: Tracker, url: str, room: str) -> None:
                 await ws.send(json.dumps({"hello": {"room": room, "kind": "room-sensor", "proto": PROTOCOL}}))
                 log(f"room sensor of {room} at {url}")
                 delay = 1
+                listener = asyncio.create_task(listen(ws, recogniser)) if recogniser is not None else None
                 while True:
+                    if listener is not None and listener.done():
+                        listener.result()  # the connection closed: raise and reconnect
                     seen = tracker.report(time.time())
                     now_present = {s["person"] for s in seen}
                     for person in sorted(now_present - present):
@@ -217,9 +246,11 @@ def main() -> None:
     log(f"knows {len(beacons)} beacon(s) and {sum(map(len, irks.values()))} key(s)")
     tracker = Tracker()
 
+    recogniser = Recogniser(beacons, irks)
+
     async def run() -> None:
-        await asyncio.gather(scan(Recogniser(beacons, irks), tracker),
-                             report(tracker, os.environ["ROUTER_BODY_URL"], os.environ["ROOM"]))
+        await asyncio.gather(scan(recogniser, tracker),
+                             report(tracker, os.environ["ROUTER_BODY_URL"], os.environ["ROOM"], recogniser))
 
     asyncio.run(run())
 

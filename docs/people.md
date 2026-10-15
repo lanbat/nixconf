@@ -64,8 +64,8 @@ entry in Frigate's face library.
 
 ## Phones in the room
 
-The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on a
-satellite Pi that has a room, and every 15 s tells the router whose phones it heard in the
+The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
+host whose satellite has a room (a Pi, or the server), and every 15 s tells the router whose phones it heard in the
 last minute, with their signal strength. The router counts a phone as *nearby* for two
 minutes; a phone never names the speaker. A phone heard by sensors in several rooms (a
 wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
@@ -86,13 +86,16 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   people.alex = { name = "Alex"; bleBeacon = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"; };
   ```
   It is not secret: a beacon only says "this is Alex's phone" to whoever listens.
-- **iPhone (or any phone without the beacon): its IRK.** The Identity Resolving Key lets
-  the Pi recognise the phone's rotating addresses. Pair the phone with the Pi once
-  (`bluetoothctl`, then `scan on`, `pair <address>`, accept on the phone), then
-  `sudo room-presence --paired` prints each paired phone's key. Put the keys in the
-  `room-presence-irks` secret, one `<person key> <key>` line per phone
-  ([secrets/README.md](../secrets/README.md)). It is a secret: anyone with it can follow
-  that phone.
+- **Any phone, no app: its IRK.** The Identity Resolving Key lets a sensor recognise
+  the phone's rotating addresses. A phone paired once with any host hands it over. The
+  router keeps the keys per person (`/var/lib/assistant-router/irks.json`, readable by it
+  alone) and gives the full set to every room sensor when it connects and whenever it
+  changes; the sensors keep them in memory only. So one pairing places the phone in
+  every room. *Forget my phone* and *Forget me* drop its keys everywhere. It is a secret:
+  anyone with it can follow that phone in Bluetooth range. The `room-presence-irks`
+  secret (`irks = true`, one `<person key> <key>` line per phone,
+  [secrets/README.md](../secrets/README.md)) adds keys the router doesn't have;
+  `sudo room-presence --paired` prints the keys of the phones paired with a host.
 
 A **Stack-chan** scans too (`lanbat.stackchan.phones`, on by default): the bridge hands
 it the same beacons, and the iPhone keys where room-presence has `irks` on that Pi, over
