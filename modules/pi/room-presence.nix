@@ -5,10 +5,12 @@
 # the assistant router who is near, as a room sensor (pkgs/room-presence,
 # docs/people.md).
 #
-# Android phones are known by the iBeacon the Home Assistant app transmits
-# (people.<key>.bleBeacon); iPhones by their IRK, from the room-presence-irks
-# secret when `irks` is set. Only person keys and signal strengths leave the
-# Pi, and only to the router. A nearby phone is a hint, never authority.
+# Phones are known by their Bluetooth key (IRK): the router hands every room
+# sensor the keys of the phones paired once (assistant-router irks.py), and the
+# room-presence-irks secret adds more when `irks` is set. Android phones are
+# also known by the iBeacon the Home Assistant app transmits
+# (people.<key>.bleBeacon). Only person keys and signal strengths leave the
+# host, and only to the router. A nearby phone is a hint, never authority.
 {
   config,
   lib,
@@ -29,7 +31,8 @@ let
   # that table is built from (as in modules/pi/stackchan.nix).
   room = satellite.room or null;
   routerHere = room != null && hostLib.haLlmIsRouter (config.lanbat.deployment.haLlm or null);
-  enabled = cfg.enable && routerHere && people != { };
+  # People come from the router (its keys) as well as the profile: none listed is fine.
+  enabled = cfg.enable && routerHere;
   routerHost = endpointLib.soleHost {
     endpoints = config.lanbat.endpoints;
     name = "assistant-router";
@@ -50,9 +53,9 @@ in
       type = types.bool;
       default = true;
       description = ''
-        Scan for the phones of lanbat.deployment.people and tell the assistant
-        router who is near (on by default where the plugin is enabled). It does
-        nothing without people, a satellite room or the router.
+        Scan for people's phones and tell the assistant router who is near (on
+        by default where the plugin is enabled). It does nothing without a
+        satellite room or the router.
       '';
     };
     irks = mkOption {

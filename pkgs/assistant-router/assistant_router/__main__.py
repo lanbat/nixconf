@@ -15,6 +15,7 @@ from .body import Bodies
 from .cards import Cards
 from .frigate import Frigate
 from .greet import Greeter
+from .irks import Irks
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
@@ -39,6 +40,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     voice = VoiceIdClient(a.voice_id_url) if a.voice_id_url else None
     taps = None
     cards = Cards(a.cards_state)
+    irks = Irks(a.irks_state) if a.irks_state else None
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -53,6 +55,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                     runtime=people_store.has if people_store is not None else None, store=people_store,
                     user_header=a.tap_user_header, name_header=a.tap_name_header,
                     learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None))
+        if irks is not None:
+            taps.forgetters.append(irks.forget)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None))]
@@ -60,7 +64,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
-                                                   cards=cards, taps=taps)))
+                                                   cards=cards, taps=taps, irks=irks)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
@@ -119,6 +123,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
                    help="who signed in, set by the forward-auth provider after its check (Caddy drops a client's)")
     p.add_argument("--tap-name-header", help="their display name, likewise; unset: the username")
     p.add_argument("--phones-state", help="JSON {mac: key} in the state dir: phones learned from taps (tap.py)")
+    p.add_argument("--irks-state", help="JSON {key: [irk]} in the state dir: phones' Bluetooth keys, for the "
+                   "room sensors (irks.py)")
     p.add_argument("--mqtt-host", help="the MQTT broker: publish the robots and who is around to Home Assistant (mqtt.py)")
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-user")
