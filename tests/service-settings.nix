@@ -413,8 +413,20 @@ let
   presenceServer = presence.configurations.example-server.config;
   presenceIrksPi = (presenceProfile true).configurations.example-pi-voice.config;
   # A server whose Home Assistant agent talks to the assistant router.
+  # It also extends the home Wi-Fi from a dongle, on a bridge over its port
+  # (and a second port, for a host plugged in behind it).
   routerServer = serverWith [
     {
+      lanbat.network.bridge = {
+        enable = true;
+        extraPorts = [ "enp2s0" ];
+      };
+      lanbat.wifi.accessPoint = {
+        enable = true;
+        interface = "wlp0s20f0u1";
+        ssid = "Example";
+        countryCode = "GB";
+      };
       lanbat.deployment.haLlm = lib.mkForce {
         baseUrl = "http://127.0.0.1:8092/v1";
         model = "assistant";
@@ -1035,6 +1047,31 @@ let
       && lib.hasInfix "--phones-state /var/lib/assistant-router/phones.json" exec
       # wifi-presence runs for the learned phones, with none in the profile.
       && builtins.fromJSON routerServer.systemd.services.wifi-presence.environment.PHONES == { }
+      # On the bridge: the address, the gateway and the LAN listeners move
+      # to it, the ports join it, and the access point serves the home
+      # network from the dongle into it (docs/wifi.md).
+      && routerServer.systemd.services.wifi-presence.environment.INTERFACE == "br0"
+      && routerServer.networking.interfaces ? br0
+      && !(routerServer.networking.interfaces ? eno1)
+      && routerServer.networking.defaultGateway.interface == "br0"
+      && routerServer.systemd.network.netdevs."20-br0".netdevConfig.Kind == "bridge"
+      && routerServer.systemd.network.networks."30-eno1".networkConfig.Bridge == "br0"
+      && routerServer.systemd.network.networks."30-enp2s0".networkConfig.Bridge == "br0"
+      && routerServer.systemd.network.networks."30-wlp0s20f0u1".linkConfig.Unmanaged
+      && (
+        let
+          ap = routerServer.services.hostapd.radios.wlp0s20f0u1;
+          net = ap.networks.wlp0s20f0u1;
+        in
+        routerServer.services.hostapd.enable
+        && ap.channel == 6
+        && ap.countryCode == "GB"
+        && net.ssid == "Example"
+        && net.settings.bridge == "br0"
+        && net.authentication.wpaPasswordFile == routerServer.lanbat.secrets.wifi-access-point.path
+      )
+      && routerNoTap.networking.interfaces ? eno1
+      && !routerNoTap.services.hostapd.enable
       && routerNoTap.lanbat.services.who.subdomain == null
       && !(routerNoTap.services.caddy.virtualHosts ? "who.${domain}")
       && !(lib.hasInfix "--tap-url" routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart)

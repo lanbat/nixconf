@@ -21,7 +21,6 @@
 
 let
   package = pkgs.callPackage ../pkgs/wifi-presence { };
-  host = config.lanbat.hosts.${config.lanbat.hostKey};
   people = config.lanbat.deployment.people or { };
   phones = lib.filterAttrs (_: macs: macs != [ ]) (lib.mapAttrs (_: p: p.wifiMacs) people);
   hostLib = import ../lib/host.nix { inherit lib; };
@@ -44,7 +43,7 @@ in
     ];
     wants = [ "network-online.target" ];
     environment = {
-      INTERFACE = host.networking.interface;
+      INTERFACE = config.lanbat.network.lanInterface;
       SUBNET = config.lanbat.deployment.lanSubnet;
       PHONES = builtins.toJSON phones;
       ROUTER_BODY_URL = "ws://127.0.0.1:${toString bodyPort}/v1/body";

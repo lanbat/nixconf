@@ -195,7 +195,7 @@ in
     9153 # metrics, read by Telegraf
   ];
 
-  networking.firewall.interfaces.${net.interface} = {
+  networking.firewall.interfaces.${config.lanbat.network.lanInterface} = {
     allowedUDPPorts = [ 53 ];
     allowedTCPPorts = [ 53 ];
   };

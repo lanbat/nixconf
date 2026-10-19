@@ -84,7 +84,7 @@ in
         example = "eth0";
         description = ''
           Interface LVA advertises and binds on (--network-interface). Null
-          uses this host's deploy networking.interface.
+          uses the interface with this host's LAN address (lanbat.network.lanInterface).
         '';
       };
 

@@ -313,3 +313,4 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `romm-env.age` | `ROMM_AUTH_SECRET_KEY=<openssl rand -hex 32>` and metadata provider keys (`IGDB_CLIENT_ID=`, `SCREENSCRAPER_USER=`, …) | RomM container |
 | `romm-oidc-env.age` | `OIDC_CLIENT_SECRET=<value>`, the same value as `AUTHENTIK_ROMM_CLIENT_SECRET` | RomM container, Authentik OIDC login |
 | `overlay-<host>.age` | WireGuard private key (`wg genkey`) | systemd-networkd on that host (`root:systemd-network`, 0440); only with `deployment.overlay.provider = "wireguard-mesh"` |
+| `wifi-access-point.age` | the home Wi-Fi password, one line, as the router has it | hostapd on the host that extends the home Wi-Fi (`root`, 0400); only with `lanbat.wifi.accessPoint.enable` ([docs/wifi.md](../docs/wifi.md)) |

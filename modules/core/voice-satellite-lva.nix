@@ -15,7 +15,7 @@ let
 
   stateDir = "/var/lib/linux-voice-assistant";
 
-  defaultInterface = config.lanbat.hosts.${config.lanbat.hostKey}.networking.interface or null;
+  defaultInterface = config.lanbat.network.lanInterface or null;
 
   networkInterface = if lva.networkInterface != null then lva.networkInterface else defaultInterface;
 
