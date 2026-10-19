@@ -29,9 +29,10 @@ Authentik.
 - Home Assistant's own password login stays available as a fallback at
   `?skip_oidc_redirect=true`.
 - The loopback clients that log in with the owner's password keep working: the
-  bootstrap (`pkgs/home-assistant-bootstrap`), the Homepage token
-  (`pkgs/homepage-config/create-ha-token.py`) and the Music Assistant setup
-  (`pkgs/music-assistant-setup`).
+  bootstrap (`pkgs/home-assistant-bootstrap`) and the Music Assistant setup
+  (`pkgs/music-assistant-setup`). The Homepage token script
+  (`pkgs/homepage-config/create-ha-token.py`) logs in the same way but is not run by any
+  unit today.
 
 ## Decisions
 
@@ -68,11 +69,14 @@ header provider left installed would accept a forged header as a login.
   The client ID stays the service name (`home-assistant`) and the secret variable stays
   `AUTHENTIK_HA_CLIENT_SECRET`.
 - `readsSecrets` gains `authentik-oidc-secrets`.
-- Home Assistant's YAML cannot read environment variables, so a step before Home
-  Assistant starts writes `/var/lib/hass/secrets.yaml` (owner `hass`, mode 0600) with a
-  single key, `auth_oidc_client_secret`, taken from `AUTHENTIK_HA_CLIENT_SECRET` in
-  `config.lanbat.secrets.authentik-oidc-secrets.path`. The step fails the start when the
-  variable is missing, rather than starting Home Assistant with an empty secret.
+- Home Assistant's YAML cannot read environment variables, so a root step before Home
+  Assistant starts sets the key `auth_oidc_client_secret` in
+  `/var/lib/hass/secrets.yaml` (owner `hass`, mode 0600) from `AUTHENTIK_HA_CLIENT_SECRET`
+  in `config.lanbat.secrets.authentik-oidc-secrets.path`. The file already exists on the
+  server with another key (`mqtt_password`), so the step changes only its own key and
+  keeps the rest, writing atomically. It fails the start when the variable is missing,
+  rather than starting Home Assistant with an empty secret, and then leaves the file
+  untouched.
 - `auth_header` is removed from the configuration, and `auth_oidc` is added:
 
   ```yaml
@@ -150,7 +154,7 @@ the one listed in My applications.
       logs nobody in.
    3. `?skip_oidc_redirect=true` shows the password login, and the owner can log in with
       it.
-   4. Rerunning the Homepage token and Music Assistant setup units succeeds.
+   4. Rerunning the bootstrap and Music Assistant setup units succeeds.
    5. The Android app logs in with the device code, with the server's logs watched
       during the attempt.
 5. Remove the leftover "Home Assistant (proxy)" provider and application in Authentik.
