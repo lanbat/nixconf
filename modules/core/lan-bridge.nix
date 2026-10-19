@@ -24,6 +24,16 @@ in
         default = "br0";
         description = "The bridge's interface name.";
       };
+      macAddress = mkOption {
+        type = types.nullOr (types.strMatching "([0-9a-f]{2}:){5}[0-9a-f]{2}");
+        default = null;
+        example = "6c:2b:59:00:00:01";
+        description = ''
+          The bridge's MAC: the host's port's, so the LAN (the router's list,
+          a DHCP reservation) keeps knowing the host. Null takes the lowest
+          of its ports' MACs, which an extra port can change.
+        '';
+      };
       extraPorts = mkOption {
         type = types.listOf types.str;
         default = [ ];
@@ -54,9 +64,9 @@ in
       systemd.network.netdevs."20-${cfg.name}".netdevConfig = {
         Kind = "bridge";
         Name = cfg.name;
-        # None of its own: the kernel takes the lowest port's, so the LAN
-        # keeps seeing the address at the MAC it knows.
-        MACAddress = "none";
+        # The port's, given; otherwise the kernel takes the lowest of the
+        # ports' MACs.
+        MACAddress = if cfg.macAddress != null then cfg.macAddress else "none";
       };
       systemd.network.networks = lib.listToAttrs (
         map (p: {

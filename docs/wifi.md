@@ -29,6 +29,7 @@ In the host's deploy entry (`modules`):
   # clients join; extraPorts adds other wired ports (a host plugged in behind this one).
   lanbat.network.bridge = {
     enable = true;
+    macAddress = "6c:2b:59:00:00:01"; # the port's (`ip link`), so the LAN keeps knowing the host
     extraPorts = [ "enp2s0" ];
   };
   lanbat.wifi.accessPoint = {

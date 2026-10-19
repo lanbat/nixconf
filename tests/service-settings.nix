@@ -419,6 +419,7 @@ let
     {
       lanbat.network.bridge = {
         enable = true;
+        macAddress = "6c:2b:59:00:00:01";
         extraPorts = [ "enp2s0" ];
       };
       lanbat.wifi.accessPoint = {
@@ -1055,6 +1056,7 @@ let
       && !(routerServer.networking.interfaces ? eno1)
       && routerServer.networking.defaultGateway.interface == "br0"
       && routerServer.systemd.network.netdevs."20-br0".netdevConfig.Kind == "bridge"
+      && routerServer.systemd.network.netdevs."20-br0".netdevConfig.MACAddress == "6c:2b:59:00:00:01"
       && routerServer.systemd.network.networks."30-eno1".networkConfig.Bridge == "br0"
       && routerServer.systemd.network.networks."30-enp2s0".networkConfig.Bridge == "br0"
       && routerServer.systemd.network.networks."30-wlp0s20f0u1".linkConfig.Unmanaged
