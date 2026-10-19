@@ -6,7 +6,7 @@
 # a room and the router to run.
 {
   name = "lanbat-room-presence";
-  version = 3;
+  version = 2;
   roles = [
     "server"
     "storage-pi"
