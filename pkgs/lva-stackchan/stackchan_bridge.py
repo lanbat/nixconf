@@ -36,8 +36,11 @@ This decides what it should feel and say:
   wake word to the transcript and the bridge hands it to the router, for
   voice-id to score as a second opinion on who spoke; then it is dropped.
 - Phones: the robot is a Bluetooth room sensor too. The bridge hands it the
-  people's phone beacons (BEACONS) and iPhone keys (the room-presence-irks
-  credential) over USB only, and passes the phones it hears to the router.
+  people's phone beacons (BEACONS) and phone keys (the room-presence-irks
+  credential, and the keys of the phones paired once, which the router sends,
+  {"irks": {key: [32 hex]}}), and passes the phones it hears to the router.
+  Over USB, or over the robot's Wi-Fi link (TLS pinned to this bridge, and
+  the token) to firmware 1.9.7 and later.
 - The assistant router (ROUTER_BODY_URL, pkgs/assistant-router body.py):
   the robot tells it whether someone is in front of it, its battery, link
   and mood, and its touches (the router shows them in Home Assistant); it
@@ -211,6 +214,7 @@ class Config:
     sound_mic_geometry: str = DEFAULT_SOUND_GEOMETRY  # four "x,y" points in metres
     sound_source: str = "lanbat_ps_eye_capture"  # the microphone node to listen on
     sound_over_wifi: bool = False  # on Wi-Fi too the robot is beside these mics (wifi.besideMicrophones)
+    router_phones: bool = True  # the router's phone keys go to the robot (lanbat.stackchan.phones)
 
     @classmethod
     def from_env(cls, env=os.environ) -> "Config":
@@ -236,6 +240,7 @@ class Config:
             sound_mic_geometry=env.get("SOUND_MIC_GEOMETRY", DEFAULT_SOUND_GEOMETRY),
             sound_source=env.get("SOUND_SOURCE", "lanbat_ps_eye_capture"),
             sound_over_wifi=flag("SOUND_OVER_WIFI", False),
+            router_phones=flag("ROUTER_PHONES", True),
         )
 
 
@@ -371,6 +376,7 @@ class Brain:
     sound_angle: float = 0.0  # the direction the head last turned to (degrees)
     wifi: dict | None = None  # the Wi-Fi details for the robot (wifi_payload), None: none
     phones: dict | None = None  # whose phones the robot looks for (phones_payload), None: nobody
+    robot_phones: str | None = None  # the id of those the robot has (its hello), None: it can't
     battery_level: int | None = None
     charging: bool | None = None
     link: str | None = None  # "usb" or "wifi", from the robot's hello
@@ -408,6 +414,20 @@ class Brain:
 
     def __post_init__(self) -> None:
         self.asleep = self.night_seen = self._is_night(self.now)
+        self.own_phones = self.phones  # the profile's; the router's keys join them
+
+    def _phones_to_robot(self) -> list:
+        """The phones line when the robot's differ from ours: over USB, or
+        over Wi-Fi to firmware that takes them there."""
+        want = self.phones["id"] if self.phones else ""
+        if self.robot_phones is None or self.robot_phones == want or self.link is None:
+            return []
+        if self.link == "wifi" and not fw_at_least(self.firmware, (1, 9, 7)):
+            return []
+        self.robot_phones = want  # until its next hello says otherwise
+        return [("device", {"phones": self.phones}),
+                ("log", "telling the robot whose phones to look for" if self.phones
+                 else "telling the robot to forget the phones")]
 
     # ── helpers ────────────────────────────────────────────────────────────
     def _is_night(self, now: float) -> bool:
@@ -642,6 +662,12 @@ class Brain:
                 self.tap_url = url
                 return [("device", {"tap": {"url": url}})]
             return []
+        if "irks" in msg:
+            # The keys of the phones paired once: they join the profile's.
+            if not self.config.router_phones:
+                return []
+            self.phones = with_router_keys(self.own_phones, msg["irks"])
+            return self._phones_to_robot()
         if type(msg.get("nfc_read")) is int and 0 <= msg["nfc_read"] <= 120:
             # Read cards for a while instead ("remember this card").
             return [("device", {"nfc_read": msg["nfc_read"]})]
@@ -778,12 +804,9 @@ class Brain:
             out += self.full_state(now)
             if hello.get("nfc") is True and self.tap_url:
                 out.append(("device", {"tap": {"url": self.tap_url}}))
-            # Whose phones to look for, likewise: over USB, when they differ.
-            want_phones = self.phones["id"] if self.phones else ""
-            if link == "usb" and "phones" in hello and hello["phones"] != want_phones:
-                out.append(("device", {"phones": self.phones}))
-                out.append(("log", "telling the robot whose phones to look for" if self.phones
-                            else "telling the robot to forget the phones"))
+            # Whose phones to look for, likewise, when they differ.
+            self.robot_phones = hello["phones"] if isinstance(hello.get("phones"), str) else None
+            out += self._phones_to_robot()
             # The Wi-Fi details, when the robot's differ from ours: over USB
             # only, and only to firmware that knows them (it says "wifi").
             want = self.wifi["id"] if self.wifi else ""
@@ -1176,6 +1199,36 @@ def read_wifi_credentials(path: str) -> tuple[str, str] | None:
     return (ssid, values.get("password", "")) if ssid else None
 
 
+def fw_at_least(fw: str | None, want: tuple) -> bool:
+    try:
+        return tuple(int(x) for x in (fw or "").split(".")[:3]) >= want
+    except ValueError:
+        return False
+
+
+def _with_id(found: dict) -> dict | None:
+    if not found["beacons"] and not found["irks"]:
+        return None
+    found = {"beacons": found["beacons"], "irks": found["irks"]}
+    found["id"] = hashlib.sha256(json.dumps(found, sort_keys=True).encode()).hexdigest()[:12]
+    return found
+
+
+def with_router_keys(own: dict | None, keys) -> dict | None:
+    """The profile's phones (phones_payload) with the router's keys
+    ({key: [32 hex]}) added; person keys as long as the robot takes (40)."""
+    found = {"beacons": dict(own["beacons"]) if own else {},
+             "irks": {k: list(v) for k, v in own["irks"].items()} if own else {}}
+    for key, irks in (keys.items() if isinstance(keys, dict) else []):
+        if not isinstance(key, str) or not 0 < len(key) <= 40 or not isinstance(irks, list):
+            continue
+        for irk in irks:
+            irk = irk.lower() if isinstance(irk, str) else ""
+            if len(irk) == 32 and all(c in "0123456789abcdef" for c in irk) and irk not in found["irks"].get(key, []):
+                found["irks"].setdefault(key, []).append(irk)
+    return _with_id(found)
+
+
 def phones_payload(beacons: str, irks: str) -> dict | None:
     """The robot's {"phones": ...} line from BEACONS ("alex=<uuid>,...") and
     the room-presence-irks lines ("<key> <32 hex>"), or None when there are
@@ -1190,10 +1243,7 @@ def phones_payload(beacons: str, irks: str) -> dict | None:
         parts = line.split("#", 1)[0].split()
         if len(parts) == 2 and len(parts[1]) == 32 and all(c in "0123456789abcdefABCDEF" for c in parts[1]):
             found["irks"].setdefault(parts[0], []).append(parts[1].lower())
-    if not found["beacons"] and not found["irks"]:
-        return None
-    found["id"] = hashlib.sha256(json.dumps(found, sort_keys=True).encode()).hexdigest()[:12]
-    return found
+    return _with_id(found)
 
 
 def read_phones(env=os.environ) -> dict | None:

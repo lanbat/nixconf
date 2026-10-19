@@ -215,9 +215,10 @@ in
         The robot scans Bluetooth for the people's phones too, like the
         room-presence plugin, and tells the assistant router who is near it
         (useful where it stands away from the Pi, on Wi-Fi). Beacons come from
-        people.<key>.bleBeacon; iPhone keys from the room-presence-irks secret
-        when room-presence has `irks` on this host. Handed to the robot over
-        USB only. docs/people.md.
+        people.<key>.bleBeacon; phone keys from the router (the phones paired
+        once) and from the room-presence-irks secret when room-presence has
+        `irks` on this host. Handed to the robot over USB, or over its Wi-Fi
+        link to firmware 1.9.7 and later. docs/people.md.
       '';
     };
     wifi = {
@@ -350,6 +351,8 @@ in
         NAP_AFTER_S = toString (if cfg.napAfter == null then 0 else cfg.napAfter * 60);
         SOUND_DIRECTION = flag cfg.soundDirection;
         SOUND_OFFSET_DEG = cfg.soundOffsetDeg;
+        # The keys of the phones paired once, from the router.
+        ROUTER_PHONES = flag (cfg.phones && routerHere);
         SOUND_TURN_MIN_DEG = cfg.soundTurnMinDeg;
         SOUND_MIC_GEOMETRY = cfg.soundMicGeometry;
         SOUND_SOURCE = cfg.soundSource;

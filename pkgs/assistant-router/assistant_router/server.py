@@ -734,7 +734,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     if taps is not None:
         taps.listeners.append(lambda phones: spawn(tell_house(phones)))
 
-    sensors: set[web.WebSocketResponse] = set()  # room sensors, told the phones' Bluetooth keys
+    sensors: set[web.WebSocketResponse] = set()  # room sensors and robots, told the phones' Bluetooth keys
 
     def known_irks() -> dict[str, list[str]]:
         return {k: v for k, v in (irks.all() if irks is not None else {}).items() if k in people.names}
@@ -805,6 +805,11 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             await ws.send_json({"body_hello": {"faces": frigate is not None}})
                             if taps is not None:
                                 await ws.send_json({"tap": {"url": taps.link(room)}})
+                            # A robot is a room sensor too: its bridge hands
+                            # the phones' keys on to it.
+                            if kind == "stackchan" and irks is not None:
+                                sensors.add(ws)
+                                await ws.send_json({"irks": known_irks()})
                         except Exception:  # pylint: disable=broad-except
                             pass
                     elif kind == "house-sensor" and taps is not None:

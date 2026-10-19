@@ -412,7 +412,7 @@ robot is plugged in.
 | `{"yaw": -700…700}` | Turn the head to that angle, in 0.1° units (0 straight ahead, negative to its right) |
 | `{"capture": true}` | Take a photo of whoever is in front and send it back as `face_image` |
 | `{"hello": 1}` | Asks for a hello; the bridge sends it when it opens the serial port |
-| `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and iPhone keys); `null` forgets them. Over USB only, when the hello's `phones` differs from `id` |
+| `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and phone keys: the profile's and the router's); `null` forgets them. Over USB, or over Wi-Fi to firmware 1.9.7 and later, when the hello's `phones` differs from `id` |
 | `{"led": {"rgb": [r, g, b]}}` | A notification light from Home Assistant, shown while nothing else is on the LEDs; `null` turns it off |
 | `{"tap": {"url"}}` | The link it is an NFC tag with, for phones (`https://`, 120 characters at most), from the router; `""` for none, then it reads cards. The bridge gives it again after the robot restarts |
 | `{"nfc_read": seconds}` | Read cards instead of being a tag, for up to 120 s ("remember this card") |
