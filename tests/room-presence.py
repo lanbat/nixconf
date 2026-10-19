@@ -93,5 +93,38 @@ class FromTheRouter(unittest.TestCase):
         self.assertIsNone(r.person(SPEC_ADDRESS, {}))
 
 
+class Bonded(unittest.TestCase):
+    """A host bonded with a phone (the one it paired with) resolves the
+    phone's addresses itself, and BlueZ reports the phone's identity address."""
+
+    def bonds(self, tmp):
+        import os
+        for adapter, phone, key in (("AA:AA:AA:AA:AA:01", "DC:E5:5B:EE:2C:BB", SPEC_IRK.hex().upper()),
+                                    ("AA:AA:AA:AA:AA:01", "11:22:33:44:55:66", None)):
+            os.makedirs(f"{tmp}/{adapter}/{phone}")
+            with open(f"{tmp}/{adapter}/{phone}/info", "w") as f:
+                f.write("[General]\nName=F2j45i\n")
+                if key:
+                    f.write(f"\n[IdentityResolvingKey]\nKey={key}\n")
+        return f"{tmp}/*/*/info"
+
+    def test_a_bonded_phones_identity_address_is_its_owners(self):
+        import tempfile
+        from room_presence import Recogniser
+        with tempfile.TemporaryDirectory() as tmp:
+            r = Recogniser({}, {}, bonds=self.bonds(tmp))
+            self.assertIsNone(r.person("DC:E5:5B:EE:2C:BB", {}))  # nobody's key yet
+            r.from_router({"alex": [SPEC_IRK.hex()]})
+            self.assertEqual(r.person("DC:E5:5B:EE:2C:BB", {}), "alex")
+            self.assertEqual(r.person("dc:e5:5b:ee:2c:bb", {}), "alex")
+            self.assertIsNone(r.person("11:22:33:44:55:66", {}))  # bonded, no key
+            self.assertEqual(r.person(SPEC_ADDRESS, {}), "alex")  # the other rooms' way still works
+
+    def test_no_bonds_directory_is_fine(self):
+        from room_presence import Recogniser
+        r = Recogniser({}, {"alex": [SPEC_IRK]}, bonds="/nonexistent/*/*/info")
+        self.assertIsNone(r.person("DC:E5:5B:EE:2C:BB", {}))
+
+
 if __name__ == "__main__":
     unittest.main(argv=[sys.argv[0], "-v"])
