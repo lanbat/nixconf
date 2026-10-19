@@ -157,6 +157,19 @@
             nixos-raspberrypi
             ;
         };
+        ha-oidc-login = import ./tests/ha-oidc-login.nix {
+          inherit
+            lib
+            pkgs
+            inputs
+            self
+            agenix
+            disko
+            deploy-rs
+            nixpkgs
+            nixos-raspberrypi
+            ;
+        };
         music-assistant = import ./tests/music-assistant.nix { inherit pkgs; };
         media-feed-bridge = import ./tests/media-feed-bridge.nix { inherit pkgs; };
         pkgs-build = import ./tests/pkgs-build.nix { inherit pkgs; };

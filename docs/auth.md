@@ -91,7 +91,7 @@ browser ──▶ service (sets its own session from the ID token)
 
 | Service | `auth` | OIDC client | Notes |
 |---|---|---|---|
-| Home Assistant | forward-auth | yes | header login (see below); companion apps bypass via `apiClients` |
+| Home Assistant | app | yes | OIDC login (`auth_oidc`, see below); companion apps sign in with a device code |
 | Frigate, Music Assistant, Snapcast, Zigbee2MQTT, Syncthing, qBittorrent, Bitmagnet | forward-auth | no | pure forward auth |
 | Immich | forward-auth | yes | web UI forward-authed; mobile app OIDC + `apiClients` |
 | Grafana | app | yes | `generic_oauth`, maps roles from a claim (see below) |
@@ -176,13 +176,26 @@ applied to a given service is a per-site decision. Layer 2 is per-service and is
 authentik identity gets *translated* into something the service understands. The
 translation pattern differs by service:
 
-- **Header login (Home Assistant).** Caddy's forward auth sets `X-Authentik-Username`,
-  and HA is configured with `auth_header.username_header = "X-Authentik-Username"`
-  (`services/home-assistant.nix`). HA logs the user in under exactly that username. The
-  usernames must already exist in HA — the `home-assistant-bootstrap` oneshot
-  provisions them from `lanbat.homeAssistant.ssoUsers` (default `["akadmin"]`). Here the
-  *same* username is the identity in both layers; entitlement inside HA is HA's own
-  (owner/admin), which the bootstrap grants to those users.
+- **OIDC login linked by username (Home Assistant).** HA's own login page hands over to
+  authentik over OpenID Connect (the `auth_oidc` component, `services/home-assistant.nix`).
+  The `preferred_username` claim links to the HA user of the same name, which the
+  `home-assistant-bootstrap` oneshot provisions from `lanbat.homeAssistant.ssoUsers`
+  (default `["akadmin"]`); `require_existing_user` stops it creating new HA users.
+  Entitlement inside HA is HA's own (owner/admin). The companion apps use the same
+  hostname and sign in with a device code entered in the phone's browser. Caddy does not
+  forward-auth HA: the apps start the login in a WebView and finish it in the browser,
+  which never has the outpost's session cookie. HA's password login stays at
+  `?skip_oidc_redirect=true`.
+
+  **Adding a person:** add their authentik username to `lanbat.homeAssistant.ssoUsers`,
+  set `automatic_user_linking = true` in `services/home-assistant.nix`, deploy, have
+  them log in once through authentik, then set it back to `false` and deploy again.
+  While linking is on, any authentik account whose username matches an HA user takes
+  that user over.
+
+  **After switching from forward auth:** authentik keeps objects that drop out of the
+  blueprint, so delete the old "Home Assistant (proxy)" provider and application in the
+  authentik UI (Applications → Providers, and Applications → Applications).
 - **Role mapped from a claim (Grafana).** `generic_oauth` is enabled with
   `role_attribute_path = "contains(groups[*], 'grafana-admins') && 'Admin' || 'Viewer'"`
   (`services/grafana.nix`). Every authentik user lands as **Viewer** by default; being

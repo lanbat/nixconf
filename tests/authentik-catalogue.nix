@@ -209,7 +209,6 @@ let
     zigbee2mqtt = "Zigbee2MQTT";
   };
   exampleProxyIds = map (n: "provider-${n}") proxied ++ [
-    "provider-home-assistant-proxy"
     "provider-immich-proxy"
   ];
   exampleIdentity = {
@@ -219,10 +218,6 @@ let
         name = names.${n};
       }) proxied
       ++ [
-        {
-          id = "provider-home-assistant-proxy";
-          name = "Home Assistant (proxy)";
-        }
         {
           id = "provider-immich-proxy";
           name = "Immich (proxy)";
@@ -234,10 +229,6 @@ let
         provider = "provider-${n}";
       }) proxied
       ++ [
-        {
-          slug = "home-assistant-proxy";
-          provider = "provider-home-assistant-proxy";
-        }
         {
           slug = "immich-proxy";
           provider = "provider-immich-proxy";
@@ -294,7 +285,7 @@ let
         (n: {
           slug = n;
           provider = "provider-${n}";
-          hidden = n == "home-assistant" || n == "immich";
+          hidden = n == "immich";
         })
         [
           "audiobookshelf"
@@ -517,6 +508,17 @@ let
       && byId "provider-demo" (oidcProviders addedWithSso) != null
       && (bySlug "demo" (appsIn addedWithSso.oidc)).attrs.meta_hide
       && lib.hasPrefix "https://" (bySlug "demo" (appsIn addedWithSso.oidc)).attrs.meta_launch_url
+    ))
+
+    (expect "Home Assistant's OIDC redirect URI is auth_oidc's callback" (
+      let
+        p = byId "provider-home-assistant" (oidcProviders base);
+      in
+      p != null
+      &&
+        map (u: u.url) p.attrs.redirect_uris == [
+          "https://ha.${exampleDeploy.deployment.domain}/auth/oidc/callback"
+        ]
     ))
 
     (expect "RomM's OIDC redirect URI is its API OAuth callback" (
