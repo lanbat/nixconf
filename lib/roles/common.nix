@@ -25,6 +25,8 @@
 let
   host = config.lanbat.hosts.${config.lanbat.hostKey};
   net = host.networking;
+  # The port, or the bridge over it (modules/core/lan-bridge.nix).
+  lan = config.lanbat.network.lanInterface;
   networkLib = import ../network.nix { inherit lib; };
   prefixLength = networkLib.prefixLengthFromCidr config.lanbat.deployment.lanSubnet;
 in
@@ -33,7 +35,7 @@ in
 
   networking = {
     useNetworkd = true;
-    interfaces.${net.interface} = {
+    interfaces.${lan} = {
       useDHCP = false;
       ipv4.addresses = [
         {
@@ -44,7 +46,7 @@ in
     };
     defaultGateway = {
       address = config.lanbat.deployment.gatewayIp;
-      interface = net.interface;
+      interface = lan;
     };
     # The gateway first; a role merges any fallback in after this.
     nameservers = [ config.lanbat.deployment.gatewayIp ];

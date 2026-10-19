@@ -294,6 +294,13 @@ so they are `iptables` rather than `ip6tables`. A service that also listens on
 IPv6 is not covered by them, and is reachable over IPv6 on the LAN if its port
 is open. Closing that needs a v6 address in the host schema.
 
+## Wi-Fi coverage
+
+A wired host can extend the home Wi-Fi from a USB dongle: `lanbat.wifi.accessPoint`
+serves the router's own network name and password on a channel of its own, and its
+clients reach the LAN through the host's bridge (`lanbat.network.bridge`), which the
+host's LAN address moves onto. See [wifi.md](wifi.md).
+
 ## Overlay network
 
 Cross-host service traffic can run on a private encrypted network instead of

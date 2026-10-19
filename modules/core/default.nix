@@ -17,6 +17,8 @@
     ./human-users.nix
     ./voice-satellite.nix
     ./snapclient.nix
+    ./lan-bridge.nix
+    ./wifi-access-point.nix
     ../wiring/accounts.nix
     ../wiring/secrets.nix
     ../wiring/checks.nix

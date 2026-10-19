@@ -64,6 +64,7 @@ let
         ../modules/wiring/caddy.nix
         (import ../lib/overlay-providers.nix).none
         ./lib/age-option-stub.nix
+        ../modules/core/lan-bridge.nix
         ../modules/core/dns.nix
         {
           boot.isContainer = true;
