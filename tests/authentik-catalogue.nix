@@ -521,6 +521,27 @@ let
         ]
     ))
 
+    (expect "Home Assistant's OIDC application is bound to the home-assistant group" (
+      lib.filter (
+        p:
+        p.app == [
+          "slug"
+          "home-assistant"
+        ]
+      ) (bindingPairs base.oidc) == [
+        {
+          app = [
+            "slug"
+            "home-assistant"
+          ];
+          group = [
+            "name"
+            "home-assistant"
+          ];
+        }
+      ]
+    ))
+
     (expect "RomM's OIDC redirect URI is its API OAuth callback" (
       let
         p = byId "provider-romm" (oidcProviders base);

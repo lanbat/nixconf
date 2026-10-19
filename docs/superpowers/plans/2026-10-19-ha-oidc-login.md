@@ -29,8 +29,10 @@ generated Authentik blueprint drops the forward-auth proxy by itself.
   `authentik-oidc-secrets` file; redirect path `/auth/oidc/callback`.
 - `secrets.yaml` key `auth_oidc_client_secret`. Every other key already in the file (the
   live server has `mqtt_password`) is preserved.
-- `features`: `default_redirect: true`, `require_existing_user: true`,
-  `automatic_user_linking: true` (switched off in Task 5).
+- `features`: `default_redirect: true`, `automatic_user_linking: true` (switched off in
+  Task 5); `roles.user: home-assistant`, and `access.groups = [ "home-assistant" ]` on
+  the service. (Corrected after the final review: v1.2.1 has no `require_existing_user`;
+  the Task 3 code below shows the original, superseded version.)
 - `network.tls_ca_path: /var/lib/caddy-local-ca/ca-certificates.crt`.
 - The `homeassistant` auth provider, the owner's password, `ip_ban_enabled = true` and
   `login_attempts_threshold = 5` stay. No TOTP on the owner account.
@@ -885,6 +887,12 @@ git stash pop
 Expected: the deploy succeeds, and `home-assistant.service` is active afterwards
 (`ssh admin@<server> systemctl is-active home-assistant`).
 
+- [ ] **Step 2b: Add `akadmin` to the `home-assistant` group**
+
+The blueprint has created the group. In the Authentik admin UI (Directory → Groups →
+home-assistant → Users), add `akadmin` and everyone else who used Home Assistant. Until
+then, Authentik refuses their login to the application.
+
 - [ ] **Step 3: Server-side checks**
 
 ```bash
@@ -949,7 +957,9 @@ Expected: the app connects; no errors from `auth_oidc` in the log.
 
 - [ ] **Step 8: Remove the leftover proxy objects in Authentik**
 
-In the Authentik admin UI, delete the "Home Assistant (proxy)" application and provider.
+First open the "Home Assistant (proxy)" application's Policy / Group / User Bindings and
+make sure everyone bound there is in the `home-assistant` group. Then, in the Authentik
+admin UI, delete the "Home Assistant (proxy)" application and provider.
 Then check that `https://ha.<domain>` still logs in.
 
 ---
@@ -967,10 +977,9 @@ Run only after Task 4, Step 5 has shown the `auth_oidc` credential on `akadmin`.
 In `tests/ha-oidc-login.nix`, replace the features case with:
 
 ```nix
-    (expect "auth_oidc redirects, creates no users and links none automatically" (
+    (expect "auth_oidc redirects and links nobody automatically" (
       (oidc.features or { }) == {
         default_redirect = true;
-        require_existing_user = true;
         automatic_user_linking = false;
       }
     ))

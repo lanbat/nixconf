@@ -38,7 +38,7 @@ Authentik.
 
 | Question | Decision |
 |---|---|
-| How Authentik identities map to HA users | Link to existing HA users by username; never create new ones (`require_existing_user`). Linking is on only until each user has logged in once. |
+| How Authentik identities map to HA users | Link to existing HA users by username; linking is on only until each user has logged in once. `auth_oidc` v1.2.1 has no option to refuse new identities (an earlier draft relied on a `require_existing_user` that does not exist), so who may log in is the new `home-assistant` Authentik group: `access.groups` binds it to the application and `roles.user` refuses anyone outside it. A member without an HA user gets a new one on first login. |
 | Logged-out browser | Straight to Authentik (`default_redirect`); the password login stays at `?skip_oidc_redirect=true`. |
 | Password fallback | Stays reachable on the LAN and mesh, protected by the owner's generated 29-character password and the existing ban after 5 failed attempts. |
 | TOTP on `akadmin` | Not enabled. `akadmin` is also the account the loopback clients log in as with its password, and a second factor would stop them at the code prompt. Splitting them onto a service account is possible later. |
@@ -69,14 +69,17 @@ header provider left installed would accept a forged header as a login.
   The client ID stays the service name (`home-assistant`) and the secret variable stays
   `AUTHENTIK_HA_CLIENT_SECRET`.
 - `readsSecrets` gains `authentik-oidc-secrets`.
-- Home Assistant's YAML cannot read environment variables, so a root step before Home
+- Home Assistant's YAML cannot read environment variables, so a step before Home
   Assistant starts sets the key `auth_oidc_client_secret` in
   `/var/lib/hass/secrets.yaml` (owner `hass`, mode 0600) from `AUTHENTIK_HA_CLIENT_SECRET`
   in `config.lanbat.secrets.authentik-oidc-secrets.path`. The file already exists on the
   server with another key (`mqtt_password`), so the step changes only its own key and
   keeps the rest, writing atomically. It fails the start when the variable is missing,
   rather than starting Home Assistant with an empty secret, and then leaves the file
-  untouched.
+  untouched. Root only reads the secret; the file is written as `hass`, which owns
+  `/var/lib/hass` and could otherwise point `secrets.yaml` or the temporary file at a
+  file of root's. The writer also refuses a symlinked `secrets.yaml`, and fails rather
+  than drop the other keys when it cannot read the file.
 - `auth_header` is removed from the configuration, and `auth_oidc` is added:
 
   ```yaml
@@ -87,8 +90,9 @@ header provider left installed would accept a forged header as a login.
     display_name: Authentik
     features:
       default_redirect: true
-      require_existing_user: true
       automatic_user_linking: true
+    roles:
+      user: home-assistant
     network:
       tls_ca_path: /var/lib/caddy-local-ca/ca-certificates.crt
   ```
@@ -146,7 +150,8 @@ the one listed in My applications.
    `settings-guard` and `validate-deploy` checks.
 2. On the server, confirm that `authentik-oidc-secrets` has an
    `AUTHENTIK_HA_CLIENT_SECRET` line, checking for the name without printing the value.
-3. Deploy the server.
+3. Deploy the server. The blueprint creates the `home-assistant` group; add `akadmin`
+   to it in Authentik before anyone logs in, or the login is refused.
 4. Verify, each step run and its result reported:
    1. A browser login lands on the same `akadmin` user, with its dashboards, still the
       owner and in `system-admin`.
@@ -164,12 +169,13 @@ the one listed in My applications.
 The component's documentation says to keep `automatic_user_linking` on only
 temporarily: while it is on, any Authentik account whose username matches an HA
 username takes over that HA user. Once `akadmin` has logged in through Authentik,
-a second change sets `automatic_user_linking: false` and keeps
-`require_existing_user: true`. Only identities already linked can then log in.
+a second change sets `automatic_user_linking: false`. Members of the
+`home-assistant` group then keep their linked users, and a new member gets a new HA
+user on first login.
 
-Adding a person later: add their Authentik username to
-`lanbat.homeAssistant.ssoUsers`, turn linking on, deploy, have them log in once, and
-turn linking off again. `docs/auth.md` describes this.
+Adding a person later: add them to the `home-assistant` group in Authentik. To link
+them to an HA user that already exists instead, turn linking on, deploy, have them log
+in once, and turn it off again. `docs/auth.md` describes both.
 
 ## Failure handling
 
@@ -177,9 +183,8 @@ turn linking off again. `docs/auth.md` describes this.
   `?skip_oidc_redirect=true` still works for the owner.
 - **Missing client secret:** Home Assistant does not start, and the pre-start step names
   the missing variable in the journal.
-- **Unlinked or unknown username:** the component refuses the login
-  (`require_existing_user`), and Authentik's policy refuses users without access before
-  that.
+- **Someone outside the `home-assistant` group:** Authentik refuses to authorize the
+  application, and `roles.user` refuses them in HA should a binding ever be missing.
 - **Permissions:** the component documents that it sets roles only on a user's first
   login; what it does to an existing user it links is not documented. Rollout step 4.1
   checks that `akadmin` is still the owner and in `system-admin` after its first

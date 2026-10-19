@@ -50,6 +50,25 @@ let
     lib.toList (config.systemd.services.home-assistant.serviceConfig.ExecStartPre or [ ])
   );
 
+  # auth_oidc rejects unknown keys and then never sets up, leaving only the
+  # password login: validate against the packaged component's own schema.
+  authOidc = pkgs.home-assistant.python.pkgs.callPackage ../pkgs/home-assistant-auth-oidc { };
+  python = pkgs.home-assistant.python.withPackages (ps: [ ps.voluptuous ]);
+  configJson = pkgs.writeText "auth_oidc.json" (builtins.toJSON { auth_oidc = oidc; });
+  validate = pkgs.writeText "validate-auth-oidc.py" ''
+    import importlib.util, json, pathlib, sys, types
+    cfg = pathlib.Path(sys.argv[1]) / "custom_components/auth_oidc/config"
+    pkg = types.ModuleType("cfg")
+    pkg.__path__ = [str(cfg)]
+    sys.modules["cfg"] = pkg
+    for name in ("const", "schema"):
+        spec = importlib.util.spec_from_file_location(f"cfg.{name}", cfg / f"{name}.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[f"cfg.{name}"] = mod
+        spec.loader.exec_module(mod)
+    sys.modules["cfg.schema"].CONFIG_SCHEMA(json.load(open(sys.argv[2])))
+  '';
+
   expect = name: cond: if cond then null else "FAIL: ${name}";
   cases = [
     (expect "auth_oidc uses the home-assistant client" (oidc.client_id or null == "home-assistant"))
@@ -63,12 +82,20 @@ let
     (expect "auth_oidc trusts the internal Caddy CA" (
       (oidc.network or { }).tls_ca_path or null == "/var/lib/caddy-local-ca/ca-certificates.crt"
     ))
-    (expect "auth_oidc redirects, links existing users and creates none" (
+    (expect "auth_oidc redirects and links existing users by username" (
       (oidc.features or { }) == {
         default_redirect = true;
-        require_existing_user = true;
         automatic_user_linking = true;
       }
+    ))
+    # v1.2.1 creates an HA user for any new identity it is handed; only members
+    # of the home-assistant group may get that far (Authentik binds the same
+    # group to the application, tests/authentik-catalogue.nix).
+    (expect "auth_oidc admits only the home-assistant group" (
+      (oidc.roles or { }).user or null == "home-assistant"
+    ))
+    (expect "Authentik limits the HA application to the home-assistant group" (
+      config.lanbat.services.home-assistant.access.groups == [ "home-assistant" ]
     ))
     (expect "no header login is configured" (!(ha.config ? auth_header)))
     (expect "the auth_oidc component is installed" (lib.elem "christiaangoossens/auth_oidc" components))
@@ -78,8 +105,8 @@ let
     (expect "Caddy does not forward-auth Home Assistant" (
       !(lib.hasInfix "forward_auth" vhost) && !(lib.hasInfix "outpost.goauthentik.io" vhost)
     ))
-    (expect "the client secret is written before Home Assistant starts" (
-      lib.hasInfix "ha-oidc-secret" preStart
+    (expect "the client secret is written before Home Assistant starts, as hass" (
+      lib.hasInfix "ha-oidc-secret" preStart && lib.hasSuffix "/secrets.yaml hass" preStart
     ))
     (expect "the Home Assistant password login stays" (
       lib.any (p: p.type or null == "homeassistant") (
@@ -92,6 +119,8 @@ let
   failures = lib.filter (x: x != null) cases;
 in
 pkgs.runCommand "ha-oidc-login-check" { } ''
+  ${python}/bin/python3 ${validate} ${authOidc} ${configJson} \
+    || { echo "auth_oidc rejects the generated configuration" >&2; exit 1; }
   if [ ${toString (lib.length failures)} -ne 0 ]; then
     echo "ha-oidc-login checks failed:" >&2
     ${lib.concatStringsSep "\n" (map (msg: "echo \"  - ${msg}\" >&2") failures)}

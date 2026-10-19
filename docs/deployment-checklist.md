@@ -518,16 +518,18 @@ automatically and registers the Authentik provider.  No further steps needed.
    OWNER_PASSWORD=<random break-glass password>
    ```
 
-2. Add Authentik usernames that should land in HA without a second login to
+2. List the Authentik usernames to pre-create as HA users in
    `lanbat.homeAssistant.ssoUsers` in `deployments/homelab/deploy.nix` (default: `[ "akadmin" ]`).
-   Usernames must match Authentik exactly.
+   Usernames must match Authentik exactly. Their first login through Authentik links to
+   these users (`auth_oidc`, [auth.md](auth.md)).
 
 3. Deploy.  `home-assistant-bootstrap` completes first-run onboarding and
-   creates the SSO users.  Entitled Authentik users opening `https://ha.<domain>`
-   are authenticated via forward-auth + header auth.
+   creates the SSO users. Opening `https://ha.<domain>` goes to Authentik and back;
+   the companion apps sign in with a device code entered in the phone's browser.
 
-4. Grant users access to the **Home Assistant** application in Authentik
-   (Applications → Home Assistant → Policy / group bindings).
+4. Add everyone who may use HA, `akadmin` included, to the `home-assistant` group in
+   Authentik. The blueprint creates the group and binds it to the **Home Assistant**
+   application; anyone outside it is refused.
 
 5. Give every device a room: the dashboards are generated per room from Home
    Assistant's registries. Set `lanbat.services.home-assistant.settings.deviceAreas`

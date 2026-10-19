@@ -1461,6 +1461,9 @@ in
       # has the outpost's session cookie (docs/auth.md).
       auth = "app";
       apiClients = true; # companion apps and REST clients call HA directly
+      # Who may log in at all: auth_oidc would create an HA user for anyone
+      # Authentik lets through. Add people to this group in Authentik.
+      access.groups = [ "home-assistant" ];
       oidc = {
         redirectPaths = [ "/auth/oidc/callback" ];
         secretVariable = "AUTHENTIK_HA_CLIENT_SECRET";
@@ -1533,9 +1536,10 @@ in
       # stop HA, matching its always-on posture.
       wants = [ "bluetooth.service" ];
       # auth_oidc reads its client secret as !secret auth_oidc_client_secret.
-      # Root ("+"): the Authentik client-secret file is readable by root alone.
+      # Root ("+") reads the Authentik client-secret file, which only root can;
+      # the script writes secrets.yaml as hass.
       serviceConfig.ExecStartPre = [
-        "+${oidcSecret}/bin/ha-oidc-secret ${config.lanbat.secrets.authentik-oidc-secrets.path} ${config.services.home-assistant.configDir}/secrets.yaml hass:hass"
+        "+${oidcSecret}/bin/ha-oidc-secret ${config.lanbat.secrets.authentik-oidc-secrets.path} ${config.services.home-assistant.configDir}/secrets.yaml hass"
       ];
     };
 
@@ -1881,10 +1885,13 @@ in
           };
         };
 
-        # Login through Authentik over OpenID Connect. Users must already exist
-        # in HA (the bootstrap creates ssoUsers): an Authentik username links to
-        # the HA user of the same name. Linking stays on only until each of them
-        # has logged in once (docs/auth.md). HA's password login remains at
+        # Login through Authentik over OpenID Connect. An Authentik username
+        # links to the HA user of the same name (the bootstrap creates
+        # ssoUsers); linking stays on only until each of them has logged in
+        # once (docs/auth.md). auth_oidc creates an HA user for any other
+        # identity it is handed, so only the home-assistant group gets that
+        # far: Authentik binds it to the application (access.groups below) and
+        # roles.user refuses anyone outside it. HA's password login remains at
         # ?skip_oidc_redirect=true.
         auth_oidc = {
           client_id = "home-assistant";
@@ -1893,9 +1900,9 @@ in
           display_name = "Authentik";
           features = {
             default_redirect = true;
-            require_existing_user = true;
             automatic_user_linking = true;
           };
+          roles.user = "home-assistant";
           # Authentik is served with the internal Caddy CA.
           network.tls_ca_path = "/var/lib/caddy-local-ca/ca-certificates.crt";
         };

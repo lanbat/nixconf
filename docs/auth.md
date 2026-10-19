@@ -180,22 +180,30 @@ translation pattern differs by service:
   authentik over OpenID Connect (the `auth_oidc` component, `services/home-assistant.nix`).
   The `preferred_username` claim links to the HA user of the same name, which the
   `home-assistant-bootstrap` oneshot provisions from `lanbat.homeAssistant.ssoUsers`
-  (default `["akadmin"]`); `require_existing_user` stops it creating new HA users.
-  Entitlement inside HA is HA's own (owner/admin). The companion apps use the same
+  (default `["akadmin"]`). The component creates an HA user for any other identity it is
+  handed, so who may log in at all is the `home-assistant` authentik group:
+  `access.groups` binds it to the application, and `roles.user` refuses anyone outside
+  it. Entitlement inside HA is HA's own (owner/admin). The companion apps use the same
   hostname and sign in with a device code entered in the phone's browser. Caddy does not
   forward-auth HA: the apps start the login in a WebView and finish it in the browser,
   which never has the outpost's session cookie. HA's password login stays at
   `?skip_oidc_redirect=true`.
 
-  **Adding a person:** add their authentik username to `lanbat.homeAssistant.ssoUsers`,
-  set `automatic_user_linking = true` in `services/home-assistant.nix`, deploy, have
-  them log in once through authentik, then set it back to `false` and deploy again.
-  While linking is on, any authentik account whose username matches an HA user takes
-  that user over.
+  **Adding a person:** add them to the `home-assistant` group in authentik. Their first
+  login through authentik creates their HA user. Do not also list them in
+  `lanbat.homeAssistant.ssoUsers` while linking is off, or they end up with two HA
+  users: the bootstrap's and the component's. To link a person to an HA user that
+  already exists instead, set `automatic_user_linking = true` in
+  `services/home-assistant.nix`, deploy, have them log in once, then set it back to
+  `false` and deploy again. While linking is on, any member of the group whose username
+  matches an HA user takes that user over.
 
-  **After switching from forward auth:** authentik keeps objects that drop out of the
-  blueprint, so delete the old "Home Assistant (proxy)" provider and application in the
-  authentik UI (Applications → Providers, and Applications → Applications).
+  **After switching from forward auth:** add the owner (`akadmin`) and everyone else
+  who used HA to the `home-assistant` group before their next login. Group bindings
+  made by hand on the old "Home Assistant (proxy)" application no longer apply. Then,
+  since authentik keeps objects that drop out of the blueprint, delete that provider
+  and application in the authentik UI (Applications → Providers, and
+  Applications → Applications).
 - **Role mapped from a claim (Grafana).** `generic_oauth` is enabled with
   `role_attribute_path = "contains(groups[*], 'grafana-admins') && 'Admin' || 'Viewer'"`
   (`services/grafana.nix`). Every authentik user lands as **Viewer** by default; being
