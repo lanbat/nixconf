@@ -926,6 +926,7 @@ let
         unit.environment.WIFI_HOST == stackchanWifi.lanbat.hosts.pi-voice.networking.ip
         && unit.environment.WIFI_PORT == "8771"
         && unit.environment.SOUND_OVER_WIFI == "0" # elsewhere in the room by default
+        && unit.environment.ROUTER_PHONES == "0" # no router here to hand on keys from
         &&
           unit.serviceConfig.LoadCredential == [
             "stackchan-wifi:${stackchanWifi.lanbat.secrets.stackchan-wifi.path}"
@@ -948,6 +949,7 @@ let
       in
       env.ROOM == "Kitchen"
       && env.ROUTER_BODY_URL == "ws://${serverIp}:8770/v1/body"
+      && env.ROUTER_PHONES == "1" # the paired phones' keys, from the router
       && lib.elem serverIp bodyPi.systemd.services.lva-stackchan.serviceConfig.IPAddressAllow
       && lib.hasInfix "--body-port 8770" router.ExecStart
       && lib.elem piIp router.IPAddressAllow

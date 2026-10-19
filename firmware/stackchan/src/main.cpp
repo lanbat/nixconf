@@ -23,7 +23,7 @@
 //   {"ping": 1}                       a heartbeat, every 3 s
 //   {"wifi": {...} | null}          Wi-Fi details to keep (over USB only)
 //   {"hello": 1}                     asks for a hello (the bridge just started)
-//   {"phones": {...} | null}        whose phones to look for (over USB only)
+//   {"phones": {...} | null}        whose phones to look for (its Pi's links only)
 //   {"led": {"rgb": [r, g, b]} | null}  a notification light (Home Assistant)
 //   {"tap": {"url": "https://..."}}  the link it is a tag with, for phones (nfc.h)
 //   {"nfc_read": seconds}           read cards instead, for a while
@@ -81,7 +81,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.6";
+constexpr const char* kFirmware = "1.9.7";
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -432,11 +432,12 @@ void handle(JsonDocument& doc, pilink::Via via) {
     lights::setNotify(false);
   }
   if (!doc["phones"].isUnbound()) {
-    // Whose phones to look for: like the Wi-Fi details, from the Pi it is
-    // plugged into only.
+    // Whose phones to look for, from its Pi: over USB, or over the Wi-Fi
+    // link, which is pinned to the Pi's certificate and carries its token.
+    // Only the Wi-Fi details themselves stay USB-only.
     JsonDocument reply;
-    if (via != pilink::Via::Usb) {
-      reply["log"] = "phones: refused, they only come over USB";
+    if (via != pilink::Via::Usb && via != pilink::Via::Wifi) {
+      reply["log"] = "phones: refused, they only come from the robot's Pi";
     } else if (phones::provision(doc["phones"])) {
       reply["log"] = doc["phones"].isNull() ? "phones: forgotten" : "phones: kept, listening";
     } else {

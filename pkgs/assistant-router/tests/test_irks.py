@@ -35,11 +35,22 @@ async def test_room_sensors_get_the_keys_on_connecting_and_on_each_change(aiohtt
     assert await ws.receive_json() == {"irks": {"kiril": [IRK]}}
     irks.forget("kiril")
     assert await asyncio.wait_for(ws.receive_json(), 2) == {"irks": {}}
-    # A robot isn't sent them.
+    # A robot scans too (its bridge hands them on); another body doesn't.
+    irks.add("kiril", IRK)
+    assert await asyncio.wait_for(ws.receive_json(), 2) == {"irks": {"kiril": [IRK]}}
     robot = await c.ws_connect("/v1/body")
     await robot.send_json({"hello": {"room": "Office", "kind": "stackchan", "proto": 1}})
-    assert "irks" not in await robot.receive_json()
+    got = [await asyncio.wait_for(robot.receive_json(), 2) for _ in range(2)]
+    assert {"irks": {"kiril": [IRK]}} in got
+    other = await c.ws_connect("/v1/body")
+    await other.send_json({"hello": {"room": "Hall", "kind": "speaker", "proto": 1}})
+    assert "irks" not in await other.receive_json()
+    with __import__("pytest").raises(asyncio.TimeoutError):
+        await asyncio.wait_for(other.receive_json(), 0.3)
+    irks.forget("kiril")
+    assert await asyncio.wait_for(robot.receive_json(), 2) == {"irks": {}}
     await ws.close()
+    await other.close()
     await robot.close()
 
 

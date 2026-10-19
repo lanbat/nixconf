@@ -100,8 +100,11 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   `sudo room-presence --paired` prints the keys of the phones paired with a host.
 
 A **Stack-chan** scans too (`lanbat.stackchan.phones`, on by default): the bridge hands
-it the same beacons, and the iPhone keys where room-presence has `irks` on that Pi, over
-USB only, and the robot reports the phones near it every 15 s like a room sensor. That
+it the same beacons and the router's phone keys (plus the `room-presence-irks` keys where
+room-presence has `irks` on that Pi), over USB or, with firmware 1.9.7 and later, over its
+Wi-Fi link (pinned to its Pi's certificate, with the token). The robot keeps them in its
+flash, until they change or are forgotten, and reports the phones near it every 15 s like
+a room sensor. That
 places phones where the robot stands, also when it is away from its Pi on Wi-Fi. It
 listens a slice of every second, so Wi-Fi keeps the radio most of the time.
 

@@ -1198,7 +1198,39 @@ class Phones(unittest.TestCase):
         hello["phones"] = self.PHONES["id"]
         self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])
         hello.update(link="wifi", phones="")
-        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])  # never over Wi-Fi
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])  # not to 1.4 over Wi-Fi
+        hello["fw"] = "1.9.7"  # firmware that takes them over its Wi-Fi link too
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [self.PHONES])
+
+    IRK = "00112233445566778899aabbccddeeff"
+
+    def test_the_routers_keys_join_the_profiles(self):
+        b = Brain(Config(), now=NOON, phones=self.PHONES)
+        hello = {"fw": "1.9.7", "proto": 1, "link": "wifi", "phones": self.PHONES["id"]}
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])
+        sent = self.lines(b.on_router({"irks": {"kiril": [self.IRK.upper()], "sam": ["nothex"], "x" * 41: [self.IRK]}},
+                                      NOON), "phones")
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["irks"], {"sam": ["ec0234a357c8ad05341010a60a397d9b"], "kiril": [self.IRK]})
+        self.assertEqual(sent[0]["beacons"], self.PHONES["beacons"])
+        self.assertNotEqual(sent[0]["id"], self.PHONES["id"])
+        # The robot says it has them: nothing more; the same keys again: nothing.
+        hello["phones"] = sent[0]["id"]
+        self.assertEqual(self.lines(b.on_device({"hello": hello}, NOON), "phones"), [])
+        self.assertEqual(self.lines(b.on_router({"irks": {"kiril": [self.IRK]}}, NOON), "phones"), [])
+        # Forgotten at the router: back to the profile's own.
+        self.assertEqual(self.lines(b.on_router({"irks": {}}, NOON), "phones"), [self.PHONES])
+
+    def test_not_when_phones_are_off(self):
+        b = Brain(Config(router_phones=False), now=NOON)
+        b.on_device({"hello": {"fw": "1.9.7", "proto": 1, "link": "usb", "phones": ""}}, NOON)
+        self.assertEqual(self.lines(b.on_router({"irks": {"kiril": [self.IRK]}}, NOON), "phones"), [])
+
+    def test_the_routers_keys_alone_and_no_robot(self):
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(self.lines(b.on_router({"irks": {"kiril": [self.IRK]}}, NOON), "phones"), [])  # none yet
+        out = b.on_device({"hello": {"fw": "1.9.7", "proto": 1, "link": "usb", "phones": ""}}, NOON)
+        self.assertEqual([p["irks"] for p in self.lines(out, "phones")], [{"kiril": [self.IRK]}])
 
     def test_forgotten_when_there_are_none(self):
         b = Brain(Config(), now=NOON)
