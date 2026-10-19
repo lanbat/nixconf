@@ -91,7 +91,9 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   router keeps the keys per person (`/var/lib/assistant-router/irks.json`, readable by it
   alone) and gives the full set to every room sensor when it connects and whenever it
   changes; the sensors keep them in memory only. So one pairing places the phone in
-  every room. *Forget my phone* and *Forget me* drop its keys everywhere. It is a secret:
+  every room, the host it paired with included: there BlueZ resolves the addresses
+  itself and reports the phone's fixed identity address, which the sensor knows from
+  the bond's key. *Forget my phone* and *Forget me* drop its keys everywhere. It is a secret:
   anyone with it can follow that phone in Bluetooth range. The `room-presence-irks`
   secret (`irks = true`, one `<person key> <key>` line per phone,
   [secrets/README.md](../secrets/README.md)) adds keys the router doesn't have;

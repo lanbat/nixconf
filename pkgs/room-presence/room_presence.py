@@ -13,7 +13,9 @@ phone, since phones change their Bluetooth address every few minutes:
   is checked against the phone's Identity Resolving Key (IRK). The router
   hands the keys of the phones paired once to every room sensor
   ({"irks": {key: [32 hex]}}, kept in memory only); the room-presence-irks
-  secret, lines of "<person key> <32 hex digits>", adds more.
+  secret, lines of "<person key> <32 hex digits>", adds more. A host bonded
+  with the phone (the one it was paired with) resolves its addresses itself,
+  and BlueZ reports the phone's identity address: the bond's IRK names it.
   `room-presence --paired` prints the IRKs of phones paired with this host.
 
 A phone is a hint that someone is near, not that they are speaking, and never
@@ -38,6 +40,8 @@ PROTOCOL = 1
 APPLE = 0x004C
 REPORT_SECONDS = 15
 WINDOW_SECONDS = 60
+BONDS = "/var/lib/bluetooth/*/*/info"
+BONDS_SECONDS = 60  # how often the bonds are read again (a phone may pair)
 
 
 def log(msg: str) -> None:
@@ -114,11 +118,38 @@ class Tracker:
         return out
 
 
+def read_bonds(pattern: str = BONDS) -> list[tuple[str, str, str]]:
+    """(address, name, IRK as 32 lower-case hex) of each device bonded with
+    this host that handed over an IRK (BlueZ's info files)."""
+    out = []
+    for info in sorted(glob.glob(pattern)):
+        name, irk = "", ""
+        try:
+            with open(info, encoding="utf-8", errors="replace") as f:
+                section = ""
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("["):
+                        section = line
+                    elif line.startswith("Name=") and not name:
+                        name = line[5:]
+                    elif section == "[IdentityResolvingKey]" and line.startswith("Key="):
+                        irk = line[4:].lower()
+        except OSError:
+            continue
+        if re.fullmatch(r"[0-9a-f]{32}", irk):
+            out.append((os.path.basename(os.path.dirname(info)).upper(), name, irk))
+    return out
+
+
 class Recogniser:
-    def __init__(self, beacons: dict[str, str], irks: dict[str, list[bytes]]) -> None:
+    def __init__(self, beacons: dict[str, str], irks: dict[str, list[bytes]], bonds: str = BONDS) -> None:
         self.beacons, self.file_irks = beacons, irks
         self.irks = dict(irks)
+        self.bonds = bonds
         self._addresses: dict[str, str | None] = {}  # an address, once resolved
+        self._bonded: dict[str, str] = {}  # a bonded device's identity address -> person
+        self._bonds_read = float("-inf")
 
     def from_router(self, keys) -> int:
         """The router's keys ({key: [32 hex]}), with the secret's; how many."""
@@ -130,7 +161,17 @@ class Recogniser:
                         merged.setdefault(key, []).append(bytes.fromhex(irk))
         self.irks = merged
         self._addresses.clear()
+        self._bonds_read = float("-inf")
         return sum(map(len, merged.values()))
+
+    def _bonded_person(self, address: str) -> str | None:
+        now = time.monotonic()
+        if now - self._bonds_read > BONDS_SECONDS:
+            self._bonds_read = now
+            owner = {irk: key for key, irks in self.irks.items() for k in irks for irk in (k, k[::-1])}
+            self._bonded = {a: owner[bytes.fromhex(irk)] for a, _, irk in read_bonds(self.bonds)
+                            if bytes.fromhex(irk) in owner}
+        return self._bonded.get(address.upper())
 
     def person(self, address: str, manufacturer_data: dict) -> str | None:
         uuid = parse_ibeacon(manufacturer_data)
@@ -141,7 +182,7 @@ class Recogniser:
                 self._addresses.clear()
             self._addresses[address] = next(
                 (key for key, keys in self.irks.items() for irk in keys if resolves(address, irk)), None)
-        return self._addresses[address]
+        return self._addresses[address] or self._bonded_person(address)
 
 
 # ── I/O ────────────────────────────────────────────────────────────────────
@@ -212,20 +253,8 @@ async def report(tracker: Tracker, url: str, room: str, recogniser: Recogniser |
 
 def paired() -> None:
     """The IRKs of the devices paired with this Pi (BlueZ keeps them)."""
-    for info in sorted(glob.glob("/var/lib/bluetooth/*/*/info")):
-        name, irk = "", ""
-        with open(info, encoding="utf-8", errors="replace") as f:
-            section = ""
-            for line in f:
-                line = line.strip()
-                if line.startswith("["):
-                    section = line
-                elif line.startswith("Name=") and not name:
-                    name = line[5:]
-                elif section == "[IdentityResolvingKey]" and line.startswith("Key="):
-                    irk = line[4:]
-        if irk:
-            print(f"{irk.lower()}  {name or '?'}  ({os.path.basename(os.path.dirname(info))})")
+    for address, name, irk in read_bonds():
+        print(f"{irk}  {name or '?'}  ({address})")
 
 
 def main() -> None:
