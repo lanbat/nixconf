@@ -52,7 +52,11 @@ String id;
 SemaphoreHandle_t lock = nullptr;
 bool started = false;      // the Bluetooth stack
 volatile bool scanning = false;
-uint32_t nextReport = 0, nextScanCheck = 0;
+// The scan starts this long after boot, once the camera and Wi-Fi have
+// taken their internal RAM: all three starting together ran it out, and
+// the next small allocation anywhere aborted (2026-10-19).
+constexpr uint32_t kScanAfterBootMs = 15000;
+uint32_t nextReport = 0, nextScanCheck = kScanAfterBootMs;
 volatile uint32_t advertisements = 0, matched = 0;  // for the debug log
 int lastScanError = 0;
 uint32_t debugUntil = 0, nextDebug = 0;
@@ -230,7 +234,7 @@ void begin() {
     json = prefs.getString("config", "");
     prefs.end();
   }
-  if (json.length() && load(json)) startScan();
+  if (json.length()) load(json);  // scanning starts in update(), after kScanAfterBootMs
 }
 
 void debug(uint32_t ms) { debugUntil = millis() + ms; }
@@ -298,7 +302,7 @@ bool provision(JsonVariantConst config) {
   if (!prefs.begin("phones", false)) return false;
   prefs.putString("config", json);
   prefs.end();
-  if (!scanning) startScan();
+  if (!scanning && millis() >= kScanAfterBootMs) startScan();  // else update() starts it
   return true;
 }
 

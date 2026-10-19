@@ -152,9 +152,12 @@ void detectTask(void*) {
     current = s;
     xSemaphoreGive(lock);
 
+    // Always yield, even when the detector took longer than a frame period:
+    // this task never blocks otherwise, and core 0's idle task must run or
+    // the task watchdog restarts the robot (a pass takes 150-330 ms).
     uint32_t spent = millis() - started;
     uint32_t period = framePeriodMs;
-    if (spent < period) vTaskDelay(pdMS_TO_TICKS(period - spent));
+    vTaskDelay(pdMS_TO_TICKS(spent + 20 < period ? period - spent : 20));
   }
 }
 
