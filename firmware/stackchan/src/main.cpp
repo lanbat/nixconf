@@ -81,7 +81,8 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.7";
+constexpr const char* kFirmware = "1.9.8";
+bool phonesWork = true;  // the address check passes Bluetooth's own sample (setup)
 constexpr int kProtocol = 1;
 
 // Head limits, in tenths of a degree (the BSP's units). Narrower than the
@@ -251,10 +252,10 @@ void sendHello() {
   JsonDocument doc;
   helloLine(doc);
   send(doc);
-  static bool tested = false;
-  if (!tested && pilink::active() != pilink::Via::None) {
-    tested = true;
-    if (!phones::selfTest()) {
+  static bool told = false;
+  if (!told && pilink::active() != pilink::Via::None) {
+    told = true;
+    if (!phonesWork) {
       JsonDocument log;
       log["log"] = "phones: the address check fails Bluetooth's own sample; iPhones won't be recognised";
       send(log);
@@ -935,6 +936,9 @@ void setup() {
   avatar.init();
   avatar.setSpeechFont(&fonts::efontCN_12);
 
+  // The address check first: its AES lock is made on first use, and later
+  // internal RAM can be short for a moment while everything starts.
+  phonesWork = phones::selfTest();
   pilink::begin();
   phones::begin();
   hasCamera = vision::begin();
