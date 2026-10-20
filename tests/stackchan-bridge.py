@@ -634,12 +634,12 @@ class WifiLinkTest(unittest.TestCase):
         with open(cert) as f:
             self.assertEqual(fingerprint, hashlib.sha256(ssl.PEM_cert_to_DER_cert(f.read())).hexdigest())
 
-    def run_robot(self, hello, then=()):
+    def run_robot(self, hello, then=(), phones=None):
         """Dial the bridge as the robot does, pinning its certificate; the
         lines the bridge sent back, and the bridge."""
         cert, key, token, fingerprint = self.identity
         link = WifiLink("127.0.0.1", 0, cert, key, token, fingerprint)
-        bridge = Bridge(Config(), device="/nonexistent", lva_url="", wifi=link, wifi_details=None)
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="", wifi=link, wifi_details=None, phones=phones)
 
         async def scenario():
             server_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -682,6 +682,16 @@ class WifiLinkTest(unittest.TestCase):
             return got, connected
 
         return asyncio.run(scenario())
+
+    def test_the_phones_go_over_wifi_to_firmware_that_takes_them(self):
+        token = self.identity[2]
+        phones = phones_payload("", "sam ec0234a357c8ad05341010a60a397d9b\n")
+        got, _ = self.run_robot({"fw": "1.9.7", "proto": 1, "link": "wifi", "phones": "", "token": token},
+                                phones=phones)
+        self.assertIn({"phones": phones}, got)
+        got, _ = self.run_robot({"fw": "1.9.6", "proto": 1, "link": "wifi", "phones": "", "token": token},
+                                phones=phones)
+        self.assertNotIn("phones", [k for line in got for k in line])
 
     def test_the_right_token_gets_the_whole_state(self):
         token = self.identity[2]
