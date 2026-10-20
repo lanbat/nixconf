@@ -22,14 +22,6 @@
 # devices' addresses only): the who page's link for the room, which proves
 # nothing more than a robot's NFC tag does.
 #
-# Dashboards are streamed by default: dashcast (pkgs/techo5-dashcast), from
-# TECHO5, draws them in a headless Chrome here, signed in to Home Assistant on
-# the loopback as the voice satellites' non-admin user, and sends them to the
-# devices as pictures over a Noise link keyed with techo5-dashcast-key (port
-# 9555, the devices' addresses only). A drawn dashboard would need a
-# certificate the device trusts: TECHO5 checks Home Assistant's websocket even
-# with "Skip certificate checks", and lanbat's CA is its own.
-#
 # Always-on: it is in the voice path, as the robots' bridges are. Nothing on
 # disk.
 {
@@ -53,19 +45,6 @@ let
   hasHa = config.lanbat.hasService "home-assistant";
   enabled = devices != { } && routerHere;
   codePort = 8775;
-  dashcastPort = 9555;
-  dashcast = pkgs.callPackage ../pkgs/techo5-dashcast { };
-  streamed = lib.filterAttrs (_: d: d.dashboard == "streamed") devices;
-  # dashcast signs in to Home Assistant with the voice satellites' token.
-  dashcastOn = enabled && hasHa && streamed != { };
-  haPort = config.lanbat.services.home-assistant.port;
-  # Chrome's text: dashboards hold words in any script, and emoji.
-  fonts = pkgs.makeFontsConf {
-    fontDirectories = [
-      pkgs.noto-fonts
-      pkgs.noto-fonts-color-emoji
-    ];
-  };
   serverIp = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 
@@ -96,7 +75,7 @@ let
       remote_api = false;
     }
     // lib.optionalAttrs hasHa {
-      screen_dashboard = if device.dashboard == "streamed" then "Streamed" else "Drawn on the device";
+      screen_dashboard = "Drawn on the device";
       screen_dashboard_kiosk = true;
       insecure_tls = device.insecureTls;
     }
@@ -130,31 +109,21 @@ let
         ha_url = lib.optionalString hasHa "https://ha.${domain}";
         profiles = lib.mapAttrs (_: profileJson) d.profiles;
         household = profileJson d.household;
-        dashcast = lib.optionalString (
-          dashcastOn && d.dashboard == "streamed"
-        ) "${serverIp}:${toString dashcastPort}";
       }) devices;
-      dashcast_key_file = lib.optionalString dashcastOn "/run/${name}/dashcast-key";
     }
   );
 
-  # Port 8775 (and dashcast's) for the devices alone (the snapcast.nix pattern).
-  specs =
-    map (d: "INPUT -p tcp --dport ${toString codePort} -s ${d.address} -j ACCEPT") (
-      lib.attrValues devices
-    )
-    ++ lib.optionals dashcastOn (
-      map (d: "INPUT -p tcp --dport ${toString dashcastPort} -s ${d.address} -j ACCEPT") (
-        lib.attrValues streamed
-      )
-    );
+  # Port 8775 for the devices alone (the snapcast.nix pattern).
+  specs = map (d: "INPUT -p tcp --dport ${toString codePort} -s ${d.address} -j ACCEPT") (
+    lib.attrValues devices
+  );
 in
 {
   lanbat.services.${name} = {
     tier = "always-on";
     consumes = lib.optional enabled "assistant-router";
-    extraPorts = lib.optional enabled codePort ++ lib.optional dashcastOn dashcastPort;
-    units = lib.optional enabled name ++ lib.optional dashcastOn "techo5-dashcast";
+    extraPorts = lib.optional enabled codePort;
+    units = lib.optional enabled name;
     account = if enabled then { uid = 967; } else null;
     secrets =
       lib.listToAttrs (
@@ -168,13 +137,6 @@ in
           }
         ) (lib.attrNames devices)
       )
-      // {
-        # dashcast's key: a device must present it (openssl rand -base64 24).
-        techo5-dashcast-key = {
-          enable = dashcastOn;
-          owner = "root";
-        };
-      }
       // lib.optionalAttrs (!satelliteDeclares) {
         ha-voice-token = {
           enable = enabled && hasHa;
@@ -223,7 +185,6 @@ in
                 } /run/${name}/${keySecret key}"
               ) (lib.attrNames devices)
               ++ lib.optional hasHa "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.ha-voice-token.path} /run/${name}/ha-token"
-              ++ lib.optional dashcastOn "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.techo5-dashcast-key.path} /run/${name}/dashcast-key"
             )
           )
         }"
@@ -246,54 +207,4 @@ in
       ];
     };
   };
-
-  # dashcast: Chrome runs without its own sandbox (as in TECHO5's container),
-  # so this unit is the wall: a user of its own, nothing to write but /tmp,
-  # and the network to Home Assistant on the loopback and the devices alone.
-  systemd.services.techo5-dashcast = lib.mkIf dashcastOn {
-    description = "Home Assistant dashboards streamed to the Echo Shows (TECHO5 dashcast)";
-    wantedBy = [ "multi-user.target" ];
-    after = [
-      "network-online.target"
-      "home-assistant.service"
-    ];
-    wants = [ "network-online.target" ];
-    environment = {
-      HA_URL = "http://127.0.0.1:${toString haPort}";
-      LISTEN = "${serverIp}:${toString dashcastPort}";
-      CHROME = "${pkgs.chromium}/bin/chromium";
-      HOME = "/tmp";
-      FONTCONFIG_FILE = "${fonts}";
-    };
-    script = ''
-      HA_TOKEN="$(< "$CREDENTIALS_DIRECTORY/ha-token")" \
-      DASHCAST_KEY="$(< "$CREDENTIALS_DIRECTORY/dashcast-key")" \
-        exec ${lib.getExe dashcast}
-    '';
-    serviceConfig = {
-      DynamicUser = true;
-      LoadCredential = [
-        "ha-token:${config.lanbat.secrets.ha-voice-token.path}"
-        "dashcast-key:${config.lanbat.secrets.techo5-dashcast-key.path}"
-      ];
-      Restart = "always";
-      RestartSec = "10s";
-      # About 200 MB per screen showing a dashboard, up to 8 screens.
-      MemoryMax = "2G";
-      PrivateTmp = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      PrivateDevices = true;
-      NoNewPrivileges = true;
-      IPAddressDeny = "any";
-      IPAddressAllow = [ "localhost" ] ++ map (d: d.address) (lib.attrValues streamed);
-      RestrictAddressFamilies = [
-        "AF_INET"
-        "AF_INET6"
-        "AF_UNIX"
-        "AF_NETLINK"
-      ];
-    };
-  };
-
 }

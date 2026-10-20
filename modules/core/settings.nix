@@ -521,21 +521,6 @@ in
                     player where it is.
                   '';
                 };
-                dashboard = mkOption {
-                  type = types.enum [
-                    "streamed"
-                    "drawn"
-                  ];
-                  default = "streamed";
-                  description = ''
-                    How the device shows its dashboard. "streamed": the server's
-                    dashcast draws it in a headless Chrome and sends it over an
-                    encrypted link (techo5-dashcast-key), every card type included.
-                    "drawn": the device draws it itself, which needs a certificate it
-                    trusts: TECHO5 checks Home Assistant's websocket even with
-                    insecureTls, so not with lanbat's internal CA (docs/techo5.md).
-                  '';
-                };
                 insecureTls = mkOption {
                   type = types.bool;
                   default = true;
@@ -545,9 +530,8 @@ in
                     pictures from https://ha.<domain> itself. The connection stays
                     encrypted, but the device no longer checks who answers: someone
                     on the LAN who impersonates the server could get its Home
-                    Assistant token. False keeps checks on, and with them pictures,
-                    weather and whole-file replies off (docs/techo5.md). It doesn't
-                    cover a drawn dashboard's websocket.
+                    Assistant token. False keeps checks on, and with them dashboards,
+                    pictures and whole-file replies off (docs/techo5.md).
                   '';
                 };
                 screenOffAfter = mkOption {

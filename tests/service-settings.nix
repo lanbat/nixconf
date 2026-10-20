@@ -1977,17 +1977,7 @@ let
         && unit.serviceConfig.User == "techo5-bridge"
         && svc.secrets.techo5-kitchen-api-key.enable
         && lib.elem "assistant-router" svc.consumes
-        &&
-          svc.extraPorts == [
-            8775
-            9555
-          ]
-        # The dashboard streamed by dashcast, signed in on the loopback, to the device alone.
-        && routerNoTap.systemd.services.techo5-dashcast.environment.HA_URL == "http://127.0.0.1:8123"
-        && routerNoTap.systemd.services.techo5-dashcast.serviceConfig.DynamicUser
-        && lib.elem "192.0.2.60" routerNoTap.systemd.services.techo5-dashcast.serviceConfig.IPAddressAllow
-        && svc.secrets.techo5-dashcast-key.enable
-        && lib.hasInfix "iptables -I INPUT -p tcp --dport 9555 -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraCommands
+        && svc.extraPorts == [ 8775 ]
         # The example server's own satellite declares the token; the bridge reads it.
         && lib.elem "ha-voice-token" svc.readsSecrets
         && !(svc.secrets ? ha-voice-token)
