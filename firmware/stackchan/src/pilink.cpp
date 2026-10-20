@@ -3,6 +3,7 @@
 #include <NetworkClientSecure.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <freertos/idf_additions.h>
 
 #include <deque>
@@ -13,6 +14,14 @@ namespace {
 constexpr uint32_t kUsbQuietMs = 10000;   // no USB line this long: Wi-Fi
 constexpr uint32_t kUsbSteadyMs = 10000;  // USB back this long: Wi-Fi off
 constexpr uint32_t kDialFirstMs = 5000, kDialMaxMs = 60000;
+// The robot dozes between beacons (Bluetooth's radio sharing needs it), and
+// some access points never flag the frames they hold for a dozing client:
+// the MediaTek MT7921 serving as one (2026-10-20, a capture showed no
+// beacon set its bit in ~800). A frame from the robot wakes it for a moment
+// and the access point hands them over, so it sends one this often: a byte
+// to the Pi's discard port, which the Pi drops.
+constexpr uint32_t kKeepAliveMs = 200;
+constexpr uint16_t kDiscardPort = 9;
 constexpr uint32_t kConnectTimeoutMs = 8000;
 constexpr size_t kMaxLine = 1024;  // the Pi's lines are short
 
@@ -97,7 +106,10 @@ bool dial() {
 volatile int lastRssi = 0;
 
 void wifiTask(void*) {
-  uint32_t backoff = kDialFirstMs, nextDial = 0, nextRssi = 0;
+  uint32_t backoff = kDialFirstMs, nextDial = 0, nextRssi = 0, nextKeepAlive = 0;
+  WiFiUDP keepAlive;
+  IPAddress pi;
+  bool havePi = false;
   String line;
   uint8_t buf[256];
   for (;;) {
@@ -113,6 +125,14 @@ void wifiTask(void*) {
       }
       vTaskDelay(pdMS_TO_TICKS(200));
       continue;
+    }
+    if ((int32_t)(millis() - nextKeepAlive) >= 0) {
+      nextKeepAlive = millis() + kKeepAliveMs;
+      if (havePi || (havePi = pi.fromString(copyConfig().host))) {
+        keepAlive.beginPacket(pi, kDiscardPort);
+        keepAlive.write((uint8_t)0);
+        keepAlive.endPacket();
+      }
     }
     if ((int32_t)(millis() - nextRssi) >= 0) {
       nextRssi = millis() + 10000;
