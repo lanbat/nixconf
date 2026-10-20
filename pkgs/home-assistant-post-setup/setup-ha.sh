@@ -30,6 +30,9 @@ KODI_PASSWORD_FILE="${KODI_PASSWORD_FILE:-}"
 # package}}, and the ADB key Home Assistant uses for them (the provisioner's).
 ANDROID_TVS="${ANDROID_TVS:-[]}"
 ANDROID_ADBKEY="${ANDROID_ADBKEY:-}"
+# Echo Shows on TECHO5, a JSON list of {title, host, room, key_file, player}:
+# ESPHome devices with an encryption key (services/techo5-bridge.nix).
+TECHO5_DEVICES="${TECHO5_DEVICES:-[]}"
 SERVER_HOST_KEY="${SERVER_HOST_KEY:-}"
 PRIMARY_STORAGE_KEY="${PRIMARY_STORAGE_KEY:-}"
 
@@ -328,6 +331,70 @@ ensure_voice_satellite_registrations() {
   done <<< "$VOICE_SATELLITE_REGISTRATIONS"
 }
 
+# The Echo Shows on TECHO5: an ESPHome entry each, with the device's encryption
+# key from its file. An entry is found by the device's address, its title or
+# its key, so a device Home Assistant discovered and someone added by hand is
+# taken over (given the title, address and key) rather than added twice.
+techo5_wanted_json() {
+  local d file
+  {
+    while IFS= read -r d; do
+      [[ -n "$d" ]] || continue
+      file="$(jq -r .key_file <<< "$d")"
+      if [[ ! -s "$file" ]]; then
+        log "no encryption key for $(jq -r .title <<< "$d"); not added"
+        continue
+      fi
+      # The key goes in from its file, never as an argument.
+      jq -n --argjson d "$d" --rawfile key "$file" '$d + {key: ($key | gsub("\\s"; ""))} | del(.key_file)'
+    done < <(jq -c '.[]' <<< "$TECHO5_DEVICES")
+  } | jq -s .
+}
+
+TECHO5_RECONCILE_JQ='
+  reduce $want[] as $d (.;
+    ([.data.entries | to_entries[]
+      | select(.value.domain == "esphome"
+          and (.value.data.host == $d.host or .value.title == $d.title or .value.data.noise_psk == $d.key))
+      | .key]) as $hits
+    | if ($hits | length) > 0 then
+        .data.entries[$hits[0]] |= (.title = $d.title | .data.host = $d.host | .data.port = 6053
+          | .data.noise_psk = $d.key | .data.password = (.data.password // ""))
+      else
+        .missing += [$d]
+      end)'
+
+techo5_reconciled() {
+  jq --argjson want "$(techo5_wanted_json)" "$TECHO5_RECONCILE_JQ" "$CONFIG_ENTRIES"
+}
+
+techo5_needed() {
+  [[ "$TECHO5_DEVICES" != "[]" && -f "$CONFIG_ENTRIES" ]] || return 1
+  local wanted
+  wanted="$(techo5_reconciled)"
+  jq -e '(.missing // []) | length > 0' <<< "$wanted" >/dev/null && return 0
+  [[ "$(jq -S 'del(.missing) | .data.entries' <<< "$wanted")" != "$(jq -S '.data.entries' "$CONFIG_ENTRIES")" ]]
+}
+
+ensure_techo5() {
+  techo5_needed || return 0
+  local wanted tmp d
+  wanted="$(techo5_reconciled)"
+  if [[ "$(jq -S 'del(.missing) | .data.entries' <<< "$wanted")" != "$(jq -S '.data.entries' "$CONFIG_ENTRIES")" ]]; then
+    log "reconciling the TECHO5 devices' entries"
+    tmp="$(mktemp)"
+    jq 'del(.missing)' <<< "$wanted" > "$tmp"
+    install -o hass -g hass -m 0600 "$tmp" "$CONFIG_ENTRIES"
+    rm "$tmp"
+  fi
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    log "adding TECHO5 device $(jq -r .title <<< "$d") ($(jq -r .host <<< "$d"))"
+    add_entry esphome "$(jq -r .title <<< "$d")" \
+      "$(jq '{host: .host, port: 6053, password: "", noise_psk: .key}' <<< "$d")"
+  done < <(jq -c '(.missing // [])[]' <<< "$wanted")
+}
+
 # Each satellite with a room (lanbat.deployment.voiceRooms), and the Music
 # Assistant player of its host's Snapcast client, go in that Home Assistant
 # area, on every run, so "play …" and "turn off the lights" act on the room the
@@ -346,6 +413,8 @@ satellite_areas_json() {
     done <<< "$VOICE_SATELLITE_REGISTRATIONS"
     # The TVs: every device under a Kodi or Android TV entry for that host.
     jq -c '.[] | select(.room != "") | {room, domain: "androidtv", host}' <<< "$ANDROID_TVS"
+    # The Echo Shows, and their Music Assistant players by the device's own name.
+    jq -c '.[] | {title, room, hostname: (if .player == "" then null else .player end)}' <<< "$TECHO5_DEVICES"
     while IFS='|' read -r hostKey host room hostname; do
       [[ -n "$hostKey" && -n "$room" ]] || continue
       jq -n --arg room "$room" --arg host "$host" '{room: $room, domain: "kodi", host: $host}'
@@ -379,7 +448,7 @@ satellite_areas_wanted() {
 }
 
 satellite_areas_needed() {
-  [[ -n "$VOICE_SATELLITE_REGISTRATIONS$KODI_HOSTS" || "$ANDROID_TVS" != "[]" ]] || return 1
+  [[ -n "$VOICE_SATELLITE_REGISTRATIONS$KODI_HOSTS" || "$ANDROID_TVS" != "[]" || "$TECHO5_DEVICES" != "[]" ]] || return 1
   [[ -f "$DEVICE_REGISTRY" && -f "$AREA_REGISTRY" ]] || return 1
   [[ "$(satellite_areas_wanted | jq -S '.data.devices')" != "$(jq -S '.data.devices' "$DEVICE_REGISTRY")" ]]
 }
@@ -1106,13 +1175,21 @@ ensure_device_areas() {
 HA_DASHBOARDS="${HA_DASHBOARDS:-}"
 DASHBOARD_LINKS="${DASHBOARD_LINKS:-}"
 [[ -n "$DASHBOARD_LINKS" ]] || DASHBOARD_LINKS='{}'
+# The rooms with a screen (techo5-bridge), [{room, path}], and the people.
+DASHBOARD_SCREENS="${DASHBOARD_SCREENS:-[]}"
+DASHBOARD_PEOPLE="${DASHBOARD_PEOPLE:-{\}}"
 STORAGE_DIR="${HASS_CONFIG}/.storage"
 GENERATED_STORES=(lovelace.lovelace lovelace.lanbat-cameras lovelace.lanbat-system)
+# A screen's dashboard is a store of its own.
+while IFS= read -r path; do
+  [[ -n "$path" ]] && GENERATED_STORES+=("lovelace.${path}")
+done < <(jq -r '.[].path' <<< "$DASHBOARD_SCREENS")
 
 # Generate into $1 and add the merged lovelace_dashboards and energy stores.
 dashboards_render() {
   local out="$1"
-  "$HA_DASHBOARDS" --storage "$STORAGE_DIR" --out "$out" --links "$DASHBOARD_LINKS"
+  "$HA_DASHBOARDS" --storage "$STORAGE_DIR" --out "$out" --links "$DASHBOARD_LINKS" \
+    --screens "$DASHBOARD_SCREENS" --people "$DASHBOARD_PEOPLE"
   if [[ -f "$STORAGE_DIR/lovelace_dashboards" ]]; then
     cat "$STORAGE_DIR/lovelace_dashboards"
   else
@@ -1189,6 +1266,7 @@ else
   done
 fi
 if kodi_needed; then needs_work=true; fi
+if techo5_needed; then needs_work=true; fi
 if androidtv_needed; then needs_work=true; fi
 if satellite_areas_needed; then needs_work=true; fi
 if llm_needed; then needs_work=true; fi
@@ -1230,6 +1308,7 @@ else
 fi
 ensure_kodi
 ensure_androidtv
+ensure_techo5
 ensure_satellite_areas
 ensure_llm
 ensure_pipeline

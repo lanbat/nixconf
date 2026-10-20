@@ -384,6 +384,23 @@ the mic **channel order**, and a per-room **offset**.
 Check it: `journalctl -u lva-stackchan -f` shows `voice at 25 degrees (confidence 0.83):
 turning` as you move around the robot.
 
+## Bodies that aren't robots
+
+The router's body socket (`assistant_router/body.py`) takes other bodies too: an Echo
+Show on TECHO5 is one ([techo5.md](techo5.md)). A body's hello may say what it can do:
+
+| Hello | Meaning |
+|---|---|
+| `{"hello": {"room", "kind": "stackchan", "proto": 1}}` | A robot: no `can`, so everything but `here` |
+| `{"hello": {"room", "kind": "screen", "proto": 1, "can": [...]}}` | Only what it names: `mood`, `gesture`, `look`, `sleep`, `caption`, `greet`, `capture`, `phones`, `here` |
+
+The router sends a body only the acts it can show and answers a body command ("nod",
+"dance") only where the body can do it. It asks for a face only with `capture` and
+hands over the phones' keys only with `phones`. A body with `here` is told who is in its
+room, when it connects and on each change: `{"here": [{"person", "name",
+"confidence"}]}`. Home Assistant gets a "<room> presence" device for it, with the room's
+guesses and none of a robot's controls.
+
 ## How it fits together
 
 ```

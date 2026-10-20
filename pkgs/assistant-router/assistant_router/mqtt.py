@@ -11,6 +11,9 @@ publishes them, with one broker login on the server:
   and its LEDs as a notification light;
 - in each robot's room, "probably" who spoke last, who is nearby and who is
   here, labelled as guesses (never for anything that needs to be sure);
+- for a body that isn't a robot (a screen, body.py's "can"), a "<room>
+  presence" device with only those guesses, someone in front of it and its
+  "recognized" event: no robot controls;
 - a "People" device: who is home (wifi-presence), and for each person where
   they probably are (People.where), added, renamed and removed with them.
 
@@ -56,12 +59,15 @@ def _base(room: str) -> str:
     return f"{PREFIX}/stackchan/{slug(room)}"
 
 
-def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
-    """(topic, config) for every entity of the robot in `room`."""
+def robot_discovery(room: str, fw: str | None = None, robot: bool = True) -> list[tuple[str, dict]]:
+    """(topic, config) for every entity of the robot in `room`; with `robot`
+    false, the room's guesses alone, on a device of their own."""
     s, base = slug(room), _base(room)
-    uid = f"lanbat_stackchan_{s}"
-    device = {"identifiers": [uid], "name": f"Stack-chan {room}", "manufacturer": "M5Stack",
-              "model": "StackChan", "suggested_area": room}
+    uid = f"lanbat_stackchan_{s}" if robot else f"lanbat_room_{s}"
+    device = ({"identifiers": [uid], "name": f"Stack-chan {room}", "manufacturer": "M5Stack",
+               "model": "StackChan", "suggested_area": room} if robot else
+              {"identifiers": [uid], "name": f"{room} presence", "manufacturer": "lanbat",
+               "model": "Who is around (a guess)", "suggested_area": room})
     if fw:
         device["sw_version"] = fw
     common = {"device": device, "availability_mode": "all",
@@ -204,6 +210,10 @@ def robot_discovery(room: str, fw: str | None = None) -> list[tuple[str, dict]]:
         entity("button", "camera_view", "Show camera view", command_topic=f"{base}/cmd/debug",
                payload_press="camera", icon="mdi:camera-iris", entity_category="diagnostic"),
     ]
+    if not robot:
+        # Who is around, and its greeting.
+        keep = {"someone", "speaker", "nearby", "here", "recognized"} | {f"seen_{src}" for src, _, _ in SOURCES}
+        return [(topic, config) for topic, config in out if topic.split("/")[3] in keep]
     # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
     out.append((f"{DISCOVERY}/tag/{uid}/nfc/config", {"topic": f"{base}/tag", "device": device}))
     for gesture in BUTTONS:
@@ -399,7 +409,7 @@ class HomeAssistant:
         self.people = people
         self.clock = clock
         self._published: dict[str, str] = {}  # topic -> payload, to send only changes
-        self._discovered: dict[str, str | None] = {}  # room -> the firmware it was announced with
+        self._discovered: dict[str, tuple[str | None, bool]] = {}  # room -> (its firmware, a robot) as announced
         self._leds: dict[str, dict] = {}  # room -> the light's state, as last commanded
         self._people_announced: dict[str, str] | None = None  # the people announced, key -> name
         bodies.events = asyncio.Queue(maxsize=64)
@@ -438,15 +448,18 @@ class HomeAssistant:
             state = robot_state(self.bodies, room)
             if state is None:
                 continue
-            if room not in self._discovered or self._discovered[room] != state["fw"]:
-                for topic, config in robot_discovery(room, state["fw"]):
+            robot = self.bodies.is_robot(room)
+            if self._discovered.get(room) != (state["fw"], robot):
+                for topic, config in robot_discovery(room, state["fw"], robot):
                     await self._send(publish, topic, config)
-                self._discovered[room] = state["fw"]
+                self._discovered[room] = (state["fw"], robot)
             await self._send(publish, f"{_base(room)}/availability", "online")
             await self._send(publish, f"{_base(room)}/state", state)
             await self._send(publish, f"{_base(room)}/identity", identity(self.people, room, now))
             await self._send(publish, f"{_base(room)}/evidence", evidence(self.people, room, now))
             await self._send(publish, f"{_base(room)}/here", here(self.people, room, now))
+            if not robot:
+                continue
             if room not in self._leds:
                 self._leds[room] = {"state": "OFF", "color_mode": "rgb"}
             await self._send(publish, f"{_base(room)}/led", self._leds[room])
@@ -482,6 +495,8 @@ class HomeAssistant:
         if len(parts) != 5 or parts[0] != PREFIX or parts[1] != "stackchan" or parts[3] != "cmd":
             return
         room = next((r for r in self.bodies.rooms() if slug(r) == parts[2]), None)
+        if room is not None and not self.bodies.is_robot(room) and parts[4] != "caption":
+            return  # the rest are a robot's controls; a caption is anyone's (script.lanbat_notify_person)
         if room is not None and parts[4] == "read_card" and payload.strip() == "ON":
             # Cards for Home Assistant's tag scanner, while the robot is a tag for phones.
             await self.bodies.send(room, {"nfc_read": 30})

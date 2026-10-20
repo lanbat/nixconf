@@ -341,3 +341,34 @@ async def test_the_turn_calibration_in_home_assistant():
     configs = dict(robot_discovery("Living room"))
     assert "homeassistant/sensor/lanbat_stackchan_living_room/turn_cal/config" in configs
     assert "homeassistant/switch/lanbat_stackchan_living_room/auto_turn/config" in configs
+
+
+def test_a_screen_gets_the_rooms_guesses_and_no_robot_controls():
+    configs = dict(robot_discovery("Kitchen", None, robot=False))
+    objects = {topic.split("/")[3] for topic in configs}
+    assert {"someone", "speaker", "nearby", "here", "recognized", "seen_camera", "seen_bluetooth"} <= objects
+    assert not objects & {"battery", "light", "nod", "turn", "nfc", "caption", "mood_select"}
+    assert all("/lanbat_room_kitchen/" in topic for topic in configs)
+    device = configs["homeassistant/sensor/lanbat_room_kitchen/here/config"]["device"]
+    assert device["name"] == "Kitchen presence" and device["suggested_area"] == "Kitchen"
+
+
+async def test_a_screen_is_published_without_its_light_and_ignores_robot_commands():
+    bodies = Bodies("You are Nabu.")
+    people = People({"kiril": "Kiril"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0)
+    socket = Socket()
+    bodies.connect("Kitchen", socket, "screen", ["mood", "greet", "here"])
+    broker = Broker()
+    await ha.tick(broker.publish)
+    topics = broker.topics()
+    assert "homeassistant/sensor/lanbat_room_kitchen/here/config" in topics
+    assert not any("lanbat_stackchan_kitchen" in t for t in topics)
+    assert "lanbat/stackchan/kitchen/here" in topics and "lanbat/stackchan/kitchen/led" not in topics
+    await ha.handle("lanbat/stackchan/kitchen/cmd/mood", "happy", broker.publish)
+    assert socket.sent == []
+    await ha.handle("lanbat/stackchan/kitchen/cmd/caption", "The washer is done", broker.publish)
+    assert socket.sent == []  # it can't show captions
+    bodies.connect("Kitchen", socket, "screen", ["caption", "here"])
+    await ha.handle("lanbat/stackchan/kitchen/cmd/caption", "The washer is done", broker.publish)
+    assert socket.sent == [{"act": {"caption": "The washer is done"}}]

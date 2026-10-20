@@ -10,6 +10,8 @@ morning, Alex!"), from these signals:
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
 | **Phone, Wi-Fi** | A host serving Wi-Fi measures the phones among its access point's clients (`pkgs/room-presence`, [wifi.md](wifi.md)) | live |
 | **Home** | The server hears a person's phone on the home network (`services/wifi-presence.nix`) | live |
+| **Face, screen** | An Echo Show on TECHO5 sends a frame when someone comes into view; the router names it against Frigate ([techo5.md](techo5.md)) | live |
+| **Phone, screen** | An Echo Show's Bluetooth hears a person's phone; its bridge recognises it as a room sensor does | live |
 | **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | live |
 
 This page describes the part they share: the people list and how the assistant router
@@ -62,6 +64,11 @@ router without Frigate just stays quiet. Nothing is sent while it is asleep. The
 rules below are the same as for the cameras. To enrol a face the robot can name, tap your
 phone on it or say "remember me" ([Meeting Nabu](#meeting-nabu)), or add photos to your
 entry in Frigate's face library.
+
+An Echo Show on TECHO5 does the same "seen" probes with its own camera when its person
+detector sees someone, every 20 s until the router names them, and its frame is what
+"remember me" enrols. Frames leave it only for those two, and go no further than the
+router and Frigate ([techo5.md](techo5.md)).
 
 ## Phones in the room
 

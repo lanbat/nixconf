@@ -1,4 +1,5 @@
-"""Bodies: a robot face on a satellite (pkgs/lva-stackchan), by room.
+"""Bodies: a robot face on a satellite (pkgs/lva-stackchan), or a screen
+(pkgs/techo5-bridge), by room.
 
 A body connects over a WebSocket and tells the router what it senses; the
 router tells it what to show. Both ways the messages are fixed fields with
@@ -6,6 +7,8 @@ values from fixed lists, so nothing a body sends ever becomes free text in a
 prompt:
 
     body -> router  {"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}}
+                    {"hello": {"room": "Kitchen", "kind": "screen", "proto": 1,
+                               "can": ["mood", "caption", "greet", "capture", "phones", "here"]}}
                     {"state": {"present": true, "present_since_s": 130, "asleep": false, "battery_low": false,
                                "night": false, "nap": false, "battery": 87, "charging": false, "link": "usb",
                                "mood": "neutral", "brightness": 180, "fw": "1.5.0"}}
@@ -21,6 +24,13 @@ prompt:
                     {"act": {"caption": "...", "brightness": 0-255, "led": {"rgb": [r, g, b]} | null}}
                                                   (from Home Assistant, assistant_router/mqtt.py)
                     {"capture": true}             send me a face of whoever is in front
+                    {"here": [{"person": "<key>", "name": "...", "confidence": 0.9}]}
+                                                  who is in its room, on each change (bodies that can "here")
+
+A hello without "can" is a robot, which can do everything but "here". A body
+that names what it can do (CAPABILITIES) is sent only acts it can show, is
+asked for a face only with "capture", is handed the phones' keys only with
+"phones", and is told who is here only with "here".
 
 A face comes over only when the room's body is asked for one (enrolment); the
 bytes go straight to Frigate's face library and never into a prompt, so the
@@ -48,6 +58,15 @@ RESTARTS = ("panic", "brownout", "task-watchdog", "interrupt-watchdog", "watchdo
 # Gestures the robot plays (the bridge's list), for Home Assistant's gesture event.
 GESTURE_EVENTS = ("perk", "nod", "shake", "wiggle", "tilt", "dance", "look_around")
 GESTURES = ("nod", "shake", "tilt", "wiggle", "dance", "look_around", "look_at_user")
+
+# What a body may say it can do in its hello ("can"). A robot, which says
+# nothing, can do all of these but "here".
+CAPABILITIES = ("mood", "gesture", "look", "sleep", "caption", "greet", "capture", "phones", "here")
+ROBOT_CAN = frozenset(CAPABILITIES) - {"here"}
+# An act's fields and the capability each needs; the rest (brightness, led,
+# yaw, nap, ...) are a robot's own.
+ACT_NEEDS = {"mood": "mood", "gesture": "gesture", "look": "look", "sleep": "sleep", "caption": "caption",
+             "greet": "greet"}
 
 # How long to wait for a body's face before a capture is reported as failed.
 CAPTURE_TIMEOUT_S = 10.0
@@ -140,21 +159,53 @@ def _key(room: str) -> str:
     return (room or "").strip().casefold()
 
 
+def parse_can(value: Any) -> frozenset[str] | None:
+    """A hello's "can": the known capabilities it names, or None (a robot)
+    when it names none."""
+    if not isinstance(value, list):
+        return None
+    return frozenset(c for c in value if isinstance(c, str) and c in CAPABILITIES)
+
+
 class Bodies:
     """The connected bodies, one per room."""
 
     def __init__(self, persona: str) -> None:
         self.persona = persona.strip()
         self._sockets: dict[str, Any] = {}
+        self._kinds: dict[str, str] = {}  # room key -> the body's kind ("stackchan", "screen")
+        self._can: dict[str, frozenset[str] | None] = {}  # room key -> what it can do; None: a robot
         self._states: dict[str, BodyState] = {}
         self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
         self._names: dict[str, str] = {}  # room key -> the room as the body named it
         self.events: asyncio.Queue | None = None  # (room, event) for Home Assistant, when it listens
 
-    def connect(self, room: str, socket: Any) -> None:
+    def connect(self, room: str, socket: Any, kind: str = "stackchan", can: Any = None) -> None:
         self._sockets[_key(room)] = socket
         self._states[_key(room)] = BodyState()
         self._names[_key(room)] = room.strip()
+        self._kinds[_key(room)] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z0-9-]{1,32}", kind) \
+            else "stackchan"
+        self._can[_key(room)] = parse_can(can)
+
+    def kind(self, room: str) -> str | None:
+        return self._kinds.get(_key(room)) if self.has(room) else None
+
+    def is_robot(self, room: str) -> bool:
+        """A body that named nothing it can do: a robot, with all its controls."""
+        return self.has(room) and self._can.get(_key(room)) is None
+
+    def can(self, room: str, what: str) -> bool:
+        if not self.has(room):
+            return False
+        can = self._can.get(_key(room))
+        return what in (ROBOT_CAN if can is None else can)
+
+    def doable(self, room: str, act: dict[str, Any]) -> dict[str, Any]:
+        """The part of `act` the room's body can show."""
+        if self.is_robot(room):
+            return dict(act)
+        return {k: v for k, v in act.items() if k in ACT_NEEDS and self.can(room, ACT_NEEDS[k])}
 
     def rooms(self) -> list[str]:
         """The rooms with a body, as the bodies named them."""
@@ -208,6 +259,8 @@ class Bodies:
         if self._sockets.get(_key(room)) is socket:
             del self._sockets[_key(room)]
             self._states.pop(_key(room), None)
+            self._kinds.pop(_key(room), None)
+            self._can.pop(_key(room), None)
         fut = self._captures.pop(_key(room), None)
         if fut is not None and not fut.done():
             fut.set_result(None)  # the body went away: no face is coming
@@ -291,6 +344,8 @@ class Bodies:
             state.bridge_error = (re.sub(r"[^ -~]", "", error)[:80] or None) if isinstance(error, str) else None
 
     async def act(self, room: str, act: dict[str, Any]) -> bool:
+        """Send what of `act` the body can show; False when that is nothing."""
+        act = self.doable(room, act)
         if not act:
             return False
         return await self.send(room, {"act": act})
@@ -310,7 +365,7 @@ class Bodies:
         no body, a capture is already in flight, or no face arrives in time."""
         key = _key(room)
         socket = self._sockets.get(key)
-        if socket is None or key in self._captures:
+        if socket is None or key in self._captures or not self.can(room, "capture"):
             return None
         fut = asyncio.get_running_loop().create_future()
         self._captures[key] = fut
@@ -357,10 +412,14 @@ class Bodies:
             seen += " You were asleep until you were spoken to."
         if state.battery_low:
             seen += " Your battery is low: when it fits, ask to be charged."
-        return "\n".join([
-            self.persona,
-            seen,
-            "Your face shows a mood and your head moves. Begin every reply with a tag the listener "
-            "won't hear: [mood] or [mood gesture], where mood is one of " + ", ".join(MOODS)
-            + " and gesture one of " + ", ".join(GESTURES) + ". Example: [excited nod] Good morning!",
-        ])
+        lines = [self.persona, seen]
+        if self.can(room, "mood") and self.can(room, "gesture"):
+            lines.append(
+                "Your face shows a mood and your head moves. Begin every reply with a tag the listener "
+                "won't hear: [mood] or [mood gesture], where mood is one of " + ", ".join(MOODS)
+                + " and gesture one of " + ", ".join(GESTURES) + ". Example: [excited nod] Good morning!")
+        elif self.can(room, "mood"):
+            lines.append(
+                "Your screen shows a mood. Begin every reply with a tag the listener won't hear: [mood], "
+                "where mood is one of " + ", ".join(MOODS) + ". Example: [happy] Good morning!")
+        return "\n".join(lines)

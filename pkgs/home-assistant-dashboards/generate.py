@@ -10,6 +10,12 @@ Reads the registries in a Home Assistant .storage directory and writes, into
   lovelace.lanbat-cameras  the cameras, live, with what they have seen
   lovelace.lanbat-system   Zigbee, updates, batteries, backups, voice, the
                            server's health and links to the other services
+  lovelace.lanbat-screen-<room>
+                           for each Echo Show on TECHO5 (--screens): what its
+                           room's screen shows, drawn by the device itself, with
+                           a view for each person (--people) that its bridge
+                           turns to while the assistant router places them
+                           there alone (pkgs/techo5-bridge)
 
 and two fragments for post-setup to merge into stores the user shares:
 
@@ -562,11 +568,61 @@ def system_view(home: Home, links: dict) -> dict:
             "max_columns": 4, "sections": sections}
 
 
+# ── a room's screen (an Echo Show on TECHO5) ───────────────────────────────
+# Only cards the device draws itself (TECHO5 docs/dashboards.md): headings,
+# tiles, pictures, and visibility. Its clock, calendar, timers and music are
+# its own.
+def person_slug(key: str) -> str:
+    """As the assistant router names a person's entities (mqtt.slug)."""
+    return re.sub(r"[^a-z0-9]+", "_", key.casefold()).strip("_") or "room"
+
+
+def where_sensors(home: Home, people: dict[str, str], but: str | None = None) -> list[str]:
+    ids = {e["id"] for e in home.all}
+    return [f"sensor.lanbat_people_where_{person_slug(k)}" for k in sorted(people)
+            if k != but and f"sensor.lanbat_people_where_{person_slug(k)}" in ids]
+
+
+def screen_sections(home: Home, room: str, people: dict[str, str], person: str | None) -> list[dict]:
+    area = next((a for a in home.areas if a["name"].casefold() == room.casefold()), None)
+    weather = next((e["id"] for e in home.primary if e["domain"] == "weather"), "")
+    first = people.get(person, "").split()[0] if person and people.get(person, "").split() else ""
+    top = [heading(f"Hi {first}" if first else room, "mdi:hand-wave" if first else
+                   (area_icon(area) if area else "mdi:home-outline"))]
+    if weather:
+        top.append(tile(weather, grid_options={"columns": 12}))
+    room_lights = [e for e in home.lights() if area and home.area_of(e) == area["id"]]
+    if room_lights:
+        top.append({"type": "button", "name": "Lights off", "icon": "mdi:lightbulb-group-off", "show_state": False,
+                    "tap_action": all_off_action(room_lights), "hold_action": {"action": "none"},
+                    "visibility": [{"condition": "or", "conditions": [
+                        {"condition": "state", "entity": l, "state": "on"} for l in room_lights]}]})
+    sections = [{"type": "grid", "cards": top}]
+    cards = [c for c in (room_cards(home, area["id"]) if area else []) if c["type"] != "picture-entity"]
+    if cards:
+        sections.append({"type": "grid", "cards": [subheading(area["name"], area_icon(area))] + cards})
+    others = where_sensors(home, people, but=person)
+    if others:
+        sections.append({"type": "grid", "cards": [subheading("Who's where", "mdi:account-group")]
+                         + [tile(s) for s in others]})
+    return sections
+
+
+def screen_dashboard(home: Home, room: str, people: dict[str, str]) -> dict:
+    views = [{"title": room, "path": "home", "icon": "mdi:home", "type": "sections", "max_columns": 2,
+              "sections": screen_sections(home, room, people, None)}]
+    for key in sorted(people):
+        views.append({"title": people[key], "path": key, "icon": "mdi:account", "type": "sections",
+                      "max_columns": 2, "sections": screen_sections(home, room, people, key)})
+    return {"title": f"{room} screen", "views": views}
+
+
 def store(key: str, config: dict) -> dict:
     return {"version": 1, "minor_version": 1, "key": key, "data": {"config": config}}
 
 
-def generate(storage: str, links: dict) -> dict[str, dict]:
+def generate(storage: str, links: dict, screens: list[dict] | None = None,
+             people: dict[str, str] | None = None) -> dict[str, dict]:
     home = Home(storage)
     overview = [home_view(home)] + [v for v in (media_view(home), climate_view(home), garden_view(home),
                                                 energy_view(home)) if v]
@@ -587,6 +643,12 @@ def generate(storage: str, links: dict) -> dict[str, dict]:
         "energy-devices.json": energy_devices(home),
         "all-lights.json": home.lights(),
     }
+    for screen in screens or []:
+        path, room = screen["path"], screen["room"]
+        out[f"lovelace.{path}"] = store(f"lovelace.{path}", screen_dashboard(home, room, people or {}))
+        out["dashboards.json"].append({"id": path, "url_path": path, "title": f"{room} screen",
+                                       "icon": "mdi:tablet-dashboard", "mode": "storage",
+                                       "require_admin": False, "show_in_sidebar": False})
     return out
 
 
@@ -608,10 +670,14 @@ def main() -> None:
     p.add_argument("--storage", required=True, help="Home Assistant's .storage directory")
     p.add_argument("--out", required=True, help="directory to write the generated files into")
     p.add_argument("--links", default="{}", help='JSON object {"Name": "https://..."} for the link buttons')
+    p.add_argument("--screens", default="[]",
+                   help='JSON list [{"room": "Kitchen", "path": "lanbat-screen-kitchen"}] of rooms with a screen')
+    p.add_argument("--people", default="{}", help='JSON object {"key": "Name"} of the people (deployment.people)')
     args = p.parse_args()
     links = json.loads(args.links or "{}")
     os.makedirs(args.out, exist_ok=True)
-    for name, content in generate(args.storage, links).items():
+    for name, content in generate(args.storage, links, json.loads(args.screens or "[]"),
+                                  json.loads(args.people or "{}")).items():
         with open(os.path.join(args.out, name), "w", encoding="utf-8") as f:
             json.dump(content, f, indent=2, sort_keys=True, ensure_ascii=False)
             f.write("\n")

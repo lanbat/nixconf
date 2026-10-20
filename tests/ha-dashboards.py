@@ -173,6 +173,39 @@ with tempfile.TemporaryDirectory() as tmp:
            == [("lanbat-cameras", False), ("lanbat-system", True), ("lovelace", False)])
     expect("every card has a type",
            all(isinstance(c.get("type"), str) for _, c in walk(a["lovelace.lovelace"]["data"]["config"])))
+    # A room with a screen (an Echo Show on TECHO5): its own dashboard, a view
+    # per person, with only cards the device draws.
+    screens = os.path.join(tmp, "screens")
+    write_fixture(screens)
+    reg = json.load(open(os.path.join(screens, "core.entity_registry")))
+    for key in ("alex", "sam"):
+        reg["data"]["entities"].append({
+            "entity_id": f"sensor.lanbat_people_where_{key}", "platform": "mqtt", "device_id": None,
+            "device_class": None, "original_device_class": None, "unit_of_measurement": None,
+            "entity_category": None, "area_id": None, "disabled_by": None, "hidden_by": None,
+            "unique_id": f"lanbat_people_where_{key}"})
+    json.dump(reg, open(os.path.join(screens, "core.entity_registry"), "w"))
+    out = os.path.join(tmp, "s")
+    subprocess.run([GEN, "--storage", screens, "--out", out,
+                    "--screens", json.dumps([{"room": "Office", "path": "lanbat-screen-office"}]),
+                    "--people", json.dumps({"alex": "Alex Example", "sam": "Sam"})], check=True)
+    s_ = {n: json.load(open(os.path.join(out, n))) for n in sorted(os.listdir(out))}
+    screen = s_.get("lovelace.lanbat-screen-office", {}).get("data", {}).get("config", {})
+    paths = [v["path"] for v in screen.get("views", [])]
+    expect("a screen's dashboard has a home view and one per person", paths == ["home", "alex", "sam"])
+    alex = json.dumps(screen["views"][1]) if len(paths) == 3 else ""
+    expect("a person's view greets them and shows where the others are, not themselves",
+           '"Hi Alex"' in alex and "sensor.lanbat_people_where_sam" in alex
+           and "sensor.lanbat_people_where_alex" not in alex)
+    expect("the screen shows its room's devices", "sensor.office_temperature" in json.dumps(screen))
+    drawn = {"heading", "tile", "button", "entities", "glance", "markdown", "picture-entity", "grid",
+             "vertical-stack", "horizontal-stack", "conditional", "gauge", "history-graph", "sensor"}
+    kinds = {c["type"] for _, c in walk(screen)} - {"sections", "grid"}
+    expect("the screen uses only cards the device draws", kinds <= drawn)
+    expect("the screen's dashboard is listed, out of the sidebar",
+           {"id": "lanbat-screen-office", "url_path": "lanbat-screen-office", "title": "Office screen",
+            "icon": "mdi:tablet-dashboard", "mode": "storage", "require_admin": False, "show_in_sidebar": False}
+           in s_["dashboards.json"])
     # No room at all: still a valid, small dashboard.
     empty = os.path.join(tmp, "empty")
     os.makedirs(empty)

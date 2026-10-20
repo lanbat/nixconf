@@ -190,6 +190,20 @@ let
     }) androidTvs
   );
 
+  # Echo Shows on TECHO5 (services/techo5-bridge.nix): ESPHome devices with an
+  # encryption key, added here and put in their rooms.
+  techo5Devices = config.lanbat.deployment.techo5Devices;
+  hasTechos = techo5Devices != { } && config.lanbat.hasService "techo5-bridge";
+  techo5Json = builtins.toJSON (
+    lib.mapAttrsToList (key: d: {
+      title = "TECHO5 ${d.room}";
+      host = d.address;
+      inherit (d) room;
+      key_file = config.lanbat.secrets."techo5-${key}-api-key".path;
+      player = if d.playerName == null then "" else d.playerName;
+    }) techo5Devices
+  );
+
   hasLvaSatellite = lib.any (
     hostKey: (voiceSatelliteRegistrations.${hostKey}.backend or "wyoming") == "lva"
   ) voiceSatelliteHosts;
@@ -1424,7 +1438,10 @@ in
         ];
       # home-assistant-post-setup configures MQTT with the password that
       # mosquitto.nix declares for Home Assistant.
-      readsSecrets = lib.optional (config.lanbat.hasService "mosquitto") "mosquitto-ha-pass";
+      readsSecrets =
+        lib.optional (config.lanbat.hasService "mosquitto") "mosquitto-ha-pass"
+        # The Echo Shows' keys (services/techo5-bridge.nix), for their ESPHome entries.
+        ++ lib.optionals hasTechos (map (key: "techo5-${key}-api-key") (lib.attrNames techo5Devices));
       subdomain = "ha";
       port = 8123;
       auth = "forward-auth";
@@ -1449,7 +1466,8 @@ in
           owner = "hass";
         };
         ha-voice-refresh-token = {
-          enable = voiceRooms;
+          # The Echo Shows get the voice satellites' token too (techo5-bridge).
+          enable = voiceRooms || hasTechos;
           owner = "root";
         };
         # Xiaomi BLE bind keys, read by home-assistant-post-setup (runs as root).
@@ -1605,8 +1623,11 @@ in
           export LLM_USE_TOOLS="${if llmRouter then "true" else "false"}"
           export LLM_ROUTER="${if llmRouter then "1" else "0"}"
         ''}
-        ${lib.optionalString voiceRooms ''
+        ${lib.optionalString (voiceRooms || hasTechos) ''
           export VOICE_TOKEN_RECORD_FILE="${config.lanbat.secrets.ha-voice-refresh-token.path}"
+        ''}
+        ${lib.optionalString hasTechos ''
+          export TECHO5_DEVICES=${lib.escapeShellArg techo5Json}
         ''}
         ${lib.optionalString xiaomiBle ''
           export XIAOMI_BLE_KEYS_FILE="${config.lanbat.secrets.ha-xiaomi-ble.path}"
@@ -1615,6 +1636,25 @@ in
         export DEVICE_AREAS=${lib.escapeShellArg (builtins.toJSON cfg.deviceAreas)}
         export HA_DASHBOARDS="${lib.getExe haDashboards}"
         export DASHBOARD_LINKS=${lib.escapeShellArg dashboardLinks}
+        ${lib.optionalString hasTechos ''
+          export DASHBOARD_SCREENS=${
+            lib.escapeShellArg (
+              builtins.toJSON (
+                lib.unique (
+                  lib.mapAttrsToList (_: d: {
+                    inherit (d) room;
+                    path = hostLib.screenDashboard d.room;
+                  }) techo5Devices
+                )
+              )
+            )
+          }
+          export DASHBOARD_PEOPLE=${
+            lib.escapeShellArg (
+              builtins.toJSON (lib.mapAttrs (_: p: p.name) (config.lanbat.deployment.people or { }))
+            )
+          }
+        ''}
         exec home-assistant-post-setup
       '';
     };
@@ -1672,7 +1712,7 @@ in
       ]
       ++ lib.optionals hasKodi [ "kodi" ]
       ++ lib.optionals hasAndroidTv [ "androidtv" ]
-      ++ lib.optionals hasLvaSatellite [
+      ++ lib.optionals (hasLvaSatellite || hasTechos) [
         "esphome"
       ]
       ++ [
@@ -1717,8 +1757,9 @@ in
           # builds from internal_url, so with one in the profile it must be an
           # address other hosts can reach: the HTTPS one through Caddy, where
           # /api/* (the replies' /api/tts_proxy/) skips forward auth. Port 8123
-          # stays closed to the LAN.
-          internal_url = if hasLvaSatellite then "https://ha.${domain}" else internalUrl;
+          # stays closed to the LAN. An Echo Show on TECHO5 fetches its replies
+          # the same way (techo5-bridge).
+          internal_url = if hasLvaSatellite || hasTechos then "https://ha.${domain}" else internalUrl;
         };
 
         # Voice replies in a room (modules/core/voice-satellite.nix). A satellite
@@ -1726,6 +1767,49 @@ in
         # announcement on the room's Music Assistant players and returns how
         # many there are, so the satellite knows whether to play it itself.
         script = {
+          # A message for a person, on whatever body the assistant router
+          # places them beside (a robot's caption, a screen's notification):
+          # their "Where is" sensor names the room, and the router's caption
+          # command reaches its body. Away from every body, a notification in
+          # Home Assistant instead.
+          lanbat_notify_person = lib.mkIf llmRouter {
+            alias = "Tell a person, where they are";
+            mode = "parallel";
+            fields = {
+              person.description = "The person's key (lanbat.deployment.people).";
+              message.description = "What to tell them.";
+            };
+            sequence = [
+              {
+                variables = {
+                  room = "{{ states('sensor.lanbat_people_where_' ~ (person | lower | regex_replace('[^a-z0-9]+', '_'))) }}";
+                  slug = "{{ room | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
+                };
+              }
+              {
+                "if" = "{{ room not in ['home', 'away', 'unknown', 'unavailable', ''] }}";
+                "then" = [
+                  {
+                    action = "mqtt.publish";
+                    data = {
+                      topic = "lanbat/stackchan/{{ slug }}/cmd/caption";
+                      payload = "{{ message }}";
+                    };
+                  }
+                ];
+                "else" = [
+                  {
+                    action = "persistent_notification.create";
+                    data = {
+                      title = "For {{ person }}";
+                      message = "{{ message }}";
+                    };
+                  }
+                ];
+              }
+            ];
+          };
+
           voice_reply = {
             alias = "Voice reply in a room";
             mode = "parallel";

@@ -56,6 +56,21 @@ A room that doesn't exist yet is created. Names that match nothing are logged by
 `home-assistant-post-setup`. Rooms you set in Home Assistant itself stay, unless the
 profile names the device.
 
+## A room's screen
+
+Each room with an Echo Show on TECHO5 (`deployment.techo5Devices`, [techo5.md](techo5.md))
+gets `lanbat-screen-<room>` ("Kitchen screen", out of the sidebar), drawn by the device
+itself, so it uses only cards TECHO5 draws: headings, tiles, buttons. Its views:
+
+- **home**: the room's devices, the weather, a lights-off button while any are on, and
+  where everyone is ("Where is <name>");
+- **one per person** (the person's key): the same, greeting them, with where the others
+  are.
+
+The device's bridge turns to a person's view while the assistant router places them alone
+in the room, and back to home otherwise. The clock, calendar, timers and music are the
+device's own.
+
 ## Editing
 
 The Overview, Cameras and System dashboards belong to the generator: changes made to
