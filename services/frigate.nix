@@ -687,6 +687,65 @@ in
     };
 
     # ---------------------------------------------------------------------------
+    # Face classifier
+    # ---------------------------------------------------------------------------
+    # Frigate (0.17) builds its face classifier on a thread of its own, and the
+    # first build, while Frigate is still starting, never finishes: recognition
+    # then names nobody ("No face was recognized.") until the classifier is
+    # built again. A later build works. So, after each start: clear the
+    # classifier (an empty delete in the "train" folder, which removes
+    # nothing), and check with a picture from the face library that it names
+    # its person, trying again for about ten minutes.
+    systemd.services.frigate-face-classifier = lib.mkIf cfg.faceRecognition.enable {
+      description = "Build Frigate's face classifier once Frigate has started";
+      wantedBy = [ "podman-frigate.service" ];
+      after = [ "podman-frigate.service" ];
+      partOf = [ "podman-frigate.service" ];
+      path = [
+        pkgs.curl
+        pkgs.findutils
+        pkgs.coreutils
+        pkgs.gnugrep
+      ];
+      script = ''
+        api=http://127.0.0.1:5000/api
+        probe=$(find /var/lib/frigate/clips/faces -mindepth 2 -maxdepth 2 -type f \
+          ! -path '*/faces/train/*' 2>/dev/null | head -n 1)
+        if [ -z "$probe" ]; then
+          echo "no faces in the library yet: nothing to build"
+          exit 0
+        fi
+        for _ in $(seq 60); do
+          curl -sf "$api/version" >/dev/null && break
+          sleep 5
+        done
+        for attempt in $(seq 10); do
+          sleep 60
+          curl -sf -X POST -H 'Content-Type: application/json' -d '{"ids":[]}' \
+            "$api/faces/train/delete" >/dev/null || continue
+          for _ in $(seq 12); do
+            if curl -s -X POST -F "file=@$probe" "$api/faces/recognize" | grep -q '"success":true'; then
+              echo "face classifier built (attempt $attempt)"
+              exit 0
+            fi
+            sleep 5
+          done
+        done
+        echo "the face classifier did not build: faces stay unnamed until Frigate restarts" >&2
+        exit 1
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        User = "frigate";
+        Group = "frigate";
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        NoNewPrivileges = true;
+      };
+    };
+
+    # ---------------------------------------------------------------------------
     # State directories
     # ---------------------------------------------------------------------------
     systemd.tmpfiles.rules = [
