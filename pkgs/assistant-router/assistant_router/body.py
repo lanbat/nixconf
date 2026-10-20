@@ -70,17 +70,22 @@ def split_tag(text: str) -> tuple[str | None, str | None, str]:
 
 _POLITE = r"^(?:(?:hey |okay |ok )?(?:nabu )?)?(?:can you |could you |would you |will you |please |now )*"
 
-# Commands to the body itself, matched on the whole request, and what is said back.
+# What people add around a command ("nod for me please", "goodnight Nabu").
+_TAIL = r"(?: (?:for me|for us|please|now|right now|again|nabu))*$"
+
+# Commands to the body itself, matched on the whole request (with the polite
+# words around it), and what is said back.
 _COMMANDS: list[tuple[re.Pattern[str], dict[str, Any], str]] = [
-    (re.compile(_POLITE + r"nod(?: your head)?(?: please)?$"), {"gesture": "nod"}, "Yes!"),
-    (re.compile(_POLITE + r"shake your head(?: please)?$"), {"gesture": "shake"}, "Nope!"),
-    (re.compile(_POLITE + r"look at me(?: please)?$"), {"look": "user"}, "I see you!"),
-    (re.compile(_POLITE + r"look around(?: please)?$"), {"gesture": "look_around"}, "Ooh, what's out there?"),
-    (re.compile(_POLITE + r"(?:do (?:a |a little |your |some )?dance|dance)(?: for me| for us)?(?: please)?$"),
+    (re.compile(_POLITE + r"nod(?: your head)?" + _TAIL), {"gesture": "nod"}, "Yes!"),
+    (re.compile(_POLITE + r"shake(?: your head)?" + _TAIL), {"gesture": "shake"}, "Nope!"),
+    (re.compile(_POLITE + r"look at me" + _TAIL), {"look": "user"}, "I see you!"),
+    (re.compile(_POLITE + r"look around" + _TAIL), {"gesture": "look_around"}, "Ooh, what's out there?"),
+    (re.compile(_POLITE + r"(?:do (?:a |a little |your |some )?dance|dance)" + _TAIL),
      {"mood": "excited", "gesture": "dance"}, "Here I go!"),
-    (re.compile(_POLITE + r"(?:go to sleep|go to bed|time to sleep|sleep now)(?: please)?$"),
+    (re.compile(_POLITE + r"(?:go to sleep|go to bed|time to sleep|time for bed|sleep|take a nap|nap|"
+                r"good ?night)" + _TAIL),
      {"sleep": True}, "Goodnight!"),
-    (re.compile(_POLITE + r"wake up(?: please)?$"), {"sleep": False}, "Good morning! I'm up!"),
+    (re.compile(_POLITE + r"wake up" + _TAIL), {"sleep": False}, "Good morning! I'm up!"),
 ]
 
 
