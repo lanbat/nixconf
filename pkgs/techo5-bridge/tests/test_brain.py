@@ -190,3 +190,14 @@ def test_manufacturer_data_and_addresses():
     assert _manufacturer_data(data) == {0x004C: bytes([0x02, 0x15])}
     assert _manufacturer_data(bytes([9, 0xFF, 1])) == {}  # cut short: nothing
     assert mac(0x112233445566) == "11:22:33:44:55:66"
+
+
+def test_someone_the_router_met_gets_the_home_view_with_their_photos_and_chips():
+    # Known to the router at runtime (a tap), not in the profile's people: no
+    # view of their own in the dashboard.
+    b = brain(profiles={"akadmin": Profile(immich_person="Kiril")})
+    outs = b.router({"here": [{"person": "akadmin", "name": "Kiril", "confidence": 0.98}]}, 0.0)
+    assert ("call", "dashboard_path", {"path": "lanbat-screen-kitchen"}) in outs
+    assert ("set", "immich_person", "Kiril") in outs
+    (greet,) = b.router({"act": {"greet": {"name": "Kiril"}}}, 1.0)
+    assert greet[2]["title"] == "Hi Kiril!"

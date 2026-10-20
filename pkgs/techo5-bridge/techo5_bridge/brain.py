@@ -268,13 +268,17 @@ class Brain:
     # ── whose screen ────────────────────────────────────────────────────────
     def profile(self) -> tuple[str | None, Profile]:
         """(the person, their profile) for one known person in the room; the
-        household's otherwise."""
-        known = [h["person"] for h in self.here if h["person"] in self.people]
+        household's otherwise. The router places only people it knows, the
+        profile's and those it met (people_store), so `here` is who is known.
+        A person has a view of their own in the dashboard only when the
+        profile names them (pkgs/home-assistant-dashboards)."""
+        known = [h["person"] for h in self.here]
         if len(known) == 1:
             key = known[0]
             mine = self.cfg.profiles.get(key)
-            default = Profile(view=key, glance=[f"sensor.lanbat_people_where_{k}" for k in sorted(self.people)
-                                                if k != key][:8])
+            default = Profile(view=key if key in self.people else "",
+                              glance=[f"sensor.lanbat_people_where_{k}" for k in sorted(self.people)
+                                      if k != key][:8])
             if mine is None:
                 return key, default
             return key, Profile(view=mine.view or default.view, glance=mine.glance or default.glance,
