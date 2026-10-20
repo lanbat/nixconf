@@ -105,3 +105,19 @@ async def test_only_someone_it_is_sure_of_by_one_source():
 
 def test_first_names():
     assert first_name("Kiril Momchilov") == "Kiril" and first_name("Maria") == "Maria" and first_name("") == ""
+
+
+async def test_arriving_out_of_its_sight_it_looks_round_for_them():
+    bodies, people, greeter, sock, clock = setup()
+    clock[0] += ARRIVAL_S
+    people.observe("Bedroom 1", "phone", "kiril", 0.9, clock[0])  # their phone, no face in view
+    await greeter.tick()
+    acts = [m["act"] for m in sock.sent if "act" in m]
+    assert {"scan": True} in acts and greets(sock) == [{"name": "Kiril"}]
+    # In front of it already: no look round.
+    bodies2, people2, greeter2, sock2, clock2 = setup()
+    clock2[0] += ARRIVAL_S
+    bodies2.update("Bedroom 1", {"present": True}, clock2[0])
+    people2.observe("Bedroom 1", "phone", "maria", 0.9, clock2[0])
+    await greeter2.tick()
+    assert {"scan": True} not in [m["act"] for m in sock2.sent if "act" in m]

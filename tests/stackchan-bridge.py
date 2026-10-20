@@ -360,6 +360,14 @@ class Router(unittest.TestCase):
         self.assertIn({"caption": None}, out)  # "Listening…" goes
         self.assertIn({"gesture": "tilt"}, out)  # a little "hm?"
 
+    def test_a_look_round_when_asked_but_not_asleep_or_talking(self):
+        b = Brain(Config(night_start="23:00", night_end="07:00"), now=NOON)
+        self.assertIn({"scan": True}, device(b.on_router({"act": {"scan": True}}, NOON)))
+        b.on_lva("wake_word_detected", {}, NOON + 1)
+        self.assertNotIn({"scan": True}, device(b.on_router({"act": {"scan": True}}, NOON + 2)))
+        night = Brain(Config(night_start="23:00", night_end="07:00"), now=MIDNIGHT)
+        self.assertNotIn({"scan": True}, device(night.on_router({"act": {"scan": True}}, MIDNIGHT)))
+
     def test_with_captions_off_the_greeting_has_none_either(self):
         b = Brain(Config(captions=False), now=NOON)
         out = device(b.on_router({"act": {"greet": {"name": "Kiril"}}}, NOON))

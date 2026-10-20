@@ -12,6 +12,7 @@
 //
 //   {"mood": "neutral|listening|thinking|happy|sad|surprised|sleepy|confused|curious"}
 //   {"look": "track|user|up|center"}
+//   {"scan": true}                  look round for someone it can't see
 //   {"gesture": "perk|nod|shake|wiggle|tilt"}
 //   {"mouth": 0.0-1.0}
 //   {"caption": {"text": "...", "who": "user|assistant|status", "ms": 8000}}
@@ -82,7 +83,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.10.1";
+constexpr const char* kFirmware = "1.11.0";
 bool phonesWork = true;  // the address check passes Bluetooth's own sample (setup)
 constexpr int kProtocol = 1;
 
@@ -184,6 +185,29 @@ const Keyframe* gesture = nullptr;
 // is. Answered once the head has been still for kStillMs, or with null.
 uint32_t faceAtUntil = 0;
 uint32_t lastMoveAt = 0;  // when the last move ends (a move takes its speed, in ms)
+// Something moved where it can see, and no face: it looks there, the way a
+// pet looks up at a noise, and a face there is then followed. Only with the
+// head still (its own move changes every cell) and not for a change of the
+// whole frame (a light switched on). Less often each time it finds nobody (a
+// TV, a curtain in the wind): the gap doubles up to two minutes, and is short
+// again once it sees a face.
+constexpr float kMotionMin = 0.03f, kMotionMax = 0.5f;  // shares of the frame
+constexpr uint32_t kMotionStillMs = 600, kExploreGapMs = 3000, kExploreGapMaxMs = 120000;
+uint32_t nextExploreAt = 0, exploredAt = 0, exploreGapMs = kExploreGapMs;
+// Looking for someone it can't see (scan()): three rows of three, from a
+// face standing close (65 degrees up) down to one seated (rest), the
+// camera's views overlapping (about 75 degrees either side), each held still
+// long enough for a few sharp looks (frames taken while it moves are a blur). Run on {"scan": true}
+// (the bridge: someone is in the room by their phone or voice, no face) and
+// when nobody has been seen for a while; stopped by the first face.
+constexpr int kScan[][2] = {{0, 650}, {450, 650}, {-450, 650}, {-450, 450}, {0, 450}, {450, 450},
+                            {450, kPitchRest}, {0, kPitchRest}, {-450, kPitchRest}};
+constexpr int kScanSteps = sizeof(kScan) / sizeof(kScan[0]);
+constexpr uint32_t kScanMoveMs = 500, kScanHoldMs = 900;
+constexpr uint32_t kScanGapMs = 120000, kScanGapMaxMs = 600000;  // between scans that found nobody
+int scanStep = -1;  // -1: not scanning
+uint32_t scanNextAt = 0, nextScanAt = kScanGapMs, scanGapMs = kScanGapMs;
+void startScan();
 constexpr uint32_t kStillMs = 400;
 int gestureLength = 0, gestureStep = 0;
 uint32_t gestureStepAt = 0;
@@ -479,6 +503,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
     setMood(m);
     if (m == "listening" || m == "thinking") drowsy = false;
   }
+  if (doc["scan"].is<bool>() && doc["scan"].as<bool>()) startScan();  // look round for someone
   if (doc["look"].is<const char*>()) {
     look = doc["look"].as<const char*>();
     if (look == "user") {
@@ -812,6 +837,8 @@ void follow() {
     lastFaceFrame = s.at;
     bool wasAway = !lastFaceSeen || now - lastFaceSeen > kAbsenceForNoticeMs;
     lastFaceSeen = now;
+    exploreGapMs = kExploreGapMs;  // someone there: looking at movement pays again
+    scanGapMs = kScanGapMs;
     // Where the face is, in the head's angles: the camera turns with the head.
     lastFaceYaw = constrain(targetYaw + s.x * kHalfFovYaw, (float)kYawMin, (float)kYawMax);
     lastFacePitch = constrain(targetPitch + s.y * kHalfFovPitch, (float)kPitchMin, (float)kPitchMax);
@@ -853,9 +880,69 @@ void follow() {
   }
 }
 
+bool scanBlocked() {
+  return !hasCamera || asleep || napping || gesture || look != "track" || mood != "neutral";
+}
+
+void startScan() {
+  if (scanBlocked() || faceVisible) return;
+  scanStep = 0;
+  scanNextAt = 0;
+}
+
+// Looks for someone: kScan in turn until a face shows up, then back to rest.
+void scan() {
+  uint32_t now = millis();
+  if (scanStep < 0) {
+    // Nobody seen for a while: a look round, less often each time it finds nobody.
+    if (!scanBlocked() && !faceVisible && now - lastFaceSeen > scanGapMs && (int32_t)(now - nextScanAt) >= 0) {
+      nextScanAt = now + scanGapMs;
+      scanGapMs = min(scanGapMs * 2, kScanGapMaxMs);
+      startScan();
+    }
+    return;
+  }
+  if (faceVisible || scanBlocked()) {
+    scanStep = -1;  // found someone (following them now), or something else came first
+    return;
+  }
+  if ((int32_t)(now - scanNextAt) < 0) return;
+  if (scanStep == kScanSteps) {
+    scanStep = -1;
+    pointHead(0, kPitchRest, kScanMoveMs);
+    return;
+  }
+  pointHead(kScan[scanStep][0], kScan[scanStep][1], kScanMoveMs);
+  scanNextAt = now + kScanMoveMs + kScanHoldMs;
+  scanStep++;
+}
+
+// Something moved where it can see, and no face: it looks there (explore()).
+void explore() {
+  uint32_t now = millis();
+  if (!hasCamera || asleep || debugCamera || faceVisible || gesture || look != "track" || scanStep >= 0) return;
+  if ((int32_t)(now - lastMoveAt) < (int32_t)kMotionStillMs || (int32_t)(now - nextExploreAt) < 0) return;
+  Sighting s = vision::latest();
+  if (s.motion < kMotionMin || s.motion > kMotionMax || now - s.at > 500) return;
+  if ((int32_t)(s.at - lastMoveAt) < (int32_t)kMotionStillMs) return;  // its frames straddle a move
+  if (exploredAt && (int32_t)(lastFaceSeen - exploredAt) < 0) {
+    exploreGapMs = min(exploreGapMs * 2, kExploreGapMaxMs);  // nobody there last time
+  }
+  exploredAt = now;
+  nextExploreAt = now + exploreGapMs;
+  lastActive = now;
+  if (napping) endNap();
+  if (drowsy) {
+    drowsy = false;
+    setMood("neutral");
+  }
+  pointHead(targetYaw + s.motionX * kHalfFovYaw, targetPitch + s.motionY * kHalfFovPitch, 400);
+  gaze(-s.motionY * 0.5f, s.motionX * 0.5f);
+}
+
 void wander() {
   uint32_t now = millis();
-  if (asleep || napping || look != "track" || faceVisible || gesture || mood != "neutral") return;
+  if (asleep || napping || look != "track" || faceVisible || gesture || mood != "neutral" || scanStep >= 0) return;
   uint32_t idle = now - max(lastFaceSeen, lastActive);
   if (napAfterMs && idle > napAfterMs) {
     startNap();
@@ -959,6 +1046,9 @@ void setup() {
   randomSeed(esp_random());
   // Its stack in PSRAM: internal RAM is for the radios (docs/stackchan.md).
   xTaskCreatePinnedToCoreWithCaps(captureTask, "face", 8192, nullptr, 3, nullptr, 1, MALLOC_CAP_SPIRAM);
+  // Faces from here on: the detector's first run takes internal RAM, which
+  // the rest of setup (NFC's lock) needed first.
+  vision::start();
 }
 
 // Every minute: the link's signal, free memory, its NFC's mode and where the
@@ -989,6 +1079,8 @@ void loop() {
   readTouch();
   readBattery();
   follow();
+  scan();
+  explore();
   wander();
   runGesture();
   if (captionUntil && millis() > captionUntil) showText();
@@ -1007,6 +1099,7 @@ void loop() {
     vision::setPreview(false);
     avatar.resume();
   }
+  if (debugCamera) vision::drawPreview();
   if (debugCamera && millis() > nextStats) {
     nextStats = millis() + 2000;
     JsonDocument doc;

@@ -698,6 +698,8 @@ class Brain:
         if type(yaw) is int and -70 <= yaw <= 70:
             # The head to an angle, degrees (+ to its left); the robot takes tenths.
             out.append(("device", {"yaw": yaw * 10}))
+        if act.get("scan") is True and not self.asleep and not self.in_turn:
+            out.append(("device", {"scan": True}))  # someone is here, out of its sight: it looks round
         if type(act.get("nap")) is bool:
             out.append(("device", {"nap": act["nap"]}))
         if type(act.get("auto_turn")) is bool and act["auto_turn"] != self.auto_turn:
