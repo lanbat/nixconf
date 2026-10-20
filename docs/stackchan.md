@@ -8,8 +8,9 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
 
 - **It notices people.** Its camera finds faces on the robot itself. It turns to whoever
   is in front of it and follows them. When someone appears after nobody was around, it
-  glances over, nods and glows warm. With nobody there it looks around now and then, and
-  after five minutes it dozes off until someone comes.
+  glances over, nods and glows warm; if it knows who it is, it also shows "Hi <name>!"
+  and glows green, one hello rather than two. With nobody there it looks around now and
+  then.
 - **A conversation shows on it.** On the wake word it looks at you with cyan LEDs. While
   Home Assistant works it looks up, thinking, with violet LEDs going round. The reply
   shows as a caption, its mouth moves with the spoken reply, and its face matches the
@@ -23,12 +24,12 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
   its head, a little "hm?".
 - **Timers.** The soonest timer counts down under its face, and the LEDs drain as it
   runs. When it rings, the robot wiggles and flashes amber.
-- **A nap when nobody is around.** After 5 minutes without a face it dozes; after 15
+- **A nap when nobody is around.** After 15 minutes without a face
   (`lanbat.stackchan.napAfter`) it naps: screen dark, eyes closed, LEDs off, head down,
   the camera slowed to a frame a second. Someone walking in, a tap or the wake word wakes
   it with a stretch, and Nabu knows it was napping.
 - **A hand near its face.** The proximity sensor beside the camera notices a hand (or a
-  fingertip 1-2 cm away): it wakes from a nap or a doze, or perks up. **A wave** across
+  fingertip 1-2 cm away): it wakes from a nap, or perks up. **A wave** across
   it hushes it: a ringing timer stops, or the reply being spoken does.
 - **The room's light.** By day the screen dims in a dim room and brightens in a bright
   one (`lanbat.stackchan.autoBrightness`), relative to the brightest light it has seen
@@ -299,8 +300,9 @@ and the assistant knows it has a body:
   [people.md](people.md#faces-on-the-robot) for how that becomes a name.
 - **It greets you.** When the router is sure you have come into its room (80 % or more
   by any one source: a tap or a card, its own look, a clear voice, your phone placed
-  there; [people.md](people.md#how-the-router-combines-it)), the robot wakes from a nap
-  or a doze, looks happy, wags and nods with three green breaths of its LEDs, and shows
+  there; [people.md](people.md#how-the-router-combines-it)), the robot wakes from a nap,
+  looks happy, wags and nods with three green breaths of its LEDs (no second nod if it
+  just nodded at you coming in), and shows
   "Hi Kiril!" (your first name) for 8 s. Once per arrival: not while you stay, not again
   in that room within half an hour, and not if you have just been talking to it. Not at
   night, and a greeting due in the middle of a conversation waits for its end. Turn it

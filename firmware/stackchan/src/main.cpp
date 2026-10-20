@@ -2,8 +2,9 @@
 //
 // The robot is alive on its own: it blinks and breathes (M5Stack-Avatar),
 // looks at the people its camera sees, looks around when nobody is there and
-// dozes off when nobody has been for a while. When a face appears after an
-// absence it notices: a glance, a nod, a warm glow.
+// naps when nobody has been for a while. When a face appears after an
+// absence it notices: a glance, a nod, a warm glow (and, when the router
+// knows who it is, their name and green, without a second nod).
 //
 // The Pi (pkgs/lva-stackchan) tells it over USB serial, or over Wi-Fi when
 // the robot isn't plugged into it (pilink.h), one JSON object per line, what
@@ -81,7 +82,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.9.9";
+constexpr const char* kFirmware = "1.10.0";
 bool phonesWork = true;  // the address check passes Bluetooth's own sample (setup)
 constexpr int kProtocol = 1;
 
@@ -141,6 +142,10 @@ uint32_t lastActive = 0;
 uint32_t lastFaceFrame = 0;
 float lastFaceYaw = 0, lastFacePitch = kPitchRest;
 bool drowsy = false;
+// When it last nodded at someone coming in: a greeting by name right after
+// adds the name and the green, not a second nod (one hello, not two).
+uint32_t noticedAt = 0;
+constexpr uint32_t kOneHelloMs = 10000;
 // Nobody seen for napAfterMs (from the Pi; 0: never): a nap, dark and still,
 // with the camera slowed down. A face, a touch or the wake word ends it.
 bool napping = false;
@@ -312,7 +317,7 @@ void setMood(const String& m) {
     lights::setScene(lights::Scene::Error);
   } else if (m == "surprised") {
     lights::setScene(lights::Scene::Greeting);
-  } else if (m == "excited" || (m == "happy" && !piPresent)) {
+  } else if (m == "excited" || m == "happy") {
     lights::setScene(lights::Scene::Happy);
   } else if (m == "neutral" || m == "sleepy") {
     lights::setScene(lights::Scene::Off);
@@ -368,7 +373,7 @@ void greet() {
     pointHead(0, kPitchRest, 300);
   }
   setMood("happy");
-  GESTURE(kGreet);
+  if (!noticedAt || millis() - noticedAt > kOneHelloMs) GESTURE(kGreet);
   lights::pulse(0, 220, 60, 3000);
 }
 
@@ -831,6 +836,7 @@ void follow() {
         lights::setScene(lights::Scene::Greeting);
         pointHead(lastFaceYaw, lastFacePitch, 700);
         GESTURE(kNod);
+        noticedAt = millis();
       }
     }
     if (look == "track" && !gesture) {
@@ -855,8 +861,10 @@ void wander() {
     startNap();
     return;
   }
-  if (!drowsy && idle > kDrowsyAfterMs) {  // since boot, if nobody yet
-    // Nobody for a while: it dozes, head down, until someone shows up.
+  if (!napAfterMs && !drowsy && idle > kDrowsyAfterMs) {  // since boot, if nobody yet
+    // Nobody for a while, and no naps: it dozes, head down, until someone
+    // shows up. With naps it goes straight to one (two rest states: the nap
+    // and the night).
     drowsy = true;
     avatar.setExpression(Expression::Sleepy);
     pointHead(0, kPitchMin + 100, 120);
