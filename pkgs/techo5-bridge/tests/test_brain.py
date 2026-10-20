@@ -214,3 +214,26 @@ def test_a_reconnect_sends_nothing_the_device_already_has():
     outs = b.router({"here": [{"person": "maria"}]}, 10.0)
     assert ("call", "home_glance", {"entities": "sensor.lanbat_people_where_kiril"}) in outs
     assert not calls(outs, "calendar_sources")
+
+
+def test_the_ca_goes_on_once_ssh_is_on_and_again_after_a_failure():
+    b = brain(install_ca=True, ssh_keys="ssh-ed25519 AAAA lanbat-techo5-bridge")
+    first = b.connected(0.0)
+    assert ("call", "ssh_keys", {"keys": "ssh-ed25519 AAAA lanbat-techo5-bridge"}) in first
+    assert ("ca",) not in b.state("ssh", False, 1.0)  # not before its SSH is on
+    assert ("ca",) in b.state("ssh", True, 2.0)
+    assert ("ca",) not in b.tick(3.0)  # running
+    b.ca_done(False, 4.0)
+    assert ("ca",) not in b.tick(30.0)
+    assert ("ca",) in b.tick(70.0)  # tried again
+    b.ca_done(True, 71.0)
+    assert ("ca",) not in b.tick(500.0)
+    # The next connection (the daemon restarted, the device rebooted) checks again.
+    b.connected(600.0)
+    assert ("ca",) in b.tick(601.0)
+
+
+def test_no_key_no_ca():
+    b = brain(install_ca=True)
+    b.connected(0.0)
+    assert ("ca",) not in b.state("ssh", True, 1.0)

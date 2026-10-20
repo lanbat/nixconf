@@ -1978,6 +1978,10 @@ let
         && svc.secrets.techo5-kitchen-api-key.enable
         && lib.elem "assistant-router" svc.consumes
         && svc.extraPorts == [ 8775 ]
+        # The CA goes on the device over SSH, with the bridge's key; host keys kept.
+        && svc.secrets.techo5-ssh-key.enable
+        && unit.serviceConfig.StateDirectory == "techo5-bridge"
+        && unit.environment.HOME == "/var/lib/techo5-bridge"
         # The example server's own satellite declares the token; the bridge reads it.
         && lib.elem "ha-voice-token" svc.readsSecrets
         && !(svc.secrets ? ha-voice-token)
