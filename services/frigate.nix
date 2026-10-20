@@ -623,6 +623,11 @@ in
         "/var/lib/frigate/db:/media/frigate/db"
         "/var/lib/frigate/clips:/media/frigate/clips"
         "/var/lib/frigate/recordings:/media/frigate/recordings"
+        # The models Frigate downloads (face detection, landmarks, embeddings,
+        # plates). Kept, because Frigate looks for the face landmark model once,
+        # as it starts, while a fresh container is still downloading it: with
+        # the cache in the container, face recognition never named anyone.
+        "/var/lib/frigate/model_cache:/config/model_cache"
         "/var/cache/frigate:/tmp/cache"
         "/etc/localtime:/etc/localtime:ro"
         "${yolov8nOpenVinoModel}:/models/yolov8n_openvino_model:ro"
@@ -689,6 +694,7 @@ in
       "d /var/lib/frigate/db          0750 frigate frigate -"
       "d /var/lib/frigate/clips       0750 frigate frigate -"
       "d /var/lib/frigate/recordings  0750 frigate frigate -"
+      "d /var/lib/frigate/model_cache 0750 frigate frigate -"
     ];
   };
 }
