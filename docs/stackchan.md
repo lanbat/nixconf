@@ -236,7 +236,7 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
 - **Touch** and **wave** are event entities (`tap` or `stroke` with the zone; `wave`)
   for automations: a stroke on its head could dim the lights, a wave skip a song. So are
   the **wake word**, each **gesture** it plays, a **face** arriving or leaving, a **phone
-  tap**, a **card** (waiting after "remember this card", learned, forgotten, with the
+  tap**, a **card** (waiting after "remember my card", learned, forgotten, with the
   person), a **recognized** person (greeted, with who and by what) and a **servo fault**.
   What was said and replied never goes to Home Assistant.
 - **Controls:** gesture buttons (nod, shake, tilt, wiggle, dance, look around), go to
@@ -275,13 +275,17 @@ and the assistant knows it has a body:
   to the robot. These moods and gestures replace the guess from the reply's words.
 - **It knows who is there.** The robot tells the router whether someone is in front of
   its camera, and since when, so "can you see me?" gets a true answer.
-- **Body commands, answered at once** without a model: "nod", "shake your head", "look
-  at me", "look around", "do a little dance", "go to sleep" and "wake up". "Go to sleep"
-  by day lasts until the night hours start or end.
-- **It remembers people.** Ask it "remember me as <name>" and, if the robot can see you,
-  it takes a photo and registers your face with Frigate, so the assistant knows your name
-  in this room. The photo only goes to Frigate's recognition library and is never used to
-  unlock, disarm, open or allow anything.
+- **Body commands, answered at once** without a model: "nod", "shake (your head)", "look
+  at me", "look around", "dance", "go to sleep" (or "good night", "take a nap") and "wake
+  up", said as people say them ("nod for me please", "goodnight Nabu"). "Go to sleep" by
+  day lasts until the night hours start or end.
+- **Short answers work.** "Yes", "no" or "sure" after it asked something are answers, not
+  noise.
+- **It remembers people.** "Remember me" (or "remember me as <name>"): if the robot can see
+  you it takes a photo and registers your face with Frigate, and it learns your voice
+  from what you say next, so the assistant knows your name in this room. The photo only
+  goes to Frigate's recognition library and is never used to unlock, disarm, open or allow
+  anything. [people.md](people.md#meeting-nabu).
 - **It knows who is talking, and who is here.** When the router has a face library
   (Frigate), the robot captures the speaker's face right after it turns to them, and the
   router names it, so the reply can be addressed. It also shows the router a face as it
@@ -415,7 +419,7 @@ robot is plugged in.
 | `{"phones": {"beacons", "irks", "id"}}` | Whose phones to look for (beacon UUIDs and phone keys: the profile's and the router's); `null` forgets them. Over USB, or over Wi-Fi to firmware 1.9.7 and later, when the hello's `phones` differs from `id` |
 | `{"led": {"rgb": [r, g, b]}}` | A notification light from Home Assistant, shown while nothing else is on the LEDs; `null` turns it off |
 | `{"tap": {"url"}}` | The link it is an NFC tag with, for phones (`https://`, 120 characters at most), from the router; `""` for none, then it reads cards. The bridge gives it again after the robot restarts |
-| `{"nfc_read": seconds}` | Read cards instead of being a tag, for up to 120 s ("remember this card") |
+| `{"nfc_read": seconds}` | Read cards instead of being a tag, for up to 120 s ("remember my card") |
 | `{"debug": "senses"}` | For 30 s, the light and proximity sensor's raw readings in the journal, 5 a second |
 | `{"debug": "phones"}` | For two minutes, scan counts in the bridge's journal every 5 s |
 | `{"nap": true\|false}` | Nap now, or wake from a nap (not at night) |

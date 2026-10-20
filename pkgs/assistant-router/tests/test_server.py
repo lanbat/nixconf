@@ -615,7 +615,7 @@ async def test_enroll_registers_a_new_person(aiohttp_client, fakes, tmp_path):
     c = await enroll_client(aiohttp_client, base, people=people, store=store, frigate=fr, capture=capture_ok)
     choice = await post(c, req("Enroll me as Bob"))
     assert choice["finish_reason"] == "stop"
-    assert choice["message"]["content"] == "Okay, I'll remember you as Bob."
+    assert choice["message"]["content"] == "Nice to meet you, Bob!"  # as met by talking (identity.py)
     assert fr.enrolled == [("bob", b"jpeg", "capture.jpg")]
     assert people.names == {"bob": "Bob"}
     assert json.loads((tmp_path / "people.json").read_text()) == {"bob": "Bob"}
@@ -632,7 +632,7 @@ async def test_enroll_derives_a_key_from_the_name(aiohttp_client, fakes):
     assert fr.enrolled == [("mary_jane", b"jpeg", "capture.jpg")]
 
 
-async def test_enroll_refuses_a_taken_name(aiohttp_client, fakes, tmp_path):
+async def test_enroll_gives_a_taken_name_a_key_of_its_own(aiohttp_client, fakes, tmp_path):
     _, local_line, cloud_reply, base = fakes
     local_line["v"] = "escalate"
     cloud_reply["v"] = _enroll_call("Bob")
@@ -641,40 +641,25 @@ async def test_enroll_refuses_a_taken_name(aiohttp_client, fakes, tmp_path):
     fr = FakeFrigate()
     c = await enroll_client(aiohttp_client, base, people=people, store=store, frigate=fr, capture=capture_ok)
     choice = await post(c, req("Enroll me as Bob"))
-    assert choice["message"]["content"] == "That name is already taken."
-    assert fr.enrolled == []  # Frigate is never told about a taken key
+    assert choice["message"]["content"] == "Nice to meet you, Bob!"
+    assert people.names == {"bob": "Bobby", "bob_2": "Bob"}  # another Bob, not Bobby's key
+    assert fr.enrolled == [("bob_2", b"jpeg", "capture.jpg")]
 
 
-async def test_enroll_reports_when_it_cannot_see(aiohttp_client, fakes):
+@pytest.mark.parametrize("frigate,capture", [(FakeFrigate(), capture_none), (None, capture_ok),
+                                             (FakeFrigate(fail=True), capture_ok)])
+async def test_enroll_without_a_face_still_meets_them(aiohttp_client, fakes, frigate, capture):
+    # No look at the face, no face library, or a failed save: they are met by
+    # name, and the face can come later.
     _, local_line, cloud_reply, base = fakes
     local_line["v"] = "escalate"
     cloud_reply["v"] = _enroll_call("Bob")
-    fr = FakeFrigate()
-    c = await enroll_client(aiohttp_client, base, frigate=fr, capture=capture_none)
-    choice = await post(c, req("Enroll me as Bob"))
-    assert choice["message"]["content"] == "I couldn't get a clear look at your face."
-    assert fr.enrolled == []
-
-
-async def test_enroll_without_frigate_says_it_is_unavailable(aiohttp_client, fakes):
-    _, local_line, cloud_reply, base = fakes
-    local_line["v"] = "escalate"
-    cloud_reply["v"] = _enroll_call("Bob")
-    c = await enroll_client(aiohttp_client, base, capture=capture_ok)  # no frigate
-    choice = await post(c, req("Enroll me as Bob"))
-    assert choice["message"]["content"] == "Face registration isn't available right now."
-
-
-async def test_enroll_reports_a_failed_save(aiohttp_client, fakes):
-    _, local_line, cloud_reply, base = fakes
-    local_line["v"] = "escalate"
-    cloud_reply["v"] = _enroll_call("Bob")
-    fr = FakeFrigate(fail=True)
     people = People({})
-    c = await enroll_client(aiohttp_client, base, people=people, frigate=fr, capture=capture_ok)
+    c = await enroll_client(aiohttp_client, base, people=people, frigate=frigate, capture=capture)
     choice = await post(c, req("Enroll me as Bob"))
-    assert choice["message"]["content"] == "I couldn't save your face right now."
-    assert people.names == {}  # not remembered when the save failed
+    assert choice["message"]["content"] == "Nice to meet you, Bob!"
+    assert people.names == {"bob": "Bob"}
+    assert frigate is None or frigate.enrolled == []
 
 
 async def test_enroll_without_a_usable_name(aiohttp_client, fakes):
@@ -731,8 +716,8 @@ async def test_enroll_asks_the_body_to_capture_and_saves_the_image(aiohttp_clien
     c = await enroll_client(aiohttp_client, base, frigate=fr, capture=bodies.capture, bodies=bodies)
     choice = await post(c, req("Enroll me as Bob"))
     assert choice["finish_reason"] == "stop"
-    assert choice["message"]["content"] == "Okay, I'll remember you as Bob."
-    assert sock.sent == [{"capture": True}]               # the router asked the body
+    assert choice["message"]["content"] == "Nice to meet you, Bob!"
+    assert {"capture": True} in sock.sent                  # the router asked the body
     assert fr.enrolled == [("bob", img, "capture.jpg")]    # and Frigate got the face
 
 
@@ -914,14 +899,14 @@ async def test_remember_me_by_voice_takes_a_short_conversation(aiohttp_client, f
     # No camera here: the tool is offered for the voice.
     cloud_reply["v"] = _enroll_call("Jane")
     first = await post(c, req("Please remember me, I'm Jane"))
-    said = first["message"]["content"]
-    assert "Jane" in said and said.endswith("?")      # asks for more, keeping the microphone open
-    assert "jane" not in people.names                  # not yet
-    second = await post(c, req("I went for a long walk by the river today"))
-    assert second["message"]["content"].endswith("?")
-    third = await post(c, req("And then I cooked dinner for my family"))
-    assert "Jane" in third["message"]["content"] and "voice" in third["message"]["content"]
+    assert first["message"]["content"] == "Nice to meet you, Jane!"  # one sentence, no homework
     assert people.names == {"jane": "Jane"}
+    # The next sentences are ordinary requests, and teach the voice quietly.
+    cloud_reply["v"] = {"role": "assistant", "content": "Sounds lovely."}
+    second = await post(c, req("I went for a long walk by the river today"))
+    assert second["message"]["content"] == "Sounds lovely."
+    await post(c, req("And then I cooked dinner for my family"))
+    assert voice.prints == {"jane"}
     assert voice.texts["jane"][0] == "Please remember me, I'm Jane"
     names = [t["function"]["name"] for t in seen["cloud"][0].get("tools", [])]
     assert "enroll_person" in names and "forget_person" in names
@@ -933,8 +918,8 @@ async def test_remember_me_while_the_vault_is_locked(aiohttp_client, fakes):
     c = await voice_client(aiohttp_client, base, people, FakeVoiceId(available=False))
     cloud_reply["v"] = _enroll_call("Jane")
     said = (await post(c, req("Remember me, I'm Jane")))["message"]["content"]
-    assert "can't learn voices right now" in said
-    assert people.names == {}
+    assert said == "Nice to meet you, Jane!"  # met by name; the voice waits for the vault
+    assert people.names == {"jane": "Jane"}
 
 
 async def test_stop_ends_a_voice_enrolment(aiohttp_client, fakes):

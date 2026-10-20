@@ -93,11 +93,7 @@ BIND_FACES = 3
 BIND_FACE_GAP_S = 10.0
 BIND_POLL_S = 2.0
 
-ENROLL_TAKEN = "That name is already taken."
 ENROLL_BAD_NAME = "I didn't catch a good name for you."
-ENROLL_NO_FACE = "I couldn't get a clear look at your face."
-ENROLL_NO_FRIGATE = "Face registration isn't available right now."
-ENROLL_FAILED = "I couldn't save your face right now."
 
 
 def _person_key(name: str) -> str | None:
@@ -203,6 +199,13 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     speakers: dict[str, tuple[str, float]] = {}       # device -> (person, when)
     enrolling: dict[str, tuple[str, str, float]] = {}  # device -> (key, name, when)
     meeting: dict[str, tuple[str, float]] = {}  # device -> (room, when Nabu asked a name)
+    asked_again: set[str] = set()  # devices asked their name a second time (only ever once)
+
+    def _short_reply(text: str) -> bool:
+        """A word or two, not a request: worth asking the name again."""
+        words = re.findall(r"[a-z']+", (text or "").lower())
+        return 0 < len(words) <= 3 and words[0] not in gate_mod.COMMAND_START \
+            and body_mod.command(text) is None and identity.command(text) is None
     offered: dict[str, str] = {}  # room key -> the day Nabu last offered to meet there
 
     def last_speaker(device: str, now: float) -> str | None:
@@ -269,72 +272,22 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
     async def _enroll(device: str, ctx: Context | None, call: dict, tool_results: list[str],
                       texts: list[str]) -> dict:
-        # Run by the router itself, not Home Assistant: take the name, make a
-        # key, check it is unused, capture a face, register it with Frigate and
-        # remember the person. Each failure is a plain, honest reply.
+        # The cloud's enroll_person tool: the same as "remember me as <name>"
+        # said to the router (identity.py), which works without the cloud too.
         fn = call.get("function") or {}
         try:
             args = json.loads(fn.get("arguments") or "")
         except (TypeError, ValueError):
             args = {}
         name = args.get("name") if isinstance(args, dict) else None
-        key = _person_key(name) if isinstance(name, str) else None
-        if not key:
+        if not isinstance(name, str) or not _person_key(name):
             return finish(device, ENROLL_BAD_NAME, tool_results)
-        if key in people.names:
-            return finish(device, ENROLL_TAKEN, tool_results)
-        if voice is not None:
-            return await _enroll_with_voice(device, ctx, key, name, tool_results, texts)
-        if frigate is None:
-            return finish(device, ENROLL_NO_FRIGATE, tool_results)
+        now = clock()
         room = ctx.room if ctx else ""
-        try:
-            img = await capture_face(room)
-        except Exception:
-            img = None
-        if not img:
-            return finish(device, ENROLL_NO_FACE, tool_results)
-        try:
-            await frigate.enroll(key, img)
-        except FrigateError:
-            return finish(device, ENROLL_FAILED, tool_results)
-        if people_store is not None:
-            people_store.add(key, name)
-        else:
-            people.add(key, name)
-        return finish(device, f"Okay, I'll remember you as {name}.", tool_results)
-
-    async def _enroll_with_voice(device: str, ctx: Context | None, key: str, name: str,
-                                 tool_results: list[str], texts: list[str]) -> dict:
-        # The face too, where a robot can see and Frigate can keep it; the
-        # voice from this conversation, and more sentences if it needs them.
-        room = ctx.room if ctx else ""
-        face = False
-        if frigate is not None and capture_face is not None and bodies.has(room):
-            try:
-                img = await capture_face(room)
-                if img:
-                    await frigate.enroll(key, img)
-                    face = True
-            except Exception:  # pylint: disable=broad-except
-                face = False
-        result = await voice.enrol(key, texts)
-        if face or result.get("enrolled"):
-            remember(key, name)
-        if result.get("enrolled"):
-            return finish(device, f"Okay, I'll remember you as {name}"
-                                  + (", your face and your voice." if face else ", and your voice."), tool_results)
-        if result.get("available") is False or not result:
-            if face:
-                return finish(device, f"Okay, I'll remember your face, {name}. "
-                                      "I can't learn voices right now.", tool_results)
-            return finish(device, "Sorry, I can't learn voices right now.", tool_results)
-        enrolling[device] = (key, name, clock())
-        if face:
-            return finish(device, f"I'll remember your face, {name}. Now tell me a little about your day, "
-                                  "so I learn your voice too?", tool_results)
-        return finish(device, f"Nice to meet you, {name}! Tell me a little about your day, "
-                              "so I learn your voice?", tool_results)
+        known = last_speaker(device, now)
+        if known is not None:
+            return await _identity(device, room, "remember", None, known, texts, now)
+        return await _meet(device, room, name.strip()[:40], texts, now)
 
     async def _teach_voice(room: str, key: str, text: str, scores: dict, now: float) -> None:
         """A sentence sure to be `key`'s refines their voiceprint (the scores
@@ -352,29 +305,26 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             if result.get("enrolled"):
                 LOG.info(json.dumps({"voice": "enrolled", "person": key, "room": room}))
 
-    async def _keep_enrolling(device: str, text: str, now: float) -> dict | None:
-        """The next sentence of a voice enrolment, or None if none is going on."""
+    async def _keep_enrolling(device: str, text: str, now: float) -> None:
+        """A voice still being learned takes this sentence too, quietly: the
+        request goes on as any other (nobody is asked to keep talking)."""
         pending = enrolling.get(device)
         if pending is None or voice is None:
-            return None
+            return
         key, name, at = pending
         if now - at > ENROL_SECONDS:
             enrolling.pop(device, None)
-            return None
-        if gate_mod.gate(text, "") == "stop":
-            enrolling.pop(device, None)
-            return finish(device, STOPPED, [])
+            return
         result = await voice.enrol(key, [text])
         if result.get("enrolled"):
             enrolling.pop(device, None)
-            if key not in people.names:  # the enroll tool's new person; a profile person stays one
+            if key not in people.names:
                 remember(key, name)
-            return finish(device, f"Got it, {name}, I'll know your voice now.", [])
-        if result.get("available") is False or not result:
+            LOG.info(json.dumps({"voice": "enrolled", "person": key}))
+        elif result.get("available") is False or not result:
             enrolling.pop(device, None)
-            return finish(device, "Sorry, I can't learn voices right now.", [])
-        enrolling[device] = (key, name, now)
-        return finish(device, "Lovely! One more sentence?", [])
+        else:
+            enrolling[device] = (key, name, now)
 
     async def _forget(device: str, tool_results: list[str]) -> dict:
         key = last_speaker(device, clock())
@@ -413,14 +363,15 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         return things[0] if len(things) == 1 else ", ".join(things[:-1]) + " and " + things[-1]
 
     async def _bind(device: str, room: str, key: str, texts: list[str], now: float,
-                    new: bool) -> tuple[list[str], bool, bool]:
+                    new: bool) -> tuple[list[str], bool]:
         """Everything Nabu can learn about `key` right now, in `room`: a face
-        from the robot's camera, the voice from this conversation, and a card
-        window. (what was bound, voice still needs sentences, card window open)."""
+        from the robot's camera, the voice from this conversation (and the
+        next sentences, quietly, if it needs more). A card only when asked
+        for ("remember my card"). (what was bound, voice still learning)."""
         bound: list[str] = []
-        if frigate is not None and capture_face is not None and bodies.has(room):
+        if frigate is not None and capture_face is not None:
             try:
-                img = await capture_face(room)
+                img = await capture_face(room)  # nothing when no body can look
                 if img:
                     await frigate.enroll(key, img)
                     bound.append("face")
@@ -440,14 +391,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                     more = True
             elif texts and await voice.learn(key, texts[-1]):
                 bound.append("voice")
-        card = cards is not None and bodies.has(room)
-        if card:
-            cards.expect(room, key, now)
-            bodies.announce(room, {"card": "waiting", "person": people.names.get(key, key)})
-            await bodies.send(room, {"nfc_read": cards_mod.READ_S})
         if bodies.has(room):
             await bodies.act(room, {"mood": "happy", "gesture": "nod"})
-        return bound, more, card
+        return bound, more
 
     async def _meet(device: str, room: str, name: str, texts: list[str], now: float) -> dict:
         """Someone new told Nabu their name: they are a person now, with
@@ -461,22 +407,21 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         remember(key, name)
         speakers[device] = (key, now)
         LOG.info(json.dumps({"met": key, "room": room}))
-        bound, more, card = await _bind(device, room, key, texts, now, new=True)
-        said = f"Nice to meet you, {name}!"
-        if bound:
-            said += f" I've got your {_and(bound)}."
-        if card:
-            said += " " + identity.CARD_HINT
-        if more:
-            said += " " + identity.MORE_VOICE
-        # The router itself did what the reply says it did: honesty.check lets it through.
-        return finish(device, said, ["Success"] if bound else [])
+        await _bind(device, room, key, texts, now, new=True)
+        return finish(device, f"Nice to meet you, {name}!", [])
 
     async def _identity(device: str, room: str, what: str, value: str | None, known: str | None,
                         texts: list[str], now: float) -> dict:
-        """"Remember me", "call me …", "forget my card"."""
+        """"Remember me (as …)", "call me …", "remember my card", "forget my
+        card", "forget me"."""
         if what == "forget_card":
             return await _card(device, room, "forget", known, now)
+        if what == "remember_card":
+            return await _card(device, room, "remember", known, now)
+        if what == "forget_me":
+            return await _forget(device, [])
+        if what == "remember" and value and known is None:
+            return await _meet(device, room, value, texts, now)  # "remember me as Jane"
         if what == "call_me":
             if known is None:
                 return await _meet(device, room, value or "", texts, now)  # an introduction
@@ -490,14 +435,11 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if known is None:
             meeting[device] = (room, now)
             return finish(device, identity.ASK_NAME, [])
-        bound, more, card = await _bind(device, room, known, texts, now, new=False)
+        bound, _ = await _bind(device, room, known, texts, now, new=False)
         said = f"Got it, {people.names.get(known, known)}!"
         if bound:
             said += f" I've added your {_and(bound)}."
-        if card:
-            said += " " + identity.CARD_HINT
-        if more:
-            said += " " + identity.MORE_VOICE
+        # The router itself did what the reply says it did: honesty.check lets it through.
         return finish(device, said, ["Success"] if bound else [])
 
     def _offer(device: str, room: str, resp: dict, voice_scores: dict | None, speaker: str | None,
@@ -575,17 +517,21 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                 device, ctx, await cloud(session, body, room, None, last), tool_results, texts))
 
         room = ctx.room if ctx else ""
-        # A voice enrolment going on takes the next sentences.
-        enrol_reply = await _keep_enrolling(device, text, now)
-        if enrol_reply is not None:
-            log({"conv": conv, "device": device, "room": room, "tier": "enrol", "route": "voice",
-                 "ms": int((time.monotonic() - started) * 1000)})
-            return web.json_response(enrol_reply)
+        # A voice still being learned takes this sentence too, quietly.
+        await _keep_enrolling(device, text, now)
 
         # The answer to "What's your name?": a name, a decline, or neither.
         named = meeting.pop(device, None)
         if named is not None and now - named[1] <= MEET_SECONDS:
             kind, name = identity.answer(text)
+            if kind == "unclear" and device not in asked_again and _short_reply(text):
+                # A word or two that is neither a name nor a request ("pardon?"): ask once more.
+                meeting[device] = (named[0], now)
+                asked_again.add(device)
+                log({"conv": conv, "device": device, "room": room, "tier": "meet", "route": "again",
+                     "ms": int((time.monotonic() - started) * 1000)})
+                return web.json_response(finish(device, identity.ASK_AGAIN, []))
+            asked_again.discard(device)
             if kind != "unclear":
                 resp = finish(device, identity.DECLINED, []) if kind == "decline" \
                     else await _meet(device, named[0] or room, name or "", texts, now)
