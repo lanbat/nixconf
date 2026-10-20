@@ -97,7 +97,7 @@ in
     captions = mkOption {
       type = types.bool;
       default = true;
-      description = "Show what was said and the reply on the robot's screen.";
+      description = "Show what was said, the reply and the greeting on the robot's screen (Home Assistant's own captions always show).";
     };
     touchToTalk = mkOption {
       type = types.bool;

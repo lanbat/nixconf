@@ -114,6 +114,10 @@ class Turn(unittest.TestCase):
             "Wow, that's a big number!": "happy",
             "Turned on the light.": "happy",
             "Which light do you mean?": "curious",
+            # Whole words, and the happy idioms that use them.
+            "I can't wait to hear it!": "happy",
+            "We couldn't be happier.": "happy",
+            "The terror of the deep is a great film.": "happy",  # "error" inside a word
         }
         for text, mood in cases.items():
             with self.subTest(text=text):
@@ -173,6 +177,12 @@ class Touch(unittest.TestCase):
     def test_stroke_is_affection_not_a_command(self):
         b = Brain(Config(), now=NOON)
         out = b.on_device({"touch": "stroke", "zone": "back"}, NOON)
+        self.assertEqual(lva(out), [])
+        self.assertEqual(merged(out)["mood"], "happy")
+
+    def test_a_tap_on_the_screen_is_not_a_tap_on_the_head(self):
+        b = Brain(Config(), now=NOON)
+        out = b.on_device({"touch": "tap", "zone": "screen"}, NOON)
         self.assertEqual(lva(out), [])
         self.assertEqual(merged(out)["mood"], "happy")
 
@@ -328,6 +338,33 @@ class Router(unittest.TestCase):
         self.assertNotIn("sleep", merged(b.tick(NOON + 60)))  # still day: it stays asleep
         self.assertEqual(merged(b.tick(MIDNIGHT))["sleep"], True)
         self.assertEqual(merged(b.tick(MIDNIGHT + 8 * 3600))["sleep"], False)
+
+    def test_by_day_the_next_wake_word_or_a_tap_wakes_it_for_good(self):
+        b = Brain(Config(night_start="23:00", night_end="07:00", touch_to_talk=False), now=NOON)
+        b.on_lva("wake_word_detected", {}, NOON)
+        b.on_router({"act": {"sleep": True}}, NOON + 1)
+        b.on_lva("idle", {}, NOON + 3)
+        self.assertEqual(merged(b.on_lva("wake_word_detected", {}, NOON + 100))["sleep"], False)
+        self.assertNotIn("sleep", merged(b.on_lva("idle", {}, NOON + 110)))  # awake now, no "wake up" needed
+        b.on_router({"act": {"sleep": True}}, NOON + 200)
+        self.assertEqual(merged(b.on_device({"touch": "tap", "zone": "middle"}, NOON + 300))["sleep"], False)
+        # At night a turn still wakes it for that turn only.
+        b2 = Brain(Config(night_start="23:00", night_end="07:00"), now=MIDNIGHT)
+        b2.on_lva("wake_word_detected", {}, MIDNIGHT)
+        self.assertEqual(merged(b2.on_lva("idle", {}, MIDNIGHT + 10))["sleep"], True)
+
+    def test_a_wake_word_and_then_silence_is_not_left_hanging(self):
+        b = Brain(Config(), now=NOON)
+        b.on_lva("wake_word_detected", {}, NOON)
+        out = device(b.on_lva("idle", {}, NOON + 8))
+        self.assertIn({"caption": None}, out)  # "Listening…" goes
+        self.assertIn({"gesture": "tilt"}, out)  # a little "hm?"
+
+    def test_with_captions_off_the_greeting_has_none_either(self):
+        b = Brain(Config(captions=False), now=NOON)
+        out = device(b.on_router({"act": {"greet": {"name": "Kiril"}}}, NOON))
+        self.assertIn({"greet": True}, out)
+        self.assertFalse([d for d in out if "caption" in d])
 
     def test_wake_up_at_night(self):
         b = Brain(Config(night_start="23:00", night_end="07:00"), now=MIDNIGHT)

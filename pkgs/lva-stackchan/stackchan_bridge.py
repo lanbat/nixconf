@@ -63,6 +63,7 @@ import hmac
 import json
 import math
 import os
+import re
 import secrets
 import ssl
 import struct
@@ -88,6 +89,10 @@ RESET_REASONS = ("panic", "brownout", "task-watchdog", "interrupt-watchdog", "wa
 CRASH_MARKERS = ("Guru Meditation", "Backtrace", "abort()", "assert failed", "Brownout", "rst:", "panic",
                  "Rebooting")
 CRASH_LINES_PER_MIN = 30
+
+# Happy things said with a sad word in them: no sad face for these.
+HAPPY_IDIOMS = re.compile(r"\b(?:can't|cannot|couldn't|could not) (?:wait|be happier|be better|be more|believe how)\b"
+                          r"|\bno problem\b|\bnot sure i've ever\b")
 
 DEFAULT_SAD_WORDS = (
     "sorry",
@@ -525,8 +530,8 @@ class Brain:
         return ("device", {"timers": self.timers_payload(now)})
 
     def reply_mood(self, text: str) -> str:
-        lowered = text.lower().replace("’", "'")
-        if any(word in lowered for word in self.config.sad_words):
+        lowered = HAPPY_IDIOMS.sub(" ", text.lower().replace("’", "'"))
+        if any(re.search(r"(?<![a-z'])" + re.escape(word) + r"(?![a-z'])", lowered) for word in self.config.sad_words):
             return "sad"
         if lowered.rstrip().endswith("?"):
             return "curious"
@@ -553,6 +558,7 @@ class Brain:
         out: list = [("mouth", False), ("device", {"mouth": 0}), self._mood("neutral"), ("device", {"look": "track"})]
         if listening:
             out += self._stop_recording()  # nothing was said: discard it
+            out += [("device", {"caption": None}), ("device", {"gesture": "tilt"})]  # not left hanging
         if self.asleep:
             out += self._sleep(True)
         return out
@@ -569,6 +575,8 @@ class Brain:
                 self.in_turn, self.heard, self.replied = True, False, False
                 if self.asleep:
                     out += self._sleep(False)
+                    if not self._is_night(now):
+                        self.asleep = False  # by day: awake for good, no "wake up" needed
                 out += [("device", {"gesture": "perk"})] + self._caption("Listening…", "status")
             else:
                 # Continued conversation: the microphone reopened after a question.
@@ -849,11 +857,15 @@ class Brain:
             out.append(("router", {"event": {"touch": touch,
                                              "zone": zone if zone in ("front", "middle", "back", "screen") else None}}))
         if touch:
+            head = msg.get("zone") != "screen"  # a tap on the screen isn't a tap on the head
             if any(t.ringing for t in self.timers.values()):
                 out.append(("lva", {"command": "stop_timer_ringing"}))
-            elif touch == "tap" and self.config.touch_to_talk:
+            elif touch == "tap" and head and self.config.touch_to_talk:
                 out.append(("lva", {"command": "stop_pipeline" if self.in_turn else "start_listening"}))
             elif not self.in_turn:
+                if touch == "tap" and head and self.asleep and not self._is_night(now):
+                    self.asleep = False  # a daytime sleep ends at a tap on the head
+                    out += self._sleep(False)
                 out += [self._mood("happy"), ("device", {"gesture": "nod"})]
         if msg.get("servo_fault") is not None:
             out.append(("log", f"servo {msg['servo_fault']} reported a fault"))
@@ -870,9 +882,9 @@ class Brain:
         if self.asleep or self.in_turn:
             return []
         self.greeted_until = now + GREET_MS / 1000
-        return [self._mood("happy"), ("device", {"greet": True}),
-                ("device", {"caption": {"text": f"Hi {name}!", "who": "status", "ms": GREET_MS}}),
-                ("log", f"greeting {name}")]
+        caption = [("device", {"caption": {"text": f"Hi {name}!", "who": "status", "ms": GREET_MS}})] \
+            if self.config.captions else []
+        return [self._mood("happy"), ("device", {"greet": True})] + caption + [("log", f"greeting {name}")]
 
     def _probe(self, now: float, gap: float) -> list:
         """Show the router the face in view, so it can say who is here: not
