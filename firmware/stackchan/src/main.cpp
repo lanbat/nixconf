@@ -1014,6 +1014,13 @@ void helloLine(JsonDocument& doc) {
 }
 
 void setup() {
+  // Every malloc() tries PSRAM first, small ones included (IDF keeps those
+  // up to CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL internal). The face models
+  // alone make about 1,500 small allocations, which held over 50 KB of
+  // internal RAM with their headers; on Wi-Fi that left 12 KB in pieces of
+  // 7 KB, and the link dropped (2026-10-20). Whatever needs internal or
+  // DMA memory asks for it by its caps, as the drivers do.
+  heap_caps_malloc_extmem_enable(0);
   M5StackChan.begin();  // M5Unified, servo power, touch, LEDs
   // The Pi speaks and listens; the robot's own speaker stays off. Its
   // amplifier keeps whatever state the last firmware left it in (the stock
