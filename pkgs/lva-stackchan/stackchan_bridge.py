@@ -1348,9 +1348,11 @@ class Bridge:
 
     async def send_device(self, line: dict) -> None:
         """A line for the robot, over USB when it is plugged in, else over
-        Wi-Fi. The Wi-Fi details and the phones' keys go over USB or not at all."""
+        Wi-Fi. The Wi-Fi details go over USB or not at all; the phones' keys
+        go over Wi-Fi too, to firmware that takes them there (the brain
+        decides, _phones_to_robot)."""
         writer = self.serial_writer
-        if writer is None and "wifi" not in line and "phones" not in line:
+        if writer is None and "wifi" not in line:
             writer = self.wifi_writer
         if writer is None:
             return
