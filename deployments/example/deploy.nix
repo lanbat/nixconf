@@ -69,6 +69,18 @@
       extraRecords.router = "192.0.2.1";
     };
 
+    # Echo Shows on TECHO5, for the techo5-bridge service (docs/techo5.md),
+    # with their keys in techo5-<name>-api-key.age.
+    techo5Devices = {
+      kitchen = {
+        address = "192.0.2.60";
+        room = "Kitchen";
+        playerName = "Kitchen Show";
+        profiles.alex.glance = [ "sensor.washer_status" ];
+        household.calendars = [ "calendar.family" ];
+      };
+    };
+
     # Android TV boxes, for lanbatPlugins.android.
     androidDevices = {
       bedroom = {

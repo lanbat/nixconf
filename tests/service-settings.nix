@@ -1041,6 +1041,36 @@ let
       && failedAssertions presenceServer == [ ]
     ))
 
+    (expect "techo5-bridge: beside the router, each Echo Show is a body; Home Assistant adds it with its key" (
+      let
+        unit = routerNoTap.systemd.services.techo5-bridge;
+        svc = routerNoTap.lanbat.services.techo5-bridge;
+        setup = cfg: cfg.systemd.services.home-assistant-post-setup.script;
+      in
+      unit.environment ? CONFIG_FILE
+      && unit.environment.HA_TOKEN_FILE == "/run/techo5-bridge/ha-token"
+      && unit.serviceConfig.User == "techo5-bridge"
+      && svc.secrets.techo5-kitchen-api-key.enable
+      && lib.elem "assistant-router" svc.consumes
+      && svc.extraPorts == [ 8775 ]
+      # The example server's own satellite declares the token; the bridge reads it.
+      && lib.elem "ha-voice-token" svc.readsSecrets
+      && !(svc.secrets ? ha-voice-token)
+      # The sign-in code's port, for the device alone.
+      && lib.hasInfix "iptables -I INPUT -p tcp --dport 8775 -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraCommands
+      && lib.hasInfix "TECHO5_DEVICES=" (setup routerNoTap)
+      && lib.hasInfix "192.0.2.60" (setup routerNoTap)
+      && lib.hasInfix "lanbat-screen-kitchen" (setup routerNoTap)
+      && lib.hasInfix "VOICE_TOKEN_RECORD_FILE=" (setup routerNoTap)
+      && lib.elem "esphome" routerNoTap.services.home-assistant.extraComponents
+      && lib.elem "techo5-kitchen-api-key" routerNoTap.lanbat.services.home-assistant.readsSecrets
+      # Without the router there is no bridge, but Home Assistant still adds the device.
+      && !(base.systemd.services ? techo5-bridge)
+      && base.lanbat.services.techo5-bridge.account == null
+      && lib.hasInfix "TECHO5_DEVICES=" (setup base)
+      && failedAssertions routerNoTap == [ ]
+    ))
+
     (expect "who: a phone held to a robot opens a page behind the login, and its phone is learned" (
       let
         exec = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;

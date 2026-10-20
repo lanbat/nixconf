@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "techo5-bridge"
+version = "1.0"
+requires-python = ">=3.11"
+
+[project.scripts]
+techo5-bridge = "techo5_bridge.__main__:main"
+
+[tool.setuptools]
+packages = ["techo5_bridge"]
+py-modules = ["room_presence"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

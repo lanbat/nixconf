@@ -42,12 +42,23 @@ let
   routerBaseUrl = "http://127.0.0.1:8092/v1";
   haLlmIsRouter = haLlm: haLlm != null && haLlm.baseUrl == routerBaseUrl;
 
+  # A room's screen dashboard (an Echo Show on TECHO5): its url path in Home
+  # Assistant, "lanbat-screen-<room>", for the dashboard generator and the
+  # device's bridge alike.
+  screenDashboard =
+    room:
+    "lanbat-screen-"
+    + lib.concatStringsSep "-" (
+      lib.filter (part: lib.isString part && part != "") (builtins.split "[^a-z0-9]+" (lib.toLower room))
+    );
+
 in
 {
   inherit
     haLlmIsLocal
     haLlmIsRouter
     routerBaseUrl
+    screenDashboard
     hostsWithRole
     primaryHost
     hostIp

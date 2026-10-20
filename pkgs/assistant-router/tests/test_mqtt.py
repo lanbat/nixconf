@@ -367,3 +367,8 @@ async def test_a_screen_is_published_without_its_light_and_ignores_robot_command
     assert "lanbat/stackchan/kitchen/here" in topics and "lanbat/stackchan/kitchen/led" not in topics
     await ha.handle("lanbat/stackchan/kitchen/cmd/mood", "happy", broker.publish)
     assert socket.sent == []
+    await ha.handle("lanbat/stackchan/kitchen/cmd/caption", "The washer is done", broker.publish)
+    assert socket.sent == []  # it can't show captions
+    bodies.connect("Kitchen", socket, "screen", ["caption", "here"])
+    await ha.handle("lanbat/stackchan/kitchen/cmd/caption", "The washer is done", broker.publish)
+    assert socket.sent == [{"act": {"caption": "The washer is done"}}]

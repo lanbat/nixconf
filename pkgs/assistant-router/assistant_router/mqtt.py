@@ -495,8 +495,8 @@ class HomeAssistant:
         if len(parts) != 5 or parts[0] != PREFIX or parts[1] != "stackchan" or parts[3] != "cmd":
             return
         room = next((r for r in self.bodies.rooms() if slug(r) == parts[2]), None)
-        if room is not None and not self.bodies.is_robot(room):
-            return  # its controls are a robot's
+        if room is not None and not self.bodies.is_robot(room) and parts[4] != "caption":
+            return  # the rest are a robot's controls; a caption is anyone's (script.lanbat_notify_person)
         if room is not None and parts[4] == "read_card" and payload.strip() == "ON":
             # Cards for Home Assistant's tag scanner, while the robot is a tag for phones.
             await self.bodies.send(room, {"nfc_read": 30})

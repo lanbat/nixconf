@@ -40,6 +40,7 @@
   snapcast = ../../services/snapcast.nix;
   syncthing = ../../services/syncthing.nix;
   tang = ../../services/tang.nix;
+  techo5-bridge = ../../services/techo5-bridge.nix;
   telegraf = ../../services/telegraf.nix;
   vaultwarden = ../../services/vaultwarden.nix;
   voice-id = ../../services/voice-id.nix;

@@ -464,6 +464,136 @@ in
         '';
       };
 
+      techo5Devices = mkOption {
+        type = types.attrsOf (
+          types.submodule (
+            let
+              profile = types.submodule {
+                options = {
+                  view = mkOption {
+                    type = types.nullOr (types.strMatching "[a-z0-9_-]{1,40}");
+                    default = null;
+                    description = "The view of the device's dashboard to show (its path); null: the person's key.";
+                  };
+                  glance = mkOption {
+                    type = types.listOf (types.strMatching "[a-z_]+\\.[a-z0-9_]+");
+                    default = [ ];
+                    example = [ "sensor.washer_status" ];
+                    description = ''
+                      Entities shown as chips along the foot of the clock (up to 8).
+                      Empty: where the other people are.
+                    '';
+                  };
+                  calendars = mkOption {
+                    type = types.listOf (types.strMatching "calendar\\.[a-z0-9_]+");
+                    default = [ ];
+                    description = "The calendars the device shows; empty: the household's.";
+                  };
+                  immichPerson = mkOption {
+                    type = types.str;
+                    default = "";
+                    description = "The person, as Immich names them, whose photos the slideshow shows; empty: everyone's.";
+                  };
+                };
+              };
+            in
+            {
+              options = {
+                address = mkOption {
+                  type = ipv4;
+                  description = "The device's address on the LAN (give it a fixed lease).";
+                };
+                room = mkOption {
+                  type = types.strMatching "[^\n]{1,64}";
+                  example = "Kitchen";
+                  description = ''
+                    The Home Assistant area it is in, as voiceRooms names rooms. The
+                    device is the assistant router's body for this room.
+                  '';
+                };
+                playerName = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  example = "Echo Show 8";
+                  description = ''
+                    The device's own name, as Music Assistant shows its Sendspin
+                    player, so that player goes in the room too. Null leaves the
+                    player where it is.
+                  '';
+                };
+                insecureTls = mkOption {
+                  type = types.bool;
+                  default = true;
+                  description = ''
+                    Turn on the device's "Skip certificate checks". The device can't
+                    be given the internal CA, and it fetches dashboards, replies and
+                    pictures from https://ha.<domain> itself. The connection stays
+                    encrypted, but the device no longer checks who answers: someone
+                    on the LAN who impersonates the server could get its Home
+                    Assistant token. False keeps checks on, and with them dashboards,
+                    pictures and whole-file replies off (docs/techo5.md).
+                  '';
+                };
+                screenOffAfter = mkOption {
+                  type = types.ints.between 0 120;
+                  default = 5;
+                  description = ''
+                    Minutes the room must be empty (nobody in front of the device and
+                    nobody the assistant router places there) and the device idle
+                    (no conversation, music, video or ringing) before its screen
+                    goes off. 0 never turns it off.
+                  '';
+                };
+                settings = mkOption {
+                  type = types.attrsOf (
+                    types.oneOf [
+                      types.bool
+                      types.int
+                      types.float
+                      types.str
+                    ]
+                  );
+                  default = { };
+                  example = {
+                    screen_dashboard_idle = false;
+                  };
+                  description = ''
+                    The device's own settings, by ESPHome object ID, over lanbat's
+                    defaults (services/techo5-bridge.nix). The bridge puts them back
+                    when they change.
+                  '';
+                };
+                profiles = mkOption {
+                  type = types.attrsOf profile;
+                  default = { };
+                  description = ''
+                    What the screen shows while the assistant router places this one
+                    person (a key of people) alone in the room.
+                  '';
+                };
+                household = mkOption {
+                  type = profile;
+                  default = { };
+                  description = "What it shows otherwise: nobody, someone unknown or several people.";
+                };
+              };
+            }
+          )
+        );
+        default = { };
+        example = {
+          kitchen = {
+            address = "192.0.2.60";
+            room = "Kitchen";
+          };
+        };
+        description = ''
+          Amazon Echo Shows running TECHO5, for the techo5-bridge service
+          (docs/techo5.md). Each needs its ESPHome encryption key in
+          techo5-<name>-api-key.age.
+        '';
+      };
+
       dns = mkOption {
         type = types.submodule {
           options = {
