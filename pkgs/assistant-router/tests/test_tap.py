@@ -150,6 +150,19 @@ async def test_robots_get_links_and_the_house_sensor_gets_phones(aiohttp_client,
     taps.learn("02:00:00:00:00:01", "kiril")
     assert await house.receive_json() == {"phones": {"02:00:00:00:00:01": "kiril"}}
 
+    # A room sensor that reads an access point's clients asks for them too;
+    # one that doesn't isn't sent them.
+    import asyncio
+    ap = await c.ws_connect("/v1/body")
+    await ap.send_json({"hello": {"room": "Office", "kind": "room-sensor", "proto": 1, "wifi": True}})
+    assert await ap.receive_json() == {"phones": {"02:00:00:00:00:01": "kiril"}}
+    plain = await c.ws_connect("/v1/body")
+    await plain.send_json({"hello": {"room": "Kitchen", "kind": "room-sensor", "proto": 1}})
+    taps.learn("02:00:00:00:00:02", "kiril")
+    assert (await ap.receive_json())["phones"]["02:00:00:00:00:02"] == "kiril"
+    with __import__("pytest").raises(asyncio.TimeoutError):
+        await asyncio.wait_for(plain.receive_json(), 0.3)
+
 
 def test_renaming_yourself_in_authentik_renames_you_here(setup, tmp_path):
     taps, people, _, _ = setup

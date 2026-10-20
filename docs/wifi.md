@@ -48,6 +48,10 @@ if the host doesn't answer afterwards, deploy-rs rolls it back by itself.
 Modules that listen on the LAN (Wi-Fi presence, LAN DNS, the voice satellite) follow the
 address onto the bridge: they read `lanbat.network.lanInterface`.
 
+With the room-presence plugin on the host, its room sensor also reads the access point's
+clients (`iw station dump`) and reports the household's phones among them, with their
+signal: Wi-Fi presence for that room ([people.md](people.md#phones-at-home)).
+
 ## Things to know
 
 - **A host behind an extra port** is on the LAN as if through a switch, keeping its
