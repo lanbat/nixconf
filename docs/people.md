@@ -100,14 +100,15 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   [secrets/README.md](../secrets/README.md)) adds keys the router doesn't have;
   `sudo room-presence --paired` prints the keys of the phones paired with a host.
 
-A **Stack-chan** scans too (`lanbat.stackchan.phones`, on by default): the bridge hands
-it the same beacons and the router's phone keys (plus the `room-presence-irks` keys where
-room-presence has `irks` on that Pi), over USB or, with firmware 1.9.7 and later, over its
-Wi-Fi link (pinned to its Pi's certificate, with the token). The robot keeps them in its
-flash, until they change or are forgotten, and reports the phones near it every 15 s like
-a room sensor. That
-places phones where the robot stands, also when it is away from its Pi on Wi-Fi. It
-listens a slice of every second, so Wi-Fi keeps the radio most of the time.
+A **Stack-chan** scans too (`lanbat.stackchan.phones`, on by default), where its Pi
+doesn't: in a room whose Pi runs room-presence the Pi scans, and the robot is told to
+forget the phones. Its internal RAM can't hold the Bluetooth controller beside Wi-Fi, TLS,
+the camera and face detection (13 KB left, and it panicked). Elsewhere the bridge hands it
+the beacons and the router's phone keys, over USB or, with firmware 1.9.7 and later, over
+its Wi-Fi link (pinned to its Pi's certificate, with the token). The robot keeps them in
+its flash until they change or are forgotten, and reports the phones near it every 15 s
+like a room sensor. That places phones where the robot stands, also away from its Pi on
+Wi-Fi. It listens a slice of every second, so Wi-Fi keeps the radio most of the time.
 
 The Pi 3's own Bluetooth chip works but is flaky (it shares a UART and sometimes starts
 without a controller; `hosts/pi3/hardware.nix` retries). The scanner restarts on its own;

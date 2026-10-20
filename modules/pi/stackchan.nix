@@ -51,18 +51,20 @@ let
   hhmm = types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";
   wifi = cfg.wifi;
 
-  # Whose phones the robot looks for: the people's beacons, and the iPhone
-  # keys where room-presence has them on this host (the same condition as its
-  # secret requirement, modules/pi/room-presence.nix).
+  # Whose phones the robot looks for: the people's beacons and the router's
+  # phone keys. Only where no room-presence sensor scans on this host: the
+  # robot's internal RAM can't hold its Bluetooth controller beside Wi-Fi,
+  # TLS, the camera and face detection (13 KB left, and it panicked,
+  # 2026-10-20), and its Pi already scans the room.
   people = config.lanbat.deployment.people or { };
-  phonesHere = cfg.phones && routerHere && people != { };
+  roomPresence = config.lanbat.roomPresence or { };
+  robotScans = cfg.phones && routerHere && !(roomPresence.enable or false);
+  phonesHere = robotScans && people != { };
   beacons = lib.concatStringsSep "," (
     lib.mapAttrsToList (key: p: "${key}=${p.bleBeacon}") (
       lib.filterAttrs (_: p: (p.bleBeacon or null) != null) people
     )
   );
-  roomPresence = config.lanbat.roomPresence or { };
-  irksHere = phonesHere && (roomPresence.enable or false) && (roomPresence.irks or false);
   wifiPort = toString wifi.port;
   wifiRules = map (net: "INPUT -p tcp --dport ${wifiPort} -s ${net} -j ACCEPT") wifi.allowFrom;
 in
@@ -213,12 +215,13 @@ in
       default = true;
       description = ''
         The robot scans Bluetooth for the people's phones too, like the
-        room-presence plugin, and tells the assistant router who is near it
-        (useful where it stands away from the Pi, on Wi-Fi). Beacons come from
-        people.<key>.bleBeacon; phone keys from the router (the phones paired
-        once) and from the room-presence-irks secret when room-presence has
-        `irks` on this host. Handed to the robot over USB, or over its Wi-Fi
-        link to firmware 1.9.7 and later. docs/people.md.
+        room-presence plugin, and tells the assistant router who is near it:
+        only where room-presence doesn't run on this host (its Pi scans the
+        room then, and the robot's RAM can't hold Bluetooth beside its camera
+        and Wi-Fi). Beacons come from people.<key>.bleBeacon, phone keys from
+        the router (the phones paired once). Handed to the robot over USB, or
+        over its Wi-Fi link to firmware 1.9.7 and later; elsewhere the robot is
+        told to forget them. docs/people.md.
       '';
     };
     wifi = {
@@ -299,8 +302,6 @@ in
         enable = wifi.enable;
         owner = "root";
       };
-      # The iPhone keys, for the robot's own scan (LoadCredential below).
-      readsSecrets = lib.optional irksHere "room-presence-irks";
     };
 
     # Only the robot's networks reach the Wi-Fi port; the robot is the only
@@ -352,7 +353,7 @@ in
         SOUND_DIRECTION = flag cfg.soundDirection;
         SOUND_OFFSET_DEG = cfg.soundOffsetDeg;
         # The keys of the phones paired once, from the router.
-        ROUTER_PHONES = flag (cfg.phones && routerHere);
+        ROUTER_PHONES = flag robotScans;
         SOUND_TURN_MIN_DEG = cfg.soundTurnMinDeg;
         SOUND_MIC_GEOMETRY = cfg.soundMicGeometry;
         SOUND_SOURCE = cfg.soundSource;
@@ -404,11 +405,9 @@ in
         StateDirectory = "lva-stackchan";
         StateDirectoryMode = "0700";
       }
-      // lib.optionalAttrs (wifi.enable || irksHere) {
-        # Root-owned secrets for a dynamic user ($CREDENTIALS_DIRECTORY).
-        LoadCredential =
-          lib.optional wifi.enable "stackchan-wifi:${config.lanbat.secrets.stackchan-wifi.path}"
-          ++ lib.optional irksHere "room-presence-irks:${config.lanbat.secrets.room-presence-irks.path}";
+      // lib.optionalAttrs wifi.enable {
+        # A root-owned secret for a dynamic user ($CREDENTIALS_DIRECTORY).
+        LoadCredential = [ "stackchan-wifi:${config.lanbat.secrets.stackchan-wifi.path}" ];
       };
     };
   };
