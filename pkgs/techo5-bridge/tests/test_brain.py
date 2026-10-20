@@ -214,3 +214,11 @@ def test_a_reconnect_sends_nothing_the_device_already_has():
     outs = b.router({"here": [{"person": "maria"}]}, 10.0)
     assert ("call", "home_glance", {"entities": "sensor.lanbat_people_where_kiril"}) in outs
     assert not calls(outs, "calendar_sources")
+
+
+def test_a_streamed_dashboard_is_told_where_dashcast_is_once():
+    b = brain(dashcast="192.0.2.10:9555", dashcast_key="k" * 32)
+    (server,) = calls(b.connected(0.0), "dashboard_server")
+    assert server[2] == {"address": "192.0.2.10:9555", "key": "k" * 32}
+    assert not calls(b.connected(5.0), "dashboard_server")
+    assert not calls(brain().connected(0.0), "dashboard_server")  # drawn: none

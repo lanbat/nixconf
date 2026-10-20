@@ -78,15 +78,18 @@ class DeviceConfig:
     ha_url: str = ""
     ha_token: str = ""
     code_url: str = ""                # where the device fetches the sign-in code, "" for none
+    dashcast: str = ""                # dashcast's address:port, for a streamed dashboard, "" for none
+    dashcast_key: str = ""
 
     @classmethod
-    def from_json(cls, data: dict, token: str = "") -> "DeviceConfig":
+    def from_json(cls, data: dict, token: str = "", dashcast_key: str = "") -> "DeviceConfig":
         return cls(name=data["name"], room=data["room"], dashboard=data.get("dashboard") or "",
                    settings=dict(data.get("settings") or {}),
                    profiles={k: Profile.from_json(v) for k, v in (data.get("profiles") or {}).items()},
                    household=Profile.from_json(data.get("household")),
                    screen_off_after=float(data.get("screen_off_after", 300)),
-                   ha_url=data.get("ha_url") or "", ha_token=token, code_url=data.get("code_url") or "")
+                   ha_url=data.get("ha_url") or "", ha_token=token, code_url=data.get("code_url") or "",
+                   dashcast=data.get("dashcast") or "", dashcast_key=dashcast_key)
 
 
 def _jpeg_b64(jpeg: bytes | None) -> str | None:
@@ -144,6 +147,8 @@ class Brain:
         out: list = []
         if self.cfg.ha_url and self.cfg.ha_token:
             out += self._call("home_assistant", {"url": self.cfg.ha_url, "token": self.cfg.ha_token})
+        if self.cfg.dashcast and self.cfg.dashcast_key:
+            out += self._call("dashboard_server", {"address": self.cfg.dashcast, "key": self.cfg.dashcast_key})
         return out + self._apply_profile()
 
     def _call(self, action: str, args: dict) -> list:

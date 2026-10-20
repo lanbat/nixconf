@@ -133,6 +133,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Vaultwarden | Own account system + admin token | Bitwarden clients need direct API access; no forward auth |
 | Grafana | OIDC (Authentik) + local admin | Native generic_oauth support |
 | InfluxDB | Token auth (not exposed publicly) | Accessed by Grafana only; no browser UI needed on LAN |
+| Streamed dashboards (`techo5-dashcast`, 9555) | The firewall (the Echo Shows' addresses only) and a key (`techo5-dashcast-key`, a Noise handshake) | Home Assistant dashboards as pictures; dashcast's Chrome is signed in as the voice satellites' non-admin user |
 | Sign-in code (`techo5-bridge`, 8775) | The firewall: the Echo Shows' addresses only | A QR code of the room's who link, which the device shows; plain HTTP, nothing more than the robot's NFC tag gives |
 | Who tapped (`who`, the assistant router's page, 8772) | Caddy forward-auth (Authentik) | A phone held to a Stack-chan opens it; the login says whose phone it is (docs/people.md) |
 | Syncthing | Caddy forward-auth (Authentik), admins only (`access.groups`) | Sync clients use port 22000 directly, not Caddy; only devices declared in the profile connect |

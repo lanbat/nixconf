@@ -15,7 +15,8 @@ deployment.techo5Devices.kitchen = {
 };
 ```
 
-Encrypt the key the installer printed into `techo5-kitchen-api-key.age`.
+Encrypt the key the installer printed into `techo5-kitchen-api-key.age`, and a random one
+(`openssl rand -base64 24`) into `techo5-dashcast-key.age` for the streamed dashboards.
 
 ## What it does
 
@@ -34,7 +35,13 @@ Encrypt the key the installer printed into `techo5-kitchen-api-key.age`.
   - the screen off after `screenOffAfter` minutes of an empty, idle room, on again when
     anyone comes back;
   - the household's phones in its Bluetooth adverts, as a room sensor.
-- **Dashboards**: `lanbat-screen-<room>`, drawn by the device, a view per person.
+- **Dashboards**: `lanbat-screen-<room>`, a view per person, streamed by default: TECHO5's
+  dashcast (`pkgs/techo5-dashcast`, unit `techo5-dashcast`) opens them in a headless Chrome on the
+  server, signed in to Home Assistant on the loopback as the voice satellites' non-admin user, and
+  sends the device pictures over a Noise link keyed with `techo5-dashcast-key` (port 9555, the
+  devices only). Every card type works. `dashboard = "drawn"` has the device draw them itself,
+  which needs a certificate it trusts: TECHO5 checks Home Assistant's websocket even with "Skip
+  certificate checks", so not with lanbat's internal CA.
 - `script.lanbat_notify_person` sends a message to the body beside a person.
 
 ## Limits

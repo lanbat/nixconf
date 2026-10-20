@@ -30,14 +30,14 @@ class Echo:
     """One device: its ESPHome connection and its router socket."""
 
     def __init__(self, data: dict, people: dict[str, str], beacons: dict[str, str], router_url: str,
-                 token: str, codes: dict[str, "Echo"], code_base: str) -> None:
+                 token: str, codes: dict[str, "Echo"], code_base: str, dashcast_key: str = "") -> None:
         self.address = data["address"]
         self.key = open(data["key_file"], encoding="utf-8").read().strip()
         self.code_id = secrets.token_urlsafe(16)
         codes[self.code_id] = self
         if code_base:
             data = dict(data, code_url=f"{code_base}/code/{self.code_id}.png")
-        self.brain = Brain(DeviceConfig.from_json(data, token), people, beacons)
+        self.brain = Brain(DeviceConfig.from_json(data, token, dashcast_key), people, beacons)
         self.router_url = router_url
         self.client = None
         self.entities: dict[str, object] = {}   # object_id -> its info
@@ -229,10 +229,16 @@ async def run(cfg: dict) -> None:
             token = open(os.environ["HA_TOKEN_FILE"], encoding="utf-8").read().strip()
         except OSError as err:
             LOG.warning("no Home Assistant token (%s): dashboards and pictures stay off", err)
+    dashcast_key = ""
+    if cfg.get("dashcast_key_file"):
+        try:
+            dashcast_key = open(cfg["dashcast_key_file"], encoding="utf-8").read().strip()
+        except OSError as err:
+            LOG.warning("no dashcast key (%s): streamed dashboards stay off", err)
     codes: dict[str, Echo] = {}
     base = cfg.get("code_base") or ""
-    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base)
-              for d in cfg["devices"]]
+    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
+                   dashcast_key) for d in cfg["devices"]]
     runner = None
     if base and cfg.get("code_port"):
         runner = web.AppRunner(code_app(codes))
