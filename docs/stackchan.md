@@ -13,10 +13,14 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
 - **A conversation shows on it.** On the wake word it looks at you with cyan LEDs. While
   Home Assistant works it looks up, thinking, with violet LEDs going round. The reply
   shows as a caption, its mouth moves with the spoken reply, and its face matches the
-  reply: happy, sad ("Sorry, I couldn't…"), or curious with a head tilt for a question.
+  reply: happy, sad ("Sorry, I couldn't…"; not "I can't wait!"), or curious with a head
+  tilt for a question.
   An error gets a head shake and a red flash.
-- **Touch.** Tap its head to talk, with no wake word; tap again to stop. Stroking it from
-  front to back just makes it happy. Any touch silences a ringing timer.
+- **Touch.** Tap its head to talk, with no wake word; tap again to stop. A tap on its
+  screen doesn't count (it's easy to brush). Stroking it from front to back just makes it
+  happy. Any touch silences a ringing timer.
+- **Never left hanging.** A wake word and then nothing: the "Listening…" goes and it tilts
+  its head, a little "hm?".
 - **Timers.** The soonest timer counts down under its face, and the LEDs drain as it
   runs. When it rings, the robot wiggles and flashes amber.
 - **A nap when nobody is around.** After 5 minutes without a face it dozes; after 15
@@ -35,7 +39,8 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
   cut it off, and then only the power button brings it back), pulses amber and asks to
   be charged; Nabu knows too. It moves again once it charges or is back above 25 %.
 - **Night.** From 23:00 to 07:00 it sleeps, dimmed, still and with its camera off. The
-  wake word or a tap wakes it for the conversation.
+  wake word or a tap wakes it for the conversation. Told "go to sleep" (or "good night")
+  by day, it sleeps until the next wake word or tap on its head: no "wake up" needed.
 - **Status.** One dim red LED on each side means the microphone is muted. A slow red
   pulse means Home Assistant is unreachable. "No Pi" means the bridge has stopped
   talking to it, over USB and over Wi-Fi.
@@ -278,7 +283,7 @@ and the assistant knows it has a body:
 - **Body commands, answered at once** without a model: "nod", "shake (your head)", "look
   at me", "look around", "dance", "go to sleep" (or "good night", "take a nap") and "wake
   up", said as people say them ("nod for me please", "goodnight Nabu"). "Go to sleep" by
-  day lasts until the night hours start or end.
+  day lasts until the next wake word or tap, or until the night hours start or end.
 - **Short answers work.** "Yes", "no" or "sure" after it asked something are answers, not
   noise.
 - **It remembers people.** "Remember me" (or "remember me as <name>"): if the robot can see
