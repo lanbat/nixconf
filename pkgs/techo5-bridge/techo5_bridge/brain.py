@@ -51,6 +51,7 @@ PROBE_S = 20.0           # a frame this often while someone unnamed is in front
 CA_RETRY_S = 60.0        # an install of the CA that failed is tried again after this
 SETTING_RETRY_S = 60.0   # a setting the device didn't take is sent again after this
 GREET_SECONDS = 10       # how long a greeting stays up
+THANKS_SECONDS = 5       # and the thanks that takes the sign-in code down
 CODE_SECONDS = 60        # and the sign-in code
 NOTIFY_TAG = "lanbat"
 
@@ -134,6 +135,7 @@ class Brain:
         self._next_probe: float | None = None
         self._named = False               # the router named someone in front since they came
         self._code_shown = False          # the sign-in code shown since they came
+        self._code_until: float | None = None  # the code is up until then
         self._unused_since: float | None = None
         self._dimmed = False              # the screen is off because this turned it off
         # What each of the device's actions was last given. The device keeps
@@ -173,7 +175,7 @@ class Brain:
         if object_id in ("presence", "person"):
             out += self._presence(now)
         if object_id == "button_action" and value == "press":
-            out += self._show_code()
+            out += self._show_code(now)
         if object_id == "screen" and value is True:
             self._dimmed = False
         out += self._screen(now)
@@ -246,23 +248,32 @@ class Brain:
         if "irks" in msg:
             self.recogniser.from_router(msg["irks"])
         if isinstance(msg.get("face_result"), dict):
-            out += self._face_result(msg["face_result"])
+            out += self._face_result(msg["face_result"], now)
         if isinstance(msg.get("here"), list):
             self.here = [h for h in msg["here"] if isinstance(h, dict) and isinstance(h.get("person"), str)]
             if self.here:
                 self._named = True
                 self._next_probe = None
+                # The code did its work (or someone was placed otherwise): take
+                # it down, unless a greeting in this message does that.
+                greeting = isinstance(msg.get("act"), dict) and isinstance(msg["act"].get("greet"), dict)
+                if self._code_until is not None and now < self._code_until and not greeting:
+                    first = (self.here[0].get("name") or self.here[0]["person"]).split()[0][:40]
+                    out.append(self._notify("", f"Thanks, {first}!", "mdi:check-circle-outline", THANKS_SECONDS))
+                    self._code_until = None
             out += self._apply_profile() + self._screen(now)
         act = msg.get("act")
         if isinstance(act, dict):
             greet = act.get("greet")
             if isinstance(greet, dict) and isinstance(greet.get("name"), str) and greet["name"].strip():
-                out.append(self._notify(f"Hi {greet['name'].strip()[:40]}!", "", "mdi:hand-wave", GREET_SECONDS))
+                # A notification's message is required (TECHO5 refuses an empty one).
+                out.append(self._notify("", f"Hi {greet['name'].strip()[:40]}!", "mdi:hand-wave", GREET_SECONDS))
+                self._code_until = None  # one at a time: the greeting replaces the code
             if isinstance(act.get("caption"), str) and act["caption"].strip():
                 out.append(self._notify("", act["caption"].strip()[:200], "mdi:message-text-outline", GREET_SECONDS))
         return out
 
-    def _face_result(self, result: dict) -> list:
+    def _face_result(self, result: dict, now: float) -> list:
         if result.get("person"):
             self._named = True
             self._next_probe = None
@@ -270,19 +281,22 @@ class Brain:
         # Someone in front the cameras can't name and the router places nobody:
         # the sign-in code, once while they are here.
         if self._person and not self.here and not self._code_shown:
-            return self._show_code()
+            return self._show_code(now)
         return []
 
-    def _show_code(self) -> list:
+    def _show_code(self, now: float) -> list:
         if not self.link or not self.cfg.code_url:
             return []
         self._code_shown = True
+        self._code_until = now + CODE_SECONDS
         return [("call", "notify_picture", {
             "message": "Scan with your phone to tell me who you are", "title": "Who's this?",
             "picture": self.cfg.code_url, "chime": "", "speak": "", "sound": "",
             "tag": f"{NOTIFY_TAG}-code", "seconds": CODE_SECONDS})]
 
     def _notify(self, title: str, message: str, icon: str, seconds: int) -> tuple:
+        if not message:  # TECHO5 refuses a notification without a message
+            title, message = "", title
         return ("call", "notify", {"message": message, "title": title, "icon": icon, "chime": "", "speak": "",
                                    "tag": NOTIFY_TAG, "seconds": seconds})
 
