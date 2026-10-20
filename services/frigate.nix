@@ -735,7 +735,9 @@ in
         exit 1
       '';
       serviceConfig = {
-        Type = "oneshot";
+        # Started at once, done in the background: a deploy doesn't wait the
+        # minutes this may take.
+        Type = "simple";
         User = "frigate";
         Group = "frigate";
         ProtectSystem = "strict";
