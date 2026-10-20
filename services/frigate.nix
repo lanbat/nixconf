@@ -689,13 +689,15 @@ in
     # ---------------------------------------------------------------------------
     # Face classifier
     # ---------------------------------------------------------------------------
-    # Frigate (0.17) builds its face classifier on a thread of its own, and the
-    # first build, while Frigate is still starting, never finishes: recognition
-    # then names nobody ("No face was recognized.") until the classifier is
-    # built again. A later build works. So, after each start: clear the
-    # classifier (an empty delete in the "train" folder, which removes
-    # nothing), and check with a picture from the face library that it names
-    # its person, trying again for about ten minutes.
+    # Frigate (0.17) builds its face classifier on a thread of its own, and a
+    # build often never finishes: the first one, while Frigate is still
+    # starting, and often the one after any change to the library (a face
+    # enrolled or deleted clears it). Recognition then names nobody ("No face
+    # was recognized.") until the classifier is built again. So, after each
+    # start and every five minutes: check with a picture from the face library
+    # that it names its person, and if not, clear the classifier (an empty
+    # delete in the "train" folder, which removes nothing) and check again,
+    # for about ten minutes.
     systemd.services.frigate-face-classifier = lib.mkIf cfg.faceRecognition.enable {
       description = "Build Frigate's face classifier once Frigate has started";
       wantedBy = [ "podman-frigate.service" ];
@@ -715,8 +717,18 @@ in
           echo "no faces in the library yet: nothing to build"
           exit 0
         fi
+        recognized() {
+          curl -s -X POST -F "file=@$probe" "$api/faces/recognize" | grep -q '"success":true'
+        }
         for _ in $(seq 60); do
           curl -sf "$api/version" >/dev/null && break
+          sleep 5
+        done
+        # A first request may start a build: give it a moment.
+        for _ in $(seq 3); do
+          if recognized; then
+            exit 0
+          fi
           sleep 5
         done
         for attempt in $(seq 10); do
@@ -724,7 +736,7 @@ in
           curl -sf -X POST -H 'Content-Type: application/json' -d '{"ids":[]}' \
             "$api/faces/train/delete" >/dev/null || continue
           for _ in $(seq 12); do
-            if curl -s -X POST -F "file=@$probe" "$api/faces/recognize" | grep -q '"success":true'; then
+            if recognized; then
               echo "face classifier built (attempt $attempt)"
               exit 0
             fi
@@ -744,6 +756,14 @@ in
         ProtectHome = true;
         PrivateTmp = true;
         NoNewPrivileges = true;
+      };
+    };
+
+    systemd.timers.frigate-face-classifier = lib.mkIf cfg.faceRecognition.enable {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "10min";
+        OnUnitActiveSec = "5min";
       };
     };
 
