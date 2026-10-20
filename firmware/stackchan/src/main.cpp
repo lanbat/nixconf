@@ -82,7 +82,7 @@ using namespace m5avatar;
 
 namespace {
 
-constexpr const char* kFirmware = "1.10.0";
+constexpr const char* kFirmware = "1.10.1";
 bool phonesWork = true;  // the address check passes Bluetooth's own sample (setup)
 constexpr int kProtocol = 1;
 

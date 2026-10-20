@@ -172,6 +172,11 @@ void startRadio(const Config& c) {
   WiFi.persistent(false);  // the details live in our own namespace
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  // The strongest access point with the network's name, not the first one
+  // a fast scan finds: the router and a host extending its Wi-Fi share the
+  // name (docs/wifi.md). Kept for every reconnection too.
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   WiFi.begin(c.ssid.c_str(), c.password.c_str());
   radioOn = true;
 }
