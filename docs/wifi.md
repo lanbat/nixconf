@@ -57,7 +57,8 @@ signal: Wi-Fi presence for that room ([people.md](people.md#phones-at-home)).
 - **A host behind an extra port** is on the LAN as if through a switch, keeping its
   address; it is offline while this host restarts.
 - **Roaming** is the phone's choice. Phones and laptops move to the stronger access point
-  when the signal drops; the Stack-chans pick the strongest when they connect.
+  when the signal drops; the Stack-chans pick the strongest when they connect and reconnect (firmware 1.10.1:
+  a scan of every channel, sorted by signal); they don't roam while connected.
 - **Dozing clients on an MT7921 access point.** The MT7921 never flags, in its beacons,
   the frames it holds for a client in power saving (a capture showed none of ~800
   beacons set the client's bit; `mt76_set_tim()` is empty and the chip's firmware
