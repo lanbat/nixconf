@@ -41,6 +41,18 @@ def test_unknown_gesture_keeps_the_mood():
     ("Look around.", {"gesture": "look_around"}),
     ("Go to sleep.", {"sleep": True}),
     ("Wake up!", {"sleep": False}),
+    # Said the way people say them: fillers around the command.
+    ("Nod for me", {"gesture": "nod"}),
+    ("Okay Nabu, nod for me please", {"gesture": "nod"}),
+    ("Shake", {"gesture": "shake"}),
+    ("Shake your head for me", {"gesture": "shake"}),
+    ("Go to sleep now", {"sleep": True}),
+    ("Good night", {"sleep": True}),
+    ("Goodnight Nabu", {"sleep": True}),
+    ("Take a nap", {"sleep": True}),
+    ("Look at me again", {"look": "user"}),
+    ("Dance again", {"mood": "excited", "gesture": "dance"}),
+    ("Can you dance for us now please", {"mood": "excited", "gesture": "dance"}),
 ])
 def test_body_commands(text, act):
     got = command(text)
@@ -50,7 +62,9 @@ def test_body_commands(text, act):
 
 
 @pytest.mark.parametrize("text", ["Turn off the light.", "What's the weather?", "Play some dance music",
-                                  "Is the bedroom asleep?", "Shake things up a bit"])
+                                  "Is the bedroom asleep?", "Shake things up a bit",
+                                  "Good night stories for kids", "Look at me and tell me the time",
+                                  "Nod if you like jazz"])
 def test_other_requests_are_not_body_commands(text):
     assert command(text) is None
 

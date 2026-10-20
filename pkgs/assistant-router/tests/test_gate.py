@@ -80,3 +80,11 @@ def test_several_devices_go_to_the_cloud(text):
 
 def test_an_echo_of_sorry_is_rejected():
     assert gate("Sorry, I didn't catch that.", "Sorry, I didn't catch that.") == "reject"
+
+
+@pytest.mark.parametrize("text", ["Yes", "No", "yes please", "no thanks", "Sure", "Yeah", "Nope", "okay"])
+def test_a_short_answer_to_a_question_goes_on(text):
+    asked = "Do you want me to turn on the kitchen light too?"
+    assert gate(text, asked) == "escalate"
+    assert gate(text, "Turned on the kitchen light.") == "reject"  # no question: still a fragment
+    assert gate(text, "") == "reject"

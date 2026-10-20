@@ -190,23 +190,27 @@ Nobody needs a phone, an app or an account to be known: just talk to Nabu.
 - **Nabu asks once.** After answering a voice it doesn't know, in a room with a robot, it
   adds *"By the way, I don't think we've met. What's your name?"*: a room at most once a
   day, and never when it already recognises someone there.
-  - Answering is consent: *"I'm Jane"* (or just *"Jane"*) → *"Nice to meet you, Jane!"*.
+  - Answering is consent: *"I'm Jane"* (or just *"Jane"*) → *"Nice to meet you, Jane!"*,
+    and that's all it says: the rest is learned quietly (below).
   - *"No thanks"*, *"I'm just visiting"*, *"not now"* → *"No problem!"*, and nothing is
     kept.
+  - A word or two that is neither (*"pardon?"*) → *"Sorry, what's your name?"*, once. A
+    request instead of a name is just answered.
   - Turn it off with `lanbat.services.assistant-router.settings.offerToMeet = false`.
-- **Or ask:** *"Okay Nabu, remember me"*. Someone it knows gets a top-up (a new face
-  picture, the voice refined, a card window); someone it doesn't is asked their name. *"My
-  name is Jane"* from an unknown voice is an introduction too. Someone it knows only by a
-  tap or a card has no voice yet: theirs is enrolled then, under the same person. So
-  you'd tap your phone first, then ask.
-- **One moment binds everything it can:**
-  - **the voice,** from that conversation's sentences. If voice-id wants one more, Nabu
-    asks *"Tell me a little about your day?"*;
-  - **the face,** from the robot's camera, if someone is in front of it;
-  - **a card:** *"If you have a card, hold it on my head now."* For 30 s the robot reads
-    cards instead of being a tag for phones, and the card tapped becomes theirs. From then
-    on it names them on any robot, for two minutes, unless their voice clearly says
-    otherwise.
+- **Or ask:** *"Okay Nabu, remember me"* (or *"remember me as Jane"*). Someone it knows
+  gets a top-up (a new face picture, the voice refined); someone it doesn't is asked their
+  name. *"My name is Jane"* from an unknown voice is an introduction too. Someone it knows
+  only by a tap or a card has no voice yet: theirs is enrolled then, under the same person.
+  So you'd tap your phone first, then ask. All of it works without the cloud model.
+- **One moment binds what it can, quietly:**
+  - **the voice,** from that conversation's sentences, and from the next ones if voice-id
+    wants more: they are ordinary requests, answered as usual, nobody is asked to keep
+    talking;
+  - **the face,** from the robot's camera, if someone is in front of it.
+- **A card, when you ask:** *"remember my card"* (or *"this is my card"*) → *"hold your card
+  on top of my head"*. For 30 s the robot reads cards instead of being a tag for phones,
+  and the card tapped becomes yours. From then on it names you on any robot, for two
+  minutes, unless your voice clearly says otherwise.
 - **Phones and Authentik are optional.** A tap by someone Nabu just recognised (they
   spoke in that room in the last two minutes) links their Authentik login to the person
   they already are, instead of making a second one. From then on their name follows
@@ -215,7 +219,8 @@ Nobody needs a phone, an app or an account to be known: just talk to Nabu.
   - *"call me Kiki"* renames someone met by voice; a linked person's name follows their
     account;
   - *"forget my card"* drops the cards;
-  - *"forget me"* removes everything: voice, faces, cards, phones and the link.
+  - *"forget me"* removes everything: voice, faces, cards, phones and the link (without
+    the cloud model too).
 
 Bank cards and phones show a new random UID (four bytes starting `08`) on every tap, so
 they can't be used as cards. A card's UID is easy to copy: it personalises, it never allows

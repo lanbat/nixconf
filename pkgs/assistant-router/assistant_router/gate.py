@@ -15,7 +15,7 @@ Verdict = Literal["reject", "escalate", "stop", "pass"]
 
 _WORD = re.compile(r"[a-z0-9']+")
 FILLERS = {"okay", "ok", "yes", "no", "please", "thanks", "thank", "you", "hello", "hi", "bye", "what", "done",
-           "blame", "hmm", "um", "uh", "right", "level"}
+           "blame", "hmm", "um", "uh", "right", "level", "sure", "yeah", "yep", "nope", "nah"}
 ACTION_ONLY = {"turn", "play", "stop", "on", "off", "switch", "set", "start"}
 STOP_PHRASES = {"stop", "please stop", "stop stop", "cancel", "never mind", "nevermind", "be quiet", "shut up"}
 ALL_WORDS = re.compile(r"\b(all|every|everything|everywhere|whole house|all of the)\b")
@@ -57,6 +57,10 @@ def _is_echo(text: str, last_reply: str) -> bool:
 def gate(text: str, last_reply: str) -> Verdict:
     words = _words(text)
     joined = " ".join(words)
+    # "Yes" to the assistant's own question is an answer, not a fragment: to
+    # the cloud model, which has the conversation.
+    if words and all(w in FILLERS for w in words) and last_reply.rstrip().endswith("?"):
+        return "escalate"
     if not words or all(w in FILLERS for w in words):
         return "reject"
     if _is_echo(text, last_reply):

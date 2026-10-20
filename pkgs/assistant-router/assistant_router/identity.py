@@ -4,8 +4,11 @@ Nobody needs a phone, an app or an account to be known. After answering
 someone whose voice it doesn't know, in a room with a robot, Nabu asks once
 (a room at most once a day) "What's your name?". A name is consent: from that
 conversation it learns the voice, the robot's camera adds the face, and a card
-held on the robot's head is theirs. A decline keeps nothing. "Remember me"
-does the same on request; a known person gets a top-up.
+held on the robot's head after "remember my card" is theirs. A decline keeps
+nothing. "Remember me" (or "remember me as Jane") does the same on request; a
+known person gets a top-up. "Forget me" forgets them. All of it works without
+the cloud model, and every reply is one short sentence: what follows is
+learned quietly.
 
 This module only reads what was said: the commands and the answer to the
 name question. The router (server.py) does the binding.
@@ -16,10 +19,9 @@ import re
 
 OFFER = "By the way, I don't think we've met. What's your name?"
 ASK_NAME = "Sure! What's your name?"
+ASK_AGAIN = "Sorry, what's your name?"
 DECLINED = "No problem!"
 NOT_SURE = "I'm not sure who you are yet. Tell me your name, and I'll remember you."
-CARD_HINT = "If you have a card, hold it on my head now."
-MORE_VOICE = "Tell me a little about your day, so I learn your voice?"
 
 _SAID = re.compile(r"[^a-z' -]+")
 
@@ -32,6 +34,15 @@ def _said(text: str) -> str:
 _REMEMBER = re.compile(r"^(?:(?:hey|okay|ok|please|nabu|can you|could you|would you)\s+)*"
                        r"(?:remember|learn|save|register|get to know)\s+(?:me|who i am|my (?:voice|face))"
                        r"(?:\s+please)?$")
+_POLITE = r"^(?:(?:hey|okay|ok|please|nabu|can you|could you|would you)\s+)*"
+# "Remember me as Jane".
+_REMEMBER_AS = re.compile(_POLITE + r"(?:remember|learn|save) me as\s+(?P<name>[a-z][a-z' -]{0,38})$")
+# "Forget me", "forget who I am", "delete me".
+_FORGET_ME = re.compile(_POLITE + r"(?:forget|delete|remove|erase)\s+(?:me|who i am|everything about me|all about me)"
+                        r"(?:\s+please)?$")
+# "Remember my card", "this is my card", "learn this card".
+_REMEMBER_CARD = re.compile(_POLITE + r"(?:(?:remember|learn|save|add|register)\s+(?:this|my|the) (?:card|tag)|"
+                            r"this is my (?:card|tag))(?:\s+please)?$")
 # "Forget my card", "remove my cards" (and the card-only forms of before).
 _FORGET_CARD = re.compile(r"\b(forget|remove|delete)\b.*\b(this|my|the) (card|cards|tag|tags)\b")
 # "Call me Kiki."
@@ -40,10 +51,18 @@ _CALL_ME = re.compile(r"^(?:(?:please|nabu|okay|ok)\s+)*(?:call me|my name is|i'
 
 
 def command(text: str) -> tuple[str, str | None] | None:
-    """("remember", None), ("forget_card", None), ("call_me", name), or None."""
+    """("remember", None), ("remember", name), ("remember_card", None),
+    ("forget_card", None), ("forget_me", None), ("call_me", name), or None."""
     said = _said(text)
     if _FORGET_CARD.search(said):
         return "forget_card", None
+    if _REMEMBER_CARD.match(said):
+        return "remember_card", None
+    if _FORGET_ME.match(said):
+        return "forget_me", None
+    m = _REMEMBER_AS.match(said)
+    if m:
+        return "remember", _title(m.group("name"))
     if _REMEMBER.match(said):
         return "remember", None
     m = _CALL_ME.match(said)
@@ -64,7 +83,7 @@ _NAME_INTRO = re.compile(r"^(?:(?:hi|hello|hey|oh|um|uh|well|okay|ok|sure|yes|ye
 _NOT_NAMES = frozenset("""
 the a an and or what who why when where how which turn switch set play stop pause cancel volume
 lights light music timer alarm weather time yes yeah sure okay ok hello hi hey thanks thank you
-please nothing never mind sorry
+please nothing never mind sorry pardon huh eh excuse again repeat come
 tired fine good great busy back home here ready done sleepy hungry cold hot ill sick bored lost
 """.split())
 
