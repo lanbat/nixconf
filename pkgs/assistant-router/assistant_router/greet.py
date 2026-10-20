@@ -83,6 +83,11 @@ class Greeter:
     async def tick(self) -> None:
         for room, person, by in self.due(self.clock()):
             name = self.people.names.get(person, person)
+            state = self.bodies.state(room)
+            if state is not None and not state.present:
+                # Known to be here (a phone, a voice, a tap), not in front of
+                # it: it looks round the room for them first.
+                await self.bodies.act(room, {"scan": True})
             await self.bodies.act(room, {"greet": {"name": first_name(name)}})
             self.bodies.announce(room, {"recognized": name, "how": by})
             LOG.info(json.dumps({"greeted": person, "room": room, "how": by}))

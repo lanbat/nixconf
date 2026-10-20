@@ -162,6 +162,10 @@ bool begin() {
   if (!started) return false;
   lock = xSemaphoreCreateMutex();
   events = xQueueCreate(8, sizeof(Event*));
+  if (!lock || !events) {  // no internal RAM left: no NFC, rather than a crash at the first tap
+    started = false;
+    return false;
+  }
   // Internal stack: it talks I2C, and a PSRAM stack must not meet a flash write.
   xTaskCreatePinnedToCore(task, "nfc", 4096, nullptr, 3, nullptr, 1);
   return true;

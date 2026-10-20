@@ -11,6 +11,11 @@ struct Sighting {
   float y = 0;          // -1 (down) .. 1 (up)
   float size = 0;       // box width as a share of the frame
   uint8_t faces = 0;    // faces in the frame (the Pi only learns its turns from one)
+  // What moved since the frame before: the share of the frame (0..1), and
+  // where, like x and y. Meaningless across a move of the head.
+  float motion = 0;
+  float motionX = 0;
+  float motionY = 0;
   uint32_t at = 0;      // millis() of the frame
 };
 
@@ -19,6 +24,9 @@ namespace vision {
 // Starts the camera and the detector on core 0. False when there is no
 // camera: the robot works without one, it just doesn't look at people.
 bool begin();
+
+// Lets the detector start (end of setup: its first run takes internal RAM).
+void start();
 
 // The latest sighting (copied under a lock).
 Sighting latest();
@@ -41,6 +49,8 @@ uint32_t frameCount();
 // Debug view: the camera image and the detector's boxes on the robot's
 // screen (candidates yellow, faces green), in place of the face.
 void setPreview(bool on);
+// Draws the latest preview frame, from the task that owns the display (loop()).
+void drawPreview();
 
 // Frame size and detection counts since the last call, for the Pi's journal.
 String stats();

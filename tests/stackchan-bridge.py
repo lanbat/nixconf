@@ -186,6 +186,15 @@ class Touch(unittest.TestCase):
         self.assertEqual(lva(out), [])
         self.assertEqual(merged(out)["mood"], "happy")
 
+    def test_a_happy_moment_passes(self):
+        # A stroke makes it happy for a moment, not for good (its idle
+        # looks, the wander and the look round, wait for a neutral face).
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(merged(b.on_device({"touch": "stroke", "zone": "back"}, NOON))["mood"], "happy")
+        self.assertNotIn("mood", merged(b.tick(NOON + 5)))
+        self.assertEqual(merged(b.tick(NOON + 11))["mood"], "neutral")
+        self.assertEqual(merged(b.on_device({"hello": {"fw": "1.11.0", "proto": 1}}, NOON + 12))["mood"], "neutral")
+
     def test_touch_to_talk_can_be_turned_off(self):
         b = Brain(Config(touch_to_talk=False), now=NOON)
         out = b.on_device({"touch": "tap", "zone": "middle"}, NOON)
@@ -359,6 +368,14 @@ class Router(unittest.TestCase):
         out = device(b.on_lva("idle", {}, NOON + 8))
         self.assertIn({"caption": None}, out)  # "Listening…" goes
         self.assertIn({"gesture": "tilt"}, out)  # a little "hm?"
+
+    def test_a_look_round_when_asked_but_not_asleep_or_talking(self):
+        b = Brain(Config(night_start="23:00", night_end="07:00"), now=NOON)
+        self.assertIn({"scan": True}, device(b.on_router({"act": {"scan": True}}, NOON)))
+        b.on_lva("wake_word_detected", {}, NOON + 1)
+        self.assertNotIn({"scan": True}, device(b.on_router({"act": {"scan": True}}, NOON + 2)))
+        night = Brain(Config(night_start="23:00", night_end="07:00"), now=MIDNIGHT)
+        self.assertNotIn({"scan": True}, device(night.on_router({"act": {"scan": True}}, MIDNIGHT)))
 
     def test_with_captions_off_the_greeting_has_none_either(self):
         b = Brain(Config(captions=False), now=NOON)

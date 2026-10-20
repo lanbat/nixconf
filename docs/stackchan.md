@@ -7,10 +7,15 @@ voice satellite's USB port, it becomes the satellite's face. The Pi keeps the vo
 (wake word, microphone, speaker), and the robot shows what the assistant is doing:
 
 - **It notices people.** Its camera finds faces on the robot itself. It turns to whoever
-  is in front of it and follows them. When someone appears after nobody was around, it
-  glances over, nods and glows warm; if it knows who it is, it also shows "Hi <name>!"
-  and glows green, one hello rather than two. With nobody there it looks around now and
-  then.
+  is in front of it and follows them. When something moves where it can see and there is
+  no face, it looks there, so it finds you as you walk about; it looks less often each
+  time it finds nobody (a TV, a curtain), down to once every two minutes, and often again
+  once it has seen a face. When someone appears after nobody was around, it glances over,
+  nods and glows warm; if it knows who it is, it also shows "Hi <name>!" and glows green,
+  one hello rather than two. With nobody there it looks around now and then, and when
+  nobody has been seen for two minutes it looks round the room properly: three rows of
+  three, from a face standing close down to one seated, holding each still, stopping at
+  the first face (less often each time it finds nobody, down to every ten minutes).
 - **A conversation shows on it.** On the wake word it looks at you with cyan LEDs. While
   Home Assistant works it looks up, thinking, with violet LEDs going round. The reply
   shows as a caption, its mouth moves with the spoken reply, and its face matches the
