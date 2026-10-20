@@ -67,7 +67,8 @@ def test_a_face_for_remember_me():
 def test_a_greeting_and_a_caption_are_notifications():
     b = brain()
     (out,) = b.router({"act": {"greet": {"name": "Kiril"}}}, 0.0)
-    assert out[1] == "notify" and out[2]["title"] == "Hi Kiril!" and out[2]["seconds"] > 0
+    # TECHO5 refuses a notification whose message is empty: the greeting is the message.
+    assert out[1] == "notify" and out[2]["message"] == "Hi Kiril!" and out[2]["seconds"] > 0
     assert set(out[2]) == {"message", "title", "icon", "chime", "speak", "tag", "seconds"}  # every argument
     (out,) = b.router({"act": {"caption": "Dinner's ready"}}, 0.0)
     assert out[2]["message"] == "Dinner's ready"
@@ -200,7 +201,7 @@ def test_someone_the_router_met_gets_the_home_view_with_their_photos_and_chips()
     assert ("call", "dashboard_path", {"path": "lanbat-screen-kitchen"}) in outs
     assert ("set", "immich_person", "Kiril") in outs
     (greet,) = b.router({"act": {"greet": {"name": "Kiril"}}}, 1.0)
-    assert greet[2]["title"] == "Hi Kiril!"
+    assert greet[2]["message"] == "Hi Kiril!"
 
 
 def test_a_reconnect_sends_nothing_the_device_already_has():
@@ -237,3 +238,38 @@ def test_no_key_no_ca():
     b = brain(install_ca=True)
     b.connected(0.0)
     assert ("ca",) not in b.state("ssh", True, 1.0)
+
+
+def test_no_notification_goes_out_without_a_message():
+    b = brain()
+    outs = b.router({"act": {"greet": {"name": "Kiril"}}}, 0.0) + b.router({"act": {"caption": "Hi"}}, 0.0)
+    assert all(o[2]["message"] for o in calls(outs, "notify"))
+
+
+def test_being_placed_takes_the_sign_in_code_down():
+    b = brain()
+    b.router({"tap": {"url": "https://who.example.org/tap/Kitchen?n=abc"}}, 0.0)
+    b.state("person", True, 1.0)
+    assert calls(b.router({"face_result": {"person": None}}, 2.0), "notify_picture")
+    # The phone scanned it: the router places them, and the code goes at once.
+    (thanks,) = calls(b.router({"here": [{"person": "akadmin", "name": "Kiril", "confidence": 0.98}]}, 20.0), "notify")
+    assert thanks[2]["message"] == "Thanks, Kiril!"
+    # Only once, and not after the code's time is up anyway.
+    assert not calls(b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 21.0), "notify")
+
+
+def test_a_greeting_replaces_the_code_without_a_thanks_too():
+    b = brain()
+    b.router({"tap": {"url": "https://who.example.org/tap/Kitchen?n=abc"}}, 0.0)
+    b.state("person", True, 1.0)
+    b.router({"face_result": {"person": None}}, 2.0)
+    outs = b.router({"here": [{"person": "akadmin", "name": "Kiril"}], "act": {"greet": {"name": "Kiril"}}}, 20.0)
+    assert [o[2]["message"] for o in calls(outs, "notify")] == ["Hi Kiril!"]
+
+
+def test_no_thanks_once_the_code_has_gone():
+    b = brain()
+    b.router({"tap": {"url": "https://who.example.org/tap/Kitchen?n=abc"}}, 0.0)
+    b.state("person", True, 1.0)
+    b.router({"face_result": {"person": None}}, 2.0)
+    assert not calls(b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 200.0), "notify")
