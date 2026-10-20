@@ -69,3 +69,12 @@ the checks, which doesn't cover drawn dashboards).
 - No Snapcast client: it joins multi-room audio as Music Assistant's Sendspin player.
 - The CA rides on TECHO5's internals (the bundle's path, the daemon reading it once, init
   starting it again); a TECHO5 release that changes them needs `ca.py` to follow.
+- The device signs in to Home Assistant as the voice satellites' user, who is not an
+  administrator. TECHO5's music **star** (favourite) asks Home Assistant to render a
+  template, which only administrators may, and Home Assistant counts each refusal as a
+  failed login: five taps in a row and it bans the device's address (every request then
+  gets 403, the dashboard says it can't reach Home Assistant). Don't use the star; to lift
+  a ban, take the address out of `/var/lib/hass/ip_bans.yaml` and restart Home Assistant.
+  Template-based cards on the device's dashboard stay empty for the same reason (no ban).
+- After a TECHO5 update the device restarts: the bridge puts the CA back on its next
+  connection, as after any boot ("ca": "installed" in its log, then "unchanged").
