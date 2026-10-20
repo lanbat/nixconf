@@ -186,6 +186,15 @@ class Touch(unittest.TestCase):
         self.assertEqual(lva(out), [])
         self.assertEqual(merged(out)["mood"], "happy")
 
+    def test_a_happy_moment_passes(self):
+        # A stroke makes it happy for a moment, not for good (its idle
+        # looks, the wander and the look round, wait for a neutral face).
+        b = Brain(Config(), now=NOON)
+        self.assertEqual(merged(b.on_device({"touch": "stroke", "zone": "back"}, NOON))["mood"], "happy")
+        self.assertNotIn("mood", merged(b.tick(NOON + 5)))
+        self.assertEqual(merged(b.tick(NOON + 11))["mood"], "neutral")
+        self.assertEqual(merged(b.on_device({"hello": {"fw": "1.11.0", "proto": 1}}, NOON + 12))["mood"], "neutral")
+
     def test_touch_to_talk_can_be_turned_off(self):
         b = Brain(Config(touch_to_talk=False), now=NOON)
         out = b.on_device({"touch": "tap", "zone": "middle"}, NOON)

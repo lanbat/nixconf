@@ -94,6 +94,8 @@ CRASH_LINES_PER_MIN = 30
 HAPPY_IDIOMS = re.compile(r"\b(?:can't|cannot|couldn't|could not) (?:wait|be happier|be better|be more|believe how)\b"
                           r"|\bno problem\b|\bnot sure i've ever\b")
 
+MOOD_HOLD_S = 10  # a mood outside a conversation lasts this long
+
 DEFAULT_SAD_WORDS = (
     "sorry",
     "can't",
@@ -415,6 +417,7 @@ class Brain:
     probes: bool = False  # the router has a face library (its body_hello)
     probe_at: float | None = None  # when one went last
     greeted_until: float | None = None  # a greeting's happy face lasts until then
+    mood_at: float = 0.0  # when the mood last changed
     router: bool = False  # a router is connected: the ear's recordings have somewhere to go
 
     def __post_init__(self) -> None:
@@ -445,6 +448,7 @@ class Brain:
 
     def _mood(self, mood: str) -> tuple[str, dict]:
         self.mood = mood
+        self.mood_at = self.now
         return ("device", {"mood": mood})
 
     def _caption(self, text: str, who: str) -> list:
@@ -978,6 +982,11 @@ class Brain:
             del self.timers[tid]
         if self.timers or stale:
             out.append(self._timers(now))
+        if (not self.in_turn and self.greeted_until is None and self.mood not in ("neutral", "sleepy")
+                and now - self.mood_at > MOOD_HOLD_S):
+            # A happy (or any) moment outside a conversation passes: the
+            # robot's own idle looks wait for its usual face.
+            out.append(self._mood("neutral"))
         if self.greeted_until is not None and now >= self.greeted_until:
             self.greeted_until = None  # the greeting is over: back to its usual face
             if not self.in_turn and not self.asleep and self.mood == "happy":
