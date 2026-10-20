@@ -982,25 +982,22 @@ let
       && failedAssertions bodyPi == [ ]
     ))
 
-    (expect
-      "stackchan: where its Pi scans the room for phones, the robot leaves them to it"
-      (
-        let
-          unit = presencePi.systemd.services.lva-stackchan;
-          irksUnit = presenceIrksPi.systemd.services.lva-stackchan;
-        in
-        # room-presence runs on this Pi: no beacons, no keys, no secret for the robot
-        # (its RAM can't hold Bluetooth beside its camera and Wi-Fi).
-        !(unit.environment ? BEACONS)
-        && unit.environment.ROUTER_PHONES == "0"
-        && !(unit.serviceConfig ? LoadCredential)
-        && !(irksUnit.serviceConfig ? LoadCredential)
-        && presencePi.lanbat.services.stackchan.readsSecrets == [ ]
-        && presenceIrksPi.lanbat.services.stackchan.readsSecrets == [ ]
-        && failedAssertions presencePi == [ ]
-        && failedAssertions presenceIrksPi == [ ]
-      )
-    )
+    (expect "stackchan: where its Pi scans the room for phones, the robot leaves them to it" (
+      let
+        unit = presencePi.systemd.services.lva-stackchan;
+        irksUnit = presenceIrksPi.systemd.services.lva-stackchan;
+      in
+      # room-presence runs on this Pi: no beacons, no keys, no secret for the robot
+      # (its RAM can't hold Bluetooth beside its camera and Wi-Fi).
+      !(unit.environment ? BEACONS)
+      && unit.environment.ROUTER_PHONES == "0"
+      && !(unit.serviceConfig ? LoadCredential)
+      && !(irksUnit.serviceConfig ? LoadCredential)
+      && presencePi.lanbat.services.stackchan.readsSecrets == [ ]
+      && presenceIrksPi.lanbat.services.stackchan.readsSecrets == [ ]
+      && failedAssertions presencePi == [ ]
+      && failedAssertions presenceIrksPi == [ ]
+    ))
 
     (expect
       "assistant-router: publishes the robots and who is around to Home Assistant, with its own broker login"
