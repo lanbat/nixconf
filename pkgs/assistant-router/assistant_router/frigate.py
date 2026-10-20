@@ -94,10 +94,19 @@ class Frigate:
         return await self._call("POST", f"/api/faces/{safe_name(name)}/register", data=data)
 
     async def recognize(self, image: bytes, filename: str = "probe.jpg") -> dict:
-        """Match an image against the library: a name and a confidence, if any."""
+        """Match an image against the library: {"success", "name", "confidence"},
+        the name None when nobody in the library matches. Frigate (0.16, 0.17)
+        answers {"success", "face_name", "score"}, with face_name "unknown" for
+        a face below its unknown_score; an older "name"/"confidence" is read too."""
         data = aiohttp.FormData()
         data.add_field("file", image, filename=filename, content_type="image/jpeg")
-        return await self._call("POST", "/api/faces/recognize", data=data)
+        body = await self._call("POST", "/api/faces/recognize", data=data)
+        name = body.get("face_name", body.get("name"))
+        if not isinstance(name, str) or not name or name == "unknown":
+            name = None
+        score = body.get("score", body.get("confidence"))
+        return {"success": bool(body.get("success")) and name is not None, "name": name,
+                "confidence": float(score) if type(score) in (int, float) else None}
 
     async def delete(self, name: str, ids: list[str]) -> dict:
         """Remove face images from a person; all of them, to drop the person."""
