@@ -10,6 +10,7 @@ out:
     ("set", object_id, value)        a device setting: a switch, select, number, text or light
     ("call", action, {arg: value})   one of the device's actions (TECHO5 docs/actions.md)
     ("image", why)                   a camera frame, answered with Brain.image(why, jpeg)
+    ("ca",)                          install the CA over SSH, answered with Brain.ca_done(ok, now)
 
 What it does:
 
@@ -31,6 +32,9 @@ What it does:
 - Looks for the household's phones in what its Bluetooth hears, with
   room-presence's Recogniser, and reports them as the router's room sensors do.
 - Keeps the device's own settings as the profile has them (`settings`).
+- Puts the profile's root CA among the certificates the device trusts, so it
+  checks Home Assistant's certificate rather than skipping the check (the
+  device's root is read-only, so after each of its boots, over SSH: ca.py).
 """
 from __future__ import annotations
 
@@ -44,6 +48,7 @@ PROTOCOL = 1
 CAN = ["caption", "greet", "capture", "phones", "here"]
 
 PROBE_S = 20.0           # a frame this often while someone unnamed is in front
+CA_RETRY_S = 60.0        # an install of the CA that failed is tried again after this
 SETTING_RETRY_S = 60.0   # a setting the device didn't take is sent again after this
 GREET_SECONDS = 10       # how long a greeting stays up
 CODE_SECONDS = 60        # and the sign-in code
@@ -78,15 +83,18 @@ class DeviceConfig:
     ha_url: str = ""
     ha_token: str = ""
     code_url: str = ""                # where the device fetches the sign-in code, "" for none
+    ssh_keys: str = ""                # authorized_keys for the device ("" leaves SSH alone)
+    install_ca: bool = False          # put the profile's root CA among the device's trusted ones
 
     @classmethod
-    def from_json(cls, data: dict, token: str = "") -> "DeviceConfig":
+    def from_json(cls, data: dict, token: str = "", ssh_keys: str = "") -> "DeviceConfig":
         return cls(name=data["name"], room=data["room"], dashboard=data.get("dashboard") or "",
                    settings=dict(data.get("settings") or {}),
                    profiles={k: Profile.from_json(v) for k, v in (data.get("profiles") or {}).items()},
                    household=Profile.from_json(data.get("household")),
                    screen_off_after=float(data.get("screen_off_after", 300)),
-                   ha_url=data.get("ha_url") or "", ha_token=token, code_url=data.get("code_url") or "")
+                   ha_url=data.get("ha_url") or "", ha_token=token, code_url=data.get("code_url") or "",
+                   ssh_keys=ssh_keys if data.get("install_ca") else "", install_ca=bool(data.get("install_ca")))
 
 
 def _jpeg_b64(jpeg: bytes | None) -> str | None:
@@ -128,27 +136,40 @@ class Brain:
         self._code_shown = False          # the sign-in code shown since they came
         self._unused_since: float | None = None
         self._dimmed = False              # the screen is off because this turned it off
-        self._profile: tuple | None = None
+        # What each of the device's actions was last given. The device keeps
+        # them, and several (home_glance, calendar_sources, home_assistant) make
+        # it drop every API client, Home Assistant's too, to re-register: so each
+        # is sent once, and again only when it changes, across reconnects.
+        self._sent: dict[str, Any] = {}
+        self._ca = "no"                   # this connection: "no", "running", "done"; or the retry time
         self._asked: dict[str, tuple[Any, float]] = {}  # object_id -> (value sent, when)
         self._reported = float("-inf")
 
     # ── the device ──────────────────────────────────────────────────────────
     def connected(self, now: float) -> list:
-        """The device answered: tell it where Home Assistant is, and the router
-        who we are (again)."""
+        """The device answered: tell it where Home Assistant is and whose
+        screen to show, unless it was told already (its actions reconnect it)."""
         self._asked.clear()
-        self._profile = None
         out: list = []
+        self._ca = "no"
+        if self.cfg.install_ca and self.cfg.ssh_keys:
+            out += self._call("ssh_keys", {"keys": self.cfg.ssh_keys})
         if self.cfg.ha_url and self.cfg.ha_token:
-            out.append(("call", "home_assistant", {"url": self.cfg.ha_url, "token": self.cfg.ha_token}))
+            out += self._call("home_assistant", {"url": self.cfg.ha_url, "token": self.cfg.ha_token})
         return out + self._apply_profile()
+
+    def _call(self, action: str, args: dict) -> list:
+        if self._sent.get(action) == args:
+            return []
+        self._sent[action] = args
+        return [("call", action, args)]
 
     def hello(self) -> dict:
         return {"hello": {"room": self.cfg.room, "kind": "screen", "proto": PROTOCOL, "can": CAN}}
 
     def state(self, object_id: str, value: Any, now: float) -> list:
         self.echo[object_id] = value
-        out = self._converge(object_id, now)
+        out = self._converge(object_id, now) + self._install_ca(now)
         if object_id in ("presence", "person"):
             out += self._presence(now)
         if object_id == "button_action" and value == "press":
@@ -287,18 +308,16 @@ class Brain:
         return None, self.cfg.household
 
     def _apply_profile(self) -> list:
-        key, p = self.profile()
-        wanted = (key, p.view, tuple(p.glance), tuple(p.calendars), p.immich_person)
-        if wanted == self._profile:
-            return []
-        self._profile = wanted
+        _, p = self.profile()
         out: list = []
         if self.cfg.dashboard:
             path = f"{self.cfg.dashboard}/{p.view}" if p.view else self.cfg.dashboard
-            out.append(("call", "dashboard_path", {"path": path}))
-        out.append(("call", "home_glance", {"entities": ", ".join(p.glance)}))
-        out.append(("call", "calendar_sources", {"calendars": ", ".join(p.calendars)}))
-        out.append(("set", "immich_person", p.immich_person))
+            out += self._call("dashboard_path", {"path": path})
+        out += self._call("home_glance", {"entities": ", ".join(p.glance)})
+        out += self._call("calendar_sources", {"calendars": ", ".join(p.calendars)})
+        if self._sent.get("immich_person") != p.immich_person:
+            self._sent["immich_person"] = p.immich_person
+            out.append(("set", "immich_person", p.immich_person))
         return out
 
     # ── the screen ──────────────────────────────────────────────────────────
@@ -332,8 +351,21 @@ class Brain:
             self.tracker.observe(person, rssi, now)
 
     # ── every second ────────────────────────────────────────────────────────
+    def _install_ca(self, now: float) -> list:
+        """Once a connection, as soon as the device's SSH is on: the install
+        checks itself, so a device that has it already costs one login."""
+        if not self.cfg.install_ca or not self.cfg.ssh_keys or self.echo.get("ssh") is not True:
+            return []
+        if self._ca == "no" or (isinstance(self._ca, float) and now >= self._ca):
+            self._ca = "running"
+            return [("ca",)]
+        return []
+
+    def ca_done(self, ok: bool, now: float) -> None:
+        self._ca = "done" if ok else now + CA_RETRY_S
+
     def tick(self, now: float) -> list:
-        out = self._probe(now) + self._screen(now)
+        out = self._probe(now) + self._screen(now) + self._install_ca(now)
         if now - self._reported >= REPORT_SECONDS:
             self._reported = now
             seen = self.tracker.report(now)

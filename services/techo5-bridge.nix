@@ -22,8 +22,15 @@
 # devices' addresses only): the who page's link for the room, which proves
 # nothing more than a robot's NFC tag does.
 #
-# Always-on: it is in the voice path, as the robots' bridges are. Nothing on
-# disk.
+# The device checks Home Assistant's certificate: the bridge puts the profile's
+# root CA (secrets.caCertificate) among the ones it trusts, over SSH as root
+# after each of its boots (its root filesystem is read-only, TECHO5 has no
+# setting for it: pkgs/techo5-bridge ca.py), with techo5-ssh-key. Caddy's
+# intermediates and leaf certificates renew under that root by themselves; a
+# new root reaches the device with the next deploy.
+#
+# Always-on: it is in the voice path, as the robots' bridges are. On disk only
+# the devices' SSH host keys (/var/lib/techo5-bridge/known_hosts).
 {
   config,
   lib,
@@ -45,6 +52,9 @@ let
   hasHa = config.lanbat.hasService "home-assistant";
   enabled = devices != { } && routerHere;
   codePort = 8775;
+  caCert = config.lanbat.deployment.secrets.caCertificate;
+  trusting = lib.filterAttrs (_: d: d.installCa) devices;
+  installsCa = enabled && trusting != { };
   serverIp = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 
@@ -70,8 +80,8 @@ let
       screen_off_when_nobody_is_near = 0;
       # Music Assistant's player.
       sendspin = true;
-      # Nothing to log in to on the device.
-      ssh = false;
+      # Root's SSH, with the bridge's key and the admin's, only to put the CA on it.
+      ssh = device.installCa;
       remote_api = false;
     }
     // lib.optionalAttrs hasHa {
@@ -98,6 +108,11 @@ let
       code_base = "http://${serverIp}:${toString codePort}";
       code_port = codePort;
       code_host = serverIp;
+      ca_file = lib.optionalString installsCa "${caCert}";
+      ssh_key_file = lib.optionalString installsCa "/run/${name}/ssh-key";
+      ssh_extra_keys = [ config.lanbat.deployment.adminSshKey ];
+      known_hosts = "/var/lib/${name}/known_hosts";
+      ssh = "${pkgs.openssh}/bin/ssh";
       devices = lib.mapAttrsToList (key: d: {
         name = key;
         inherit (d) address room;
@@ -109,6 +124,7 @@ let
         ha_url = lib.optionalString hasHa "https://ha.${domain}";
         profiles = lib.mapAttrs (_: profileJson) d.profiles;
         household = profileJson d.household;
+        install_ca = d.installCa;
       }) devices;
     }
   );
@@ -137,6 +153,13 @@ in
           }
         ) (lib.attrNames devices)
       )
+      // {
+        # The bridge's SSH key for the devices (ssh-keygen -t ed25519 -N "").
+        techo5-ssh-key = {
+          enable = installsCa;
+          owner = "root";
+        };
+      }
       // lib.optionalAttrs (!satelliteDeclares) {
         ha-voice-token = {
           enable = enabled && hasHa;
@@ -167,6 +190,8 @@ in
     wants = [ "network-online.target" ];
     environment = {
       CONFIG_FILE = configFile;
+      # ssh reads and writes nothing in a home of its own but this.
+      HOME = "/var/lib/${name}";
     }
     // lib.optionalAttrs hasHa { HA_TOKEN_FILE = "/run/${name}/ha-token"; };
     serviceConfig = {
@@ -185,6 +210,7 @@ in
                 } /run/${name}/${keySecret key}"
               ) (lib.attrNames devices)
               ++ lib.optional hasHa "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.ha-voice-token.path} /run/${name}/ha-token"
+              ++ lib.optional installsCa "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.techo5-ssh-key.path} /run/${name}/ssh-key"
             )
           )
         }"
@@ -193,6 +219,7 @@ in
       Restart = "always";
       RestartSec = "5s";
       RuntimeDirectory = name;
+      StateDirectory = name;
       RuntimeDirectoryMode = "0700";
       MemoryMax = "256M";
       NoNewPrivileges = true;

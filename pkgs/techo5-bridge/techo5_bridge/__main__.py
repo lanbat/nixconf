@@ -19,7 +19,7 @@ import time
 import aiohttp
 from aiohttp import web
 
-from . import qr
+from . import ca, qr
 from .brain import Brain, DeviceConfig
 
 LOG = logging.getLogger("techo5-bridge")
@@ -30,14 +30,15 @@ class Echo:
     """One device: its ESPHome connection and its router socket."""
 
     def __init__(self, data: dict, people: dict[str, str], beacons: dict[str, str], router_url: str,
-                 token: str, codes: dict[str, "Echo"], code_base: str) -> None:
+                 token: str, codes: dict[str, "Echo"], code_base: str, trust: dict | None = None) -> None:
         self.address = data["address"]
         self.key = open(data["key_file"], encoding="utf-8").read().strip()
         self.code_id = secrets.token_urlsafe(16)
         codes[self.code_id] = self
         if code_base:
             data = dict(data, code_url=f"{code_base}/code/{self.code_id}.png")
-        self.brain = Brain(DeviceConfig.from_json(data, token), people, beacons)
+        self.trust = trust or {}  # the CA, and SSH to put it on the device (ca.py)
+        self.brain = Brain(DeviceConfig.from_json(data, token, self.trust.get("keys", "")), people, beacons)
         self.router_url = router_url
         self.client = None
         self.entities: dict[str, object] = {}   # object_id -> its info
@@ -73,6 +74,8 @@ class Echo:
             if service is None or self.client is None:
                 return
             await self.client.execute_service(service, out[2])
+        elif kind == "ca":
+            asyncio.ensure_future(self._install_ca())
         elif kind == "image":
             if self.client is None:
                 await self.carry(self.brain.image(out[1], None))
@@ -96,6 +99,13 @@ class Echo:
             self.client.text_command(info.key, str(value))
         elif kind == "LightInfo":
             self.client.light_command(info.key, state=bool(value))
+
+    async def _install_ca(self) -> None:
+        t = self.trust
+        ok, said = await ca.install(self.address, t["key_file"], t["known_hosts"], t["ca_pem"], t.get("ssh", "ssh"))
+        LOG.log(logging.INFO if ok else logging.WARNING,
+                json.dumps({"device": self.name, "ca": said if ok else "failed", "error": None if ok else said}))
+        self.brain.ca_done(ok, time.monotonic())
 
     def _image_timeout(self, why: str) -> None:
         if why in self.images:
@@ -209,6 +219,25 @@ class Echo:
         return self.code_png
 
 
+def trust_from(cfg: dict) -> dict | None:
+    """The CA and the SSH that puts it on the devices: the bridge's key, whose
+    public half (and the profile's admin key) go in their authorized_keys."""
+    from cryptography.hazmat.primitives import serialization
+
+    try:
+        ca_pem = open(cfg["ca_file"], encoding="utf-8").read()
+        with open(cfg["ssh_key_file"], "rb") as f:
+            key = serialization.load_ssh_private_key(f.read(), password=None)
+    except (OSError, ValueError) as err:
+        LOG.warning("no CA for the devices (%s): they keep their own trust", err)
+        return None
+    public = key.public_key().public_bytes(serialization.Encoding.OpenSSH,
+                                           serialization.PublicFormat.OpenSSH).decode()
+    keys = "\n".join([f"{public} lanbat-techo5-bridge"] + [k for k in cfg.get("ssh_extra_keys") or [] if k])
+    return {"ca_pem": ca_pem, "key_file": cfg["ssh_key_file"], "known_hosts": cfg["known_hosts"],
+            "ssh": cfg.get("ssh") or "ssh", "keys": keys}
+
+
 def code_app(codes: dict[str, Echo]) -> web.Application:
     async def code(request: web.Request) -> web.Response:
         echo = codes.get(request.match_info["id"])
@@ -229,10 +258,13 @@ async def run(cfg: dict) -> None:
             token = open(os.environ["HA_TOKEN_FILE"], encoding="utf-8").read().strip()
         except OSError as err:
             LOG.warning("no Home Assistant token (%s): dashboards and pictures stay off", err)
+    trust = None
+    if cfg.get("ca_file") and cfg.get("ssh_key_file"):
+        trust = trust_from(cfg)
     codes: dict[str, Echo] = {}
     base = cfg.get("code_base") or ""
-    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base)
-              for d in cfg["devices"]]
+    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
+                   trust) for d in cfg["devices"]]
     runner = None
     if base and cfg.get("code_port"):
         runner = web.AppRunner(code_app(codes))

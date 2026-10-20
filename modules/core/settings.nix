@@ -521,17 +521,28 @@ in
                     player where it is.
                   '';
                 };
-                insecureTls = mkOption {
+                installCa = mkOption {
                   type = types.bool;
                   default = true;
                   description = ''
-                    Turn on the device's "Skip certificate checks". The device can't
-                    be given the internal CA, and it fetches dashboards, replies and
-                    pictures from https://ha.<domain> itself. The connection stays
-                    encrypted, but the device no longer checks who answers: someone
-                    on the LAN who impersonates the server could get its Home
-                    Assistant token. False keeps checks on, and with them dashboards,
-                    pictures and whole-file replies off (docs/techo5.md).
+                    Put the profile's root CA (secrets.caCertificate) among the
+                    certificates the device trusts, so it checks Home Assistant's
+                    certificate, dashboards included. TECHO5 has no setting for it and
+                    a read-only root, so the bridge does it over SSH after each of the
+                    device's boots: it gives the device its key (techo5-ssh-key) and
+                    the admin's, and turns the device's SSH on, which lets root in
+                    with those keys (docs/techo5.md).
+                  '';
+                };
+                insecureTls = mkOption {
+                  type = types.bool;
+                  default = false;
+                  description = ''
+                    Turn on the device's "Skip certificate checks" instead: for a
+                    device that can't have the CA (installCa false). Encrypted, but
+                    the device no longer checks who answers, so someone on the LAN
+                    who impersonates the server could get its Home Assistant token.
+                    It doesn't cover a drawn dashboard's websocket (docs/techo5.md).
                   '';
                 };
                 screenOffAfter = mkOption {

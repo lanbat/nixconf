@@ -459,30 +459,18 @@ let
       };
       lanbat.services.llama-cpp.settings.model = "qwen3-4b";
       lanbat.services.assistant-router.settings.tap = false;
-    }
-  ];
-  # An Echo Show on TECHO5 in the Kitchen (services/techo5-bridge.nix), beside
-  # the router and without it.
-  techo5Device = {
-    lanbat.deployment.techo5Devices.kitchen = {
-      address = "192.0.2.60";
-      room = "Kitchen";
-      playerName = "Kitchen Show";
-      profiles.alex.glance = [ "sensor.washer_status" ];
-      household.calendars = [ "calendar.family" ];
-    };
-  };
-  techo5Server = serverWith [
-    techo5Device
-    {
-      lanbat.deployment.haLlm = lib.mkForce {
-        baseUrl = "http://127.0.0.1:8092/v1";
-        model = "assistant";
+      # An Echo Show on TECHO5 in the Kitchen (services/techo5-bridge.nix): here
+      # rather than in a variant of its own, which would cost the check another
+      # whole profile evaluation.
+      lanbat.deployment.techo5Devices.kitchen = {
+        address = "192.0.2.60";
+        room = "Kitchen";
+        playerName = "Kitchen Show";
+        profiles.alex.glance = [ "sensor.washer_status" ];
+        household.calendars = [ "calendar.family" ];
       };
-      lanbat.services.llama-cpp.settings.model = "qwen3-4b";
     }
   ];
-  techo5NoRouter = serverWith [ techo5Device ];
   # The router configured on a server that lists its services without it.
   routerUnlisted =
     (lanbatLib.mkProfile "example" (
@@ -1062,47 +1050,6 @@ let
       && !(routerNoTap.systemd.services ? wifi-presence)
       && failedAssertions presenceServer == [ ]
     ))
-
-    (expect
-      "techo5-bridge: beside the router, each Echo Show is a body; Home Assistant adds it with its key"
-      (
-        let
-          unit = techo5Server.systemd.services.techo5-bridge;
-          svc = techo5Server.lanbat.services.techo5-bridge;
-          setup = cfg: cfg.systemd.services.home-assistant-post-setup.script;
-        in
-        unit.environment ? CONFIG_FILE
-        && unit.environment.HA_TOKEN_FILE == "/run/techo5-bridge/ha-token"
-        && unit.serviceConfig.User == "techo5-bridge"
-        && svc.secrets.techo5-kitchen-api-key.enable
-        && lib.elem "assistant-router" svc.consumes
-        && svc.extraPorts == [ 8775 ]
-        # The example server's own satellite declares the token; the bridge reads it.
-        && lib.elem "ha-voice-token" svc.readsSecrets
-        && !(svc.secrets ? ha-voice-token)
-        # The sign-in code's port, for the device alone.
-        && lib.hasInfix "iptables -I INPUT -p tcp --dport 8775 -s 192.0.2.60 -j ACCEPT" techo5Server.networking.firewall.extraCommands
-        && lib.hasInfix "TECHO5_DEVICES=" (setup techo5Server)
-        && lib.hasInfix "192.0.2.60" (setup techo5Server)
-        && lib.hasInfix "lanbat-screen-kitchen" (setup techo5Server)
-        && lib.hasInfix "VOICE_TOKEN_RECORD_FILE=" (setup techo5Server)
-        && lib.elem "esphome" techo5Server.services.home-assistant.extraComponents
-        && lib.elem "techo5-kitchen-api-key" techo5Server.lanbat.services.home-assistant.readsSecrets
-        # Without the router there is no bridge, but Home Assistant still adds the device.
-        && !(techo5NoRouter.systemd.services ? techo5-bridge)
-        && techo5NoRouter.lanbat.services.techo5-bridge.account == null
-        && lib.hasInfix "TECHO5_DEVICES=" (setup techo5NoRouter)
-        # A message for a person reaches the body beside them; replies come from HTTPS.
-        && (haConfig techo5Server).script ? lanbat_notify_person
-        &&
-          (haConfig techo5Server).homeassistant.internal_url
-          == "https://ha.${techo5Server.lanbat.deployment.domain}"
-        # The example has no Echo: Home Assistant keeps its loopback URL.
-        && !(lib.hasInfix "TECHO5_DEVICES=" (setup base))
-        && failedAssertions techo5Server == [ ]
-        && failedAssertions techo5NoRouter == [ ]
-      )
-    )
 
     (expect "who: a phone held to a robot opens a page behind the login, and its phone is learned" (
       let
@@ -2016,6 +1963,46 @@ let
     )
 
     (expect "the example profile's server has no failed assertion" (failedAssertions base == [ ]))
+
+    (expect
+      "techo5-bridge: beside the router, each Echo Show is a body; Home Assistant adds it with its key"
+      (
+        let
+          unit = routerNoTap.systemd.services.techo5-bridge;
+          svc = routerNoTap.lanbat.services.techo5-bridge;
+          setup = cfg: cfg.systemd.services.home-assistant-post-setup.script;
+        in
+        unit.environment ? CONFIG_FILE
+        && unit.environment.HA_TOKEN_FILE == "/run/techo5-bridge/ha-token"
+        && unit.serviceConfig.User == "techo5-bridge"
+        && svc.secrets.techo5-kitchen-api-key.enable
+        && lib.elem "assistant-router" svc.consumes
+        && svc.extraPorts == [ 8775 ]
+        # The CA goes on the device over SSH, with the bridge's key; host keys kept.
+        && svc.secrets.techo5-ssh-key.enable
+        && unit.serviceConfig.StateDirectory == "techo5-bridge"
+        && unit.environment.HOME == "/var/lib/techo5-bridge"
+        # The example server's own satellite declares the token; the bridge reads it.
+        && lib.elem "ha-voice-token" svc.readsSecrets
+        && !(svc.secrets ? ha-voice-token)
+        # The sign-in code's port, for the device alone.
+        && lib.hasInfix "iptables -I INPUT -p tcp --dport 8775 -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraCommands
+        && lib.hasInfix "TECHO5_DEVICES=" (setup routerNoTap)
+        && lib.hasInfix "192.0.2.60" (setup routerNoTap)
+        && lib.hasInfix "lanbat-screen-kitchen" (setup routerNoTap)
+        && lib.hasInfix "VOICE_TOKEN_RECORD_FILE=" (setup routerNoTap)
+        && lib.elem "esphome" routerNoTap.services.home-assistant.extraComponents
+        && lib.elem "techo5-kitchen-api-key" routerNoTap.lanbat.services.home-assistant.readsSecrets
+        # A message for a person reaches the body beside them; replies come from HTTPS.
+        && (haConfig routerNoTap).script ? lanbat_notify_person
+        &&
+          (haConfig routerNoTap).homeassistant.internal_url
+          == "https://ha.${routerNoTap.lanbat.deployment.domain}"
+        # The example has no Echo: Home Assistant keeps its loopback URL.
+        && !(lib.hasInfix "TECHO5_DEVICES=" (setup base))
+        && failedAssertions routerNoTap == [ ]
+      )
+    )
   ];
 
   partCases = map (c: c.value) (
