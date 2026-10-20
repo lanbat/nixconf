@@ -178,6 +178,14 @@ with tempfile.TemporaryDirectory() as tmp:
     screens = os.path.join(tmp, "screens")
     write_fixture(screens)
     reg = json.load(open(os.path.join(screens, "core.entity_registry")))
+    # The room's lamp, and two device lights that are not the room's: the
+    # Echo Show's own screen and a robot's LED.
+    for eid, platform in (("light.office_lamp", "mqtt"), ("light.office_satellite_screen", "esphome"),
+                          ("light.lanbat_stackchan_office_light", "mqtt")):
+        reg["data"]["entities"].append({
+            "entity_id": eid, "platform": platform, "device_id": "sat", "device_class": None,
+            "original_device_class": None, "unit_of_measurement": None, "entity_category": None,
+            "area_id": None, "disabled_by": None, "hidden_by": None, "unique_id": eid})
     for key in ("alex", "sam"):
         reg["data"]["entities"].append({
             "entity_id": f"sensor.lanbat_people_where_{key}", "platform": "mqtt", "device_id": None,
@@ -198,6 +206,11 @@ with tempfile.TemporaryDirectory() as tmp:
            '"Hi Alex"' in alex and "sensor.lanbat_people_where_sam" in alex
            and "sensor.lanbat_people_where_alex" not in alex)
     expect("the screen shows its room's devices", "sensor.office_temperature" in json.dumps(screen))
+    offs = [c for _, c in walk(screen) if c.get("name") == "Lights off"]
+    expect("the screen's lights-off button turns off the room's lamp, not the screen or the robot",
+           offs and all(c["tap_action"]["target"]["entity_id"] == ["light.office_lamp"] for c in offs))
+    expect("the screen's lights-off button asks nothing (TECHO5 can't, and then does nothing)",
+           offs and all("confirmation" not in c["tap_action"] for c in offs))
     drawn = {"heading", "tile", "button", "entities", "glance", "markdown", "picture-entity", "grid",
              "vertical-stack", "horizontal-stack", "conditional", "gauge", "history-graph", "sensor"}
     kinds = {c["type"] for _, c in walk(screen)} - {"sections", "grid"}

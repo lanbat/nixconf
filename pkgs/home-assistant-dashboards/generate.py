@@ -108,7 +108,16 @@ class Home:
                 return o
         return None
 
+    def is_indicator(self, e: dict) -> bool:
+        """A device's own light, not the room's: an Echo Show's screen (TECHO5,
+        ESPHome "screen") or a robot's LED (the assistant router's). "Lights
+        off" must not turn off the screen it was tapped on."""
+        return ((e["platform"] == "esphome" and e["id"].endswith("_screen"))
+                or e["id"].startswith("light.lanbat_stackchan_"))
+
     def is_light(self, e: dict) -> bool:
+        if self.is_indicator(e):
+            return False
         if e["domain"] == "light":
             return True
         return e["domain"] == "switch" and bool(LIGHT_WORDS.search(e["id"]) or LIGHT_WORDS.search(e["device_name"]))
@@ -236,11 +245,15 @@ def room_cards(home: Home, area: str) -> list[dict]:
     return cards
 
 
-def all_off_action(entities: list[str]) -> dict:
+def all_off_action(entities: list[str], confirm: bool = True) -> dict:
     """Lights and light switches off together: homeassistant.turn_off takes
-    any domain."""
-    return {"action": "perform-action", "perform_action": "homeassistant.turn_off",
-            "target": {"entity_id": entities}, "confirmation": {"text": "Turn off these lights?"}}
+    any domain. A screen's dashboard goes without the confirmation: TECHO5
+    can't ask first, so it doesn't do a tap that would need it."""
+    action = {"action": "perform-action", "perform_action": "homeassistant.turn_off",
+              "target": {"entity_id": entities}}
+    if confirm:
+        action["confirmation"] = {"text": "Turn off these lights?"}
+    return action
 
 
 GREETING = """\
@@ -594,7 +607,7 @@ def screen_sections(home: Home, room: str, people: dict[str, str], person: str |
     room_lights = [e for e in home.lights() if area and home.area_of(e) == area["id"]]
     if room_lights:
         top.append({"type": "button", "name": "Lights off", "icon": "mdi:lightbulb-group-off", "show_state": False,
-                    "tap_action": all_off_action(room_lights), "hold_action": {"action": "none"},
+                    "tap_action": all_off_action(room_lights, confirm=False), "hold_action": {"action": "none"},
                     "visibility": [{"condition": "or", "conditions": [
                         {"condition": "state", "entity": l, "state": "on"} for l in room_lights]}]})
     sections = [{"type": "grid", "cards": top}]
