@@ -273,3 +273,13 @@ def test_no_thanks_once_the_code_has_gone():
     b.state("person", True, 1.0)
     b.router({"face_result": {"person": None}}, 2.0)
     assert not calls(b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 200.0), "notify")
+
+
+def test_someone_still_in_front_is_looked_at_again_when_the_router_loses_them():
+    b = brain()
+    b.state("person", True, 0.0)
+    b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 5.0)
+    assert ("image", "probe") not in b.tick(100.0)  # named: no frames
+    # The router restarted: nobody is placed, but the person never left.
+    b.router({"here": []}, 110.0)
+    assert ("image", "probe") in b.tick(110.0)
