@@ -379,7 +379,7 @@ async def test_a_screen_does_not_answer_a_dance(aiohttp_client, fakes):
 
 async def test_a_screen_is_told_who_is_here(aiohttp_client):
     import asyncio
-    people = People({"kiril": "Kiril Momchilov", "maria": "Maria"})
+    people = People({"kiril": "Kiril Example", "maria": "Maria"})
     app = make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0, people=people)
     c = await aiohttp_client(app)
     ws = await c.ws_connect("/v1/body")
@@ -390,7 +390,7 @@ async def test_a_screen_is_told_who_is_here(aiohttp_client):
     people.observe("Kitchen", "card", "kiril", 1.0, 99.0)
     await app["tell_here"]()
     got = await asyncio.wait_for(ws.receive_json(), 2)
-    assert got == {"here": [{"person": "kiril", "name": "Kiril Momchilov", "confidence": 0.98}]}
+    assert got == {"here": [{"person": "kiril", "name": "Kiril Example", "confidence": 0.98}]}
     await app["tell_here"]()  # nobody new: nothing sent
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(ws.receive_json(), 0.3)

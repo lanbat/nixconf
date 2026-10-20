@@ -3,7 +3,7 @@ import base64
 from room_presence import _ah
 from techo5_bridge.brain import CAN, PROBE_S, Brain, DeviceConfig, Profile, _manufacturer_data, mac
 
-PEOPLE = {"kiril": "Kiril Momchilov", "maria": "Maria"}
+PEOPLE = {"kiril": "Kiril Example", "maria": "Maria"}
 
 
 def brain(**extra) -> Brain:
@@ -44,7 +44,7 @@ def test_someone_in_front_is_reported_and_looked_at():
     assert ("image", "probe") not in b.tick(10.0 + PROBE_S - 1)
     assert ("image", "probe") in b.tick(10.0 + PROBE_S)
     # Named: no more frames.
-    b.router({"here": [{"person": "kiril", "name": "Kiril Momchilov", "confidence": 0.9}]}, 50.0)
+    b.router({"here": [{"person": "kiril", "name": "Kiril Example", "confidence": 0.9}]}, 50.0)
     assert ("image", "probe") not in b.tick(50.0 + 2 * PROBE_S)
     outs = b.state("person", False, 100.0)
     assert to_router(outs)[0]["state"]["present"] is False

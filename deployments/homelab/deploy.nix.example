@@ -53,6 +53,21 @@
     #   extraRecords.router = "10.0.0.1";
     # };
 
+    # Echo Shows on TECHO5 (docs/techo5.md): the assistant router's body in
+    # their room, with their keys in techo5-<name>-api-key.age.
+    # techo5Devices = {
+    #   kitchen = {
+    #     address = "10.0.0.x";
+    #     room = "Kitchen";
+    #     playerName = "Echo Show 8"; # its Music Assistant player
+    #     profiles.alex = {
+    #       glance = [ "sensor.washer_status" ];
+    #       immichPerson = "Alex";
+    #     };
+    #     household.calendars = [ "calendar.family" ];
+    #   };
+    # };
+
     # Android TV boxes, for lanbatPlugins.android.  Snapdroid needs no
     # configuration: snapserver publishes over mDNS (services/snapcast.nix).
     # androidDevices = {

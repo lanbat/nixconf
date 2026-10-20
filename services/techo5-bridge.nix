@@ -49,10 +49,13 @@ let
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 
   keySecret = device: "techo5-${device}-api-key";
-  # The voice satellites' token: declared by this host's own Wyoming satellite
-  # when it has one (modules/core/voice-satellite.nix), here otherwise.
+  # The voice satellites' token: this host's satellite's when it has one,
+  # declared here otherwise.
   satellite = config.lanbat.voiceSatellite;
-  satelliteHasToken = satellite.enable && satellite.room != null && satellite.backend == "wyoming";
+  # The name is voice-satellite's on any host with a satellite, whatever its
+  # backend (modules/core/voice-satellite.nix), and a secret's name is one
+  # service's alone, enabled or not.
+  satelliteDeclares = satellite.enable;
 
   # Each device's own settings: lanbat's, then the profile's.
   settingsFor =
@@ -89,9 +92,9 @@ let
       router_url = "ws://127.0.0.1:${toString bodyPort}/v1/body";
       people = lib.mapAttrs (_: p: p.name) people;
       # room_presence's beacons: UUID (32 lower-case hex) -> person.
-      beacons = lib.mapAttrs' (key: p: lib.nameValuePair (lib.toLower (lib.replaceStrings [ "-" ] [ "" ] p.bleBeacon)) key) (
-        lib.filterAttrs (_: p: p.bleBeacon != null) people
-      );
+      beacons = lib.mapAttrs' (
+        key: p: lib.nameValuePair (lib.toLower (lib.replaceStrings [ "-" ] [ "" ] p.bleBeacon)) key
+      ) (lib.filterAttrs (_: p: p.bleBeacon != null) people);
       code_base = "http://${serverIp}:${toString codePort}";
       code_port = codePort;
       code_host = serverIp;
@@ -134,15 +137,18 @@ in
           }
         ) (lib.attrNames devices)
       )
-      # A secret's name is one service's alone, enabled or not.
-      // lib.optionalAttrs (!satelliteHasToken) {
+      // lib.optionalAttrs (!satelliteDeclares) {
         ha-voice-token = {
           enable = enabled && hasHa;
           owner = "root";
         };
       };
-    readsSecrets = lib.optional (enabled && hasHa && satelliteHasToken) "ha-voice-token";
+    readsSecrets = lib.optional (enabled && hasHa && satelliteDeclares) "ha-voice-token";
   };
+
+  # Where the satellite owns the token, the bridge needs its requirement on,
+  # even for an LVA satellite (which has no use of its own for it).
+  lanbat.voiceSatellite.haTokenWanted = enabled && hasHa && satelliteDeclares;
 
   networking.firewall.extraCommands = lib.mkIf enabled (
     lib.concatLines (map (spec: "iptables -I ${spec}") specs)
@@ -169,17 +175,19 @@ in
       # The keys and the token are root's: root copies them into the runtime
       # directory for the bridge (the person-mapper pattern).
       ExecStartPre = [
-        "+${pkgs.writeShellScript "techo5-bridge-secrets" (
-          lib.concatLines (
-            map (
-              key:
-              "install -m 0400 -o ${name} -g ${name} ${
-                config.lanbat.secrets.${keySecret key}.path
-              } /run/${name}/${keySecret key}"
-            ) (lib.attrNames devices)
-            ++ lib.optional hasHa "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.ha-voice-token.path} /run/${name}/ha-token"
+        "+${
+          pkgs.writeShellScript "techo5-bridge-secrets" (
+            lib.concatLines (
+              map (
+                key:
+                "install -m 0400 -o ${name} -g ${name} ${
+                  config.lanbat.secrets.${keySecret key}.path
+                } /run/${name}/${keySecret key}"
+              ) (lib.attrNames devices)
+              ++ lib.optional hasHa "install -m 0400 -o ${name} -g ${name} ${config.lanbat.secrets.ha-voice-token.path} /run/${name}/ha-token"
+            )
           )
-        )}"
+        }"
       ];
       ExecStart = lib.getExe bridge;
       Restart = "always";

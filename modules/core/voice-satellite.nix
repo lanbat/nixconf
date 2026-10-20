@@ -458,6 +458,17 @@ in
       '';
     };
 
+    haTokenWanted = mkOption {
+      type = types.bool;
+      default = false;
+      internal = true;
+      description = ''
+        Something else on this host reads the satellite's Home Assistant token
+        (ha-voice-token), so it is required whatever the backend: the Echo Shows'
+        bridge (services/techo5-bridge.nix).
+      '';
+    };
+
     room = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -532,7 +543,7 @@ in
     })
     (lib.mkIf cfg.enable {
       lanbat.services.voice-satellite.secrets.ha-voice-token = {
-        enable = cfg.room != null && cfg.backend == "wyoming";
+        enable = (cfg.room != null && cfg.backend == "wyoming") || cfg.haTokenWanted;
         owner = "root";
       };
 
