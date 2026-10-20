@@ -54,6 +54,13 @@ address onto the bridge: they read `lanbat.network.lanInterface`.
   address; it is offline while this host restarts.
 - **Roaming** is the phone's choice. Phones and laptops move to the stronger access point
   when the signal drops; the Stack-chans pick the strongest when they connect.
+- **Dozing clients on an MT7921 access point.** The MT7921 never flags, in its beacons,
+  the frames it holds for a client in power saving (a capture showed none of ~800
+  beacons set the client's bit; `mt76_set_tim()` is empty and the chip's firmware
+  doesn't update it). A dozing client gets its frames only when it next transmits.
+  Phones transmit often enough not to notice. The Stack-chans send a keep-alive every
+  200 ms for this (firmware 1.9.8). Other low-power devices on it (ESPHome and the like)
+  may lag: turn their Wi-Fi power saving off, or keep them on the router.
 - **Security** is the router's: WPA2-Personal with the same password (`security`,
   `wpa2-sha1` by default, as most routers serve it). The password stays in its secret,
   never in the Nix store.
