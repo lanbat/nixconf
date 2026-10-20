@@ -128,20 +128,29 @@ class Brain:
         self._code_shown = False          # the sign-in code shown since they came
         self._unused_since: float | None = None
         self._dimmed = False              # the screen is off because this turned it off
-        self._profile: tuple | None = None
+        # What each of the device's actions was last given. The device keeps
+        # them, and several (home_glance, calendar_sources, home_assistant) make
+        # it drop every API client, Home Assistant's too, to re-register: so each
+        # is sent once, and again only when it changes, across reconnects.
+        self._sent: dict[str, Any] = {}
         self._asked: dict[str, tuple[Any, float]] = {}  # object_id -> (value sent, when)
         self._reported = float("-inf")
 
     # ── the device ──────────────────────────────────────────────────────────
     def connected(self, now: float) -> list:
-        """The device answered: tell it where Home Assistant is, and the router
-        who we are (again)."""
+        """The device answered: tell it where Home Assistant is and whose
+        screen to show, unless it was told already (its actions reconnect it)."""
         self._asked.clear()
-        self._profile = None
         out: list = []
         if self.cfg.ha_url and self.cfg.ha_token:
-            out.append(("call", "home_assistant", {"url": self.cfg.ha_url, "token": self.cfg.ha_token}))
+            out += self._call("home_assistant", {"url": self.cfg.ha_url, "token": self.cfg.ha_token})
         return out + self._apply_profile()
+
+    def _call(self, action: str, args: dict) -> list:
+        if self._sent.get(action) == args:
+            return []
+        self._sent[action] = args
+        return [("call", action, args)]
 
     def hello(self) -> dict:
         return {"hello": {"room": self.cfg.room, "kind": "screen", "proto": PROTOCOL, "can": CAN}}
@@ -287,18 +296,16 @@ class Brain:
         return None, self.cfg.household
 
     def _apply_profile(self) -> list:
-        key, p = self.profile()
-        wanted = (key, p.view, tuple(p.glance), tuple(p.calendars), p.immich_person)
-        if wanted == self._profile:
-            return []
-        self._profile = wanted
+        _, p = self.profile()
         out: list = []
         if self.cfg.dashboard:
             path = f"{self.cfg.dashboard}/{p.view}" if p.view else self.cfg.dashboard
-            out.append(("call", "dashboard_path", {"path": path}))
-        out.append(("call", "home_glance", {"entities": ", ".join(p.glance)}))
-        out.append(("call", "calendar_sources", {"calendars": ", ".join(p.calendars)}))
-        out.append(("set", "immich_person", p.immich_person))
+            out += self._call("dashboard_path", {"path": path})
+        out += self._call("home_glance", {"entities": ", ".join(p.glance)})
+        out += self._call("calendar_sources", {"calendars": ", ".join(p.calendars)})
+        if self._sent.get("immich_person") != p.immich_person:
+            self._sent["immich_person"] = p.immich_person
+            out.append(("set", "immich_person", p.immich_person))
         return out
 
     # ── the screen ──────────────────────────────────────────────────────────
