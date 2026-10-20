@@ -92,6 +92,8 @@ ENROL_SECONDS = 120.0     # a voice enrolment waits this long for the next sente
 BIND_FACES = 3
 BIND_FACE_GAP_S = 10.0
 BIND_POLL_S = 2.0
+# Who is in a body's room ({"here": [...]}, bodies that can "here"): looked at this often.
+HERE_POLL_S = 3.0
 
 ENROLL_BAD_NAME = "I didn't catch a good name for you."
 
@@ -242,9 +244,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         out = {k: v for k, v in body.items() if k not in ("temperature", "top_p", "user")}
         out["model"] = cfg.cloud_model
         # The enrolment tool is offered only where a body can actually capture
-        # a face: Frigate is wired and this room has a body connected.
+        # a face: Frigate is wired and this room has a body with a camera.
         # With voice-id, a voice can be enrolled anywhere.
-        if (enrollable and bodies.has(room)) or voice is not None:
+        if (enrollable and bodies.can(room, "capture")) or voice is not None:
             out["tools"] = list(out.get("tools") or []) + [ENROLL_TOOL]
         if voice is not None or frigate is not None:
             out["tools"] = list(out.get("tools") or []) + [FORGET_TOOL]
@@ -560,8 +562,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
         # A command to the room's body ("nod", "dance", "go to sleep") is
         # answered here, before the gate: "Nod." alone is a fragment to it.
+        # Only one it can do: a screen doesn't nod.
         cmd = body_mod.command(text) if bodies.has(room) else None
-        if cmd is not None:
+        if cmd is not None and bodies.doable(room, cmd[0]) == cmd[0]:
             await bodies.act(room, cmd[0])
             log({"conv": conv, "device": device, "room": room, "text": text, "tier": "body", "route": "command",
                  "ms": int((time.monotonic() - started) * 1000)})
@@ -659,7 +662,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     ({"home": [...]}), the full set every minute; it is told the phones
     learned from taps ({"phones": {mac: key}}), now and on each change. With
     `taps`, each robot gets the link a phone held to it opens ({"tap": {"url"}}),
-    a new one every minute (tap.py)."""
+    a new one every minute (tap.py). A body that isn't a robot names what it
+    can do in its hello ("can", body.py); one that can "here" is told who is in
+    its room ({"here": [...]}) when it connects and on each change."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
     tasks: set[asyncio.Task] = set()
@@ -742,9 +747,10 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     if room and kind not in non_bodies:
                         bodies.disconnect(room, ws)
                     room = hello["room"].strip()[:64]
-                    kind = hello.get("kind") or ""
+                    kind = hello.get("kind") if isinstance(hello.get("kind"), str) else ""
                     if kind not in non_bodies:
-                        bodies.connect(room, ws)
+                        bodies.connect(room, ws, kind or "stackchan", hello.get("can"))
+                        told_here.pop(room.casefold(), None)
                         # Tell the body what it may send back: whether this
                         # router has a face library to probe against.
                         try:
@@ -752,8 +758,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             if taps is not None:
                                 await ws.send_json({"tap": {"url": taps.link(room)}})
                             # A robot is a room sensor too: its bridge hands
-                            # the phones' keys on to it.
-                            if kind == "stackchan" and irks is not None:
+                            # the phones' keys on to it. So is a screen with Bluetooth.
+                            if irks is not None and (kind == "stackchan" or (
+                                    not bodies.is_robot(room) and bodies.can(room, "phones"))):
                                 sensors.add(ws)
                                 await ws.send_json({"irks": known_irks()})
                         except Exception:  # pylint: disable=broad-except
@@ -835,6 +842,35 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 LOG.info(json.dumps({"body": "gone", "room": room}))
         return ws
 
+    told_here: dict[str, list[str]] = {}  # room key -> the people a body was last told are here
+
+    def here_list(room: str, now: float) -> list[dict]:
+        found = people.here(room, now)
+        return [{"person": k, "name": people.names.get(k, k), "confidence": round(sure, 2)}
+                for k, (sure, _) in sorted(found.items(), key=lambda kv: -kv[1][0])]
+
+    async def tell_here() -> None:
+        """Each body that can "here", when who is in its room changes (by
+        person, not by every wobble of a confidence)."""
+        now = clock()
+        for room in bodies.rooms():
+            if not bodies.can(room, "here"):
+                continue
+            found = here_list(room, now)
+            keys = [h["person"] for h in found]
+            if told_here.get(room.casefold()) == keys:
+                continue
+            if await bodies.send(room, {"here": found}):
+                told_here[room.casefold()] = keys
+
+    async def here_loop() -> None:
+        while True:
+            try:
+                await tell_here()
+            except Exception as err:  # pylint: disable=broad-except
+                LOG.warning("telling who is here: %s", err)
+            await asyncio.sleep(HERE_POLL_S)
+
     # (room key, person, when they tapped) -> (faces learned, last try)
     bound_faces: dict[tuple[str, str, float], tuple[int, float | None]] = {}
 
@@ -878,14 +914,16 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
             app["links"] = asyncio.create_task(new_links())
         if frigate is not None:
             app["faces"] = asyncio.create_task(faces_loop())
+        app["here"] = asyncio.create_task(here_loop())
 
     async def stop_links(app: web.Application) -> None:
-        for name in ("links", "faces"):
+        for name in ("links", "faces", "here"):
             if name in app:
                 app[name].cancel()
 
     app = web.Application()
     app["bind_faces"] = bind_faces
+    app["tell_here"] = tell_here
     app.router.add_get("/v1/body", socket)
     app.on_startup.append(start_links)
     app.on_cleanup.append(stop_links)

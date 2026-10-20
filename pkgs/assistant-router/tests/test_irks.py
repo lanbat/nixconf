@@ -63,3 +63,22 @@ def test_forgetting_the_phones_forgets_the_keys(tmp_path):
     taps.forgetters.append(irks.forget)
     taps.forget_phones("kiril")
     assert irks.all() == {}
+
+
+async def test_a_screen_that_scans_phones_gets_the_keys(aiohttp_client, tmp_path):
+    import asyncio
+    irks = Irks(str(tmp_path / "irks.json"))
+    irks.add("kiril", IRK)
+    c = await aiohttp_client(make_body_app(Bodies(""), clock=lambda: 1.0, people=People({"kiril": "Kiril"}),
+                                           irks=irks))
+    screen = await c.ws_connect("/v1/body")
+    await screen.send_json({"hello": {"room": "Kitchen", "kind": "screen", "proto": 1, "can": ["phones"]}})
+    got = [await asyncio.wait_for(screen.receive_json(), 2) for _ in range(2)]
+    assert {"irks": {"kiril": [IRK]}} in got
+    blind = await c.ws_connect("/v1/body")
+    await blind.send_json({"hello": {"room": "Hall", "kind": "screen", "proto": 1, "can": ["mood"]}})
+    assert "irks" not in await blind.receive_json()
+    with __import__("pytest").raises(asyncio.TimeoutError):
+        await asyncio.wait_for(blind.receive_json(), 0.3)
+    await screen.close()
+    await blind.close()

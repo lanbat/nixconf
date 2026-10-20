@@ -366,6 +366,52 @@ async def test_a_body_connects_and_reports_over_its_socket(aiohttp_client):
     await ws.close()
 
 
+async def test_a_screen_does_not_answer_a_dance(aiohttp_client, fakes):
+    seen, local_line, _, base = fakes
+    local_line["v"] = "escalate"
+    c, bodies, _ = await body_client(aiohttp_client, base, room="")
+    sock = Sock()
+    bodies.connect("Bedroom 1", sock, "screen", ["mood", "caption", "greet", "here"])
+    await post(c, req("Do a little dance!"))
+    assert len(seen["cloud"]) == 1  # not "Here I go!": it can't
+    assert sock.sent == []
+
+
+async def test_a_screen_is_told_who_is_here(aiohttp_client):
+    import asyncio
+    people = People({"kiril": "Kiril Momchilov", "maria": "Maria"})
+    app = make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0, people=people)
+    c = await aiohttp_client(app)
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "screen", "proto": 1,
+                                  "can": ["mood", "greet", "here"]}})
+    assert (await ws.receive_json()) == {"body_hello": {"faces": False}}
+    assert (await asyncio.wait_for(ws.receive_json(), 5)) == {"here": []}
+    people.observe("Kitchen", "card", "kiril", 1.0, 99.0)
+    await app["tell_here"]()
+    got = await asyncio.wait_for(ws.receive_json(), 2)
+    assert got == {"here": [{"person": "kiril", "name": "Kiril Momchilov", "confidence": 0.98}]}
+    await app["tell_here"]()  # nobody new: nothing sent
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(ws.receive_json(), 0.3)
+    await ws.close()
+
+
+async def test_a_robot_is_not_told_who_is_here(aiohttp_client):
+    import asyncio
+    people = People({"kiril": "Kiril"})
+    people.observe("Office", "card", "kiril", 1.0, 99.0)
+    app = make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0, people=people)
+    c = await aiohttp_client(app)
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Office", "kind": "stackchan", "proto": 1}})
+    assert (await ws.receive_json()) == {"body_hello": {"faces": False}}
+    await app["tell_here"]()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(ws.receive_json(), 0.3)
+    await ws.close()
+
+
 class FakeRecognizer:
     def __init__(self, hit=None):
         self.hit = hit

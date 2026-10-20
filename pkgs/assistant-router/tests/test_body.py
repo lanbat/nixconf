@@ -231,3 +231,66 @@ async def test_disconnect_fails_a_pending_capture():
     await asyncio.sleep(0)  # in flight now
     b.disconnect("Kitchen", sock)
     assert await pending is None
+
+
+# ── a body that isn't a robot: what it says it can do ──────────────────────────
+SCREEN_CAN = ["mood", "caption", "greet", "capture", "phones", "here"]
+
+
+class Sock:
+    def __init__(self):
+        self.sent = []
+
+    async def send_json(self, data):
+        self.sent.append(data)
+
+
+def test_a_robot_can_everything_but_here():
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Office", Sock())
+    assert bodies.is_robot("Office") and bodies.kind("Office") == "stackchan"
+    assert bodies.can("Office", "gesture") and bodies.can("Office", "capture")
+    assert not bodies.can("Office", "here")
+
+
+def test_a_screen_can_only_what_it_names():
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN + ["fly", 3])
+    assert not bodies.is_robot("Kitchen") and bodies.kind("Kitchen") == "screen"
+    assert bodies.can("Kitchen", "here") and not bodies.can("Kitchen", "gesture")
+    assert not bodies.can("Kitchen", "fly")
+    assert bodies.doable("Kitchen", {"mood": "happy", "gesture": "nod", "led": None}) == {"mood": "happy"}
+
+
+async def test_a_screen_is_sent_only_what_it_can_show():
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
+    assert not await bodies.act("Kitchen", {"gesture": "dance"})
+    assert await bodies.act("Kitchen", {"mood": "excited", "gesture": "dance"})
+    assert sock.sent == [{"act": {"mood": "excited"}}]
+
+
+async def test_a_body_without_a_camera_is_never_asked_for_a_face():
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Hall", sock, "screen", ["mood"])
+    assert await bodies.capture("Hall", timeout=0.1) is None
+    assert sock.sent == []
+
+
+def test_a_screen_with_moods_gets_the_mood_tag_alone():
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
+    block = bodies.prompt_block("Kitchen", 0.0)
+    assert "[mood]" in block and "gesture" not in block and "head moves" not in block
+    bodies.connect("Hall", Sock(), "screen", ["here"])
+    assert "tag" not in bodies.prompt_block("Hall", 0.0)
+
+
+def test_a_disconnect_forgets_what_it_could_do():
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
+    bodies.disconnect("Kitchen", sock)
+    assert bodies.kind("Kitchen") is None and not bodies.can("Kitchen", "here")
