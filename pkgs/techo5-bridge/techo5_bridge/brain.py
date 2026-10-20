@@ -251,6 +251,11 @@ class Brain:
             out += self._face_result(msg["face_result"], now)
         if isinstance(msg.get("here"), list):
             self.here = [h for h in msg["here"] if isinstance(h, dict) and isinstance(h.get("person"), str)]
+            if not self.here and self._person and self._named:
+                # The router lost them (it restarted, or its evidence ran out)
+                # while someone is still in front: ask again who it is.
+                self._named = False
+                self._next_probe = now
             if self.here:
                 self._named = True
                 self._next_probe = None
