@@ -65,7 +65,8 @@ async def fake(aiohttp_server):
     async def recognize(request):
         state["upload"] = await _upload(request)
         state["calls"].append(("recognize",))
-        return web.json_response({"success": True, "name": "kiril", "confidence": 0.91})
+        # As Frigate 0.17 answers.
+        return web.json_response(state.get("recognized") or {"success": True, "score": 0.91, "face_name": "kiril"})
 
     async def delete(request):
         n = request.match_info["name"]
@@ -121,6 +122,18 @@ async def test_recognize_uploads_and_returns_the_match(fake):
     assert out == {"success": True, "name": "kiril", "confidence": 0.91}
     assert state["upload"][0] == "file"
     assert state["calls"] == [("recognize",)]
+
+
+async def test_recognize_reads_an_unknown_face_as_nobody(fake):
+    client, state = fake
+    state["recognized"] = {"success": True, "score": 0.42, "face_name": "unknown"}
+    assert await client.recognize(b"\xff\xd8 probe") == {"success": False, "name": None, "confidence": 0.42}
+
+
+async def test_recognize_still_reads_the_older_answer(fake):
+    client, state = fake
+    state["recognized"] = {"success": True, "name": "kiril", "confidence": 0.88}
+    assert await client.recognize(b"\xff\xd8 probe") == {"success": True, "name": "kiril", "confidence": 0.88}
 
 
 async def test_delete_posts_the_ids(fake):
