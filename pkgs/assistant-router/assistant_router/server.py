@@ -717,7 +717,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
     tasks: set[asyncio.Task] = set()
-    house: set[web.WebSocketResponse] = set()  # house sensors, told the learned phones
+    house: set[web.WebSocketResponse] = set()  # house sensors (and Wi-Fi room sensors), told the learned phones
 
     def spawn(coro) -> None:
         tasks.add(asyncio.create_task(coro))
@@ -815,9 +815,15 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     elif kind == "house-sensor" and taps is not None:
                         house.add(ws)
                         await tell_house(dict(taps.phones))
-                    elif kind == "room-sensor" and irks is not None:
-                        sensors.add(ws)
-                        await ws.send_json({"irks": known_irks()})
+                    elif kind == "room-sensor":
+                        if irks is not None:
+                            sensors.add(ws)
+                            await ws.send_json({"irks": known_irks()})
+                        # One reading an access point's clients asks for the
+                        # learned phones' Wi-Fi addresses, as the house sensor.
+                        if hello.get("wifi") is True and taps is not None:
+                            house.add(ws)
+                            await ws.send_json({"phones": dict(taps.phones)})
                     LOG.info(json.dumps({"body": "connected", "room": room, "kind": str(kind)[:32]}))
                 elif room and kind not in non_bodies and isinstance(data.get("event"), dict):
                     bodies.event(room, data["event"])

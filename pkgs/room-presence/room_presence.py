@@ -18,6 +18,12 @@ phone, since phones change their Bluetooth address every few minutes:
   and BlueZ reports the phone's identity address: the bond's IRK names it.
   `room-presence --paired` prints the IRKs of phones paired with this host.
 
+On a host that serves Wi-Fi (lanbat.wifi.accessPoint) it also reads the access
+point's clients (`iw dev <AP_INTERFACE> station dump`) every REPORT_SECONDS and
+reports the phones among them by their Wi-Fi address, {"via": "wifi"}: the
+profile's (WIFI_PHONES, people.<key>.wifiMacs) and those the router learned
+from taps ({"phones": {mac: key}}, as it tells wifi-presence).
+
 A phone is a hint that someone is near, not that they are speaking, and never
 authority over anything (docs/people.md). Nothing but person keys and signal
 strengths leaves the Pi.
@@ -142,8 +148,33 @@ def read_bonds(pattern: str = BONDS) -> list[tuple[str, str, str]]:
     return out
 
 
+def normalise_mac(text) -> str | None:
+    """aa:bb:cc:dd:ee:ff from any common spelling, or None."""
+    hexes = re.sub(r"[^0-9a-f]", "", str(text).lower())
+    return ":".join(hexes[i:i + 2] for i in range(0, 12, 2)) if len(hexes) == 12 else None
+
+
+def parse_stations(text: str) -> dict[str, int]:
+    """{mac: signal} from `iw dev <ap> station dump`: the average signal, or
+    the last one; a client with neither is left out."""
+    out: dict[str, int] = {}
+    mac = None
+    for line in (text or "").splitlines():
+        m = re.match(r"Station ([0-9A-Fa-f:]{17})", line)
+        if m:
+            mac = m.group(1).lower()
+            continue
+        s = re.match(r"\s*signal( avg)?:\s*(-?\d+)", line)
+        if mac and s and (s.group(1) or mac not in out):
+            out[mac] = int(s.group(2))
+    return out
+
+
 class Recogniser:
-    def __init__(self, beacons: dict[str, str], irks: dict[str, list[bytes]], bonds: str = BONDS) -> None:
+    def __init__(self, beacons: dict[str, str], irks: dict[str, list[bytes]], bonds: str = BONDS,
+                 wifi: dict[str, str] | None = None) -> None:
+        self.file_wifi = {m: p for m, p in ((normalise_mac(k), v) for k, v in (wifi or {}).items()) if m}
+        self.wifi = dict(self.file_wifi)
         self.beacons, self.file_irks = beacons, irks
         self.irks = dict(irks)
         self.bonds = bonds
@@ -164,6 +195,21 @@ class Recogniser:
         self._bonds_read = float("-inf")
         return sum(map(len, merged.values()))
 
+    def wifi_from_router(self, phones) -> int:
+        """The router's learned phones ({mac: key}), the profile's winning; how many."""
+        merged: dict[str, str] = {}
+        if isinstance(phones, dict):
+            for mac, key in phones.items():
+                m = normalise_mac(mac)
+                if m and isinstance(key, str) and key:
+                    merged[m] = key
+        merged.update(self.file_wifi)
+        self.wifi = merged
+        return len(merged)
+
+    def wifi_person(self, mac: str) -> str | None:
+        return self.wifi.get(normalise_mac(mac) or "")
+
     def _bonded_person(self, address: str) -> str | None:
         now = time.monotonic()
         if now - self._bonds_read > BONDS_SECONDS:
@@ -183,6 +229,19 @@ class Recogniser:
             self._addresses[address] = next(
                 (key for key, keys in self.irks.items() for irk in keys if resolves(address, irk)), None)
         return self._addresses[address] or self._bonded_person(address)
+
+
+def observe_stations(stations: dict[str, int], recogniser: Recogniser, tracker: Tracker, now: float) -> None:
+    for mac, signal in stations.items():
+        person = recogniser.wifi_person(mac)
+        if person is not None:
+            tracker.observe(person, signal, now)
+
+
+def sightings(ble: Tracker, wifi: Tracker | None, now: float) -> list[dict]:
+    """The report: Bluetooth sightings, then Wi-Fi ones marked as such (the
+    router compares signals only between sensors of one kind)."""
+    return ble.report(now) + ([dict(s, via="wifi") for s in wifi.report(now)] if wifi else [])
 
 
 # ── I/O ────────────────────────────────────────────────────────────────────
@@ -209,8 +268,23 @@ async def scan(recogniser: Recogniser, tracker: Tracker) -> None:
         delay = min(delay * 2, 120)
 
 
+async def stations(interface: str, recogniser: Recogniser, tracker: Tracker) -> None:
+    """The access point's clients every REPORT_SECONDS, the phones among them."""
+    while True:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "iw", "dev", interface, "station", "dump",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await asyncio.wait_for(proc.communicate(), 10)
+            observe_stations(parse_stations(out.decode(errors="replace")), recogniser, tracker, time.time())
+        except (OSError, asyncio.TimeoutError) as err:
+            log(f"access point clients unreadable ({err})")
+        await asyncio.sleep(REPORT_SECONDS)
+
+
 async def listen(ws, recogniser: Recogniser) -> None:
-    """The router's messages: the phones' keys, now and on each change."""
+    """The router's messages: the phones' keys and Wi-Fi addresses, now and
+    on each change."""
     async for raw in ws:
         try:
             msg = json.loads(raw)
@@ -218,9 +292,12 @@ async def listen(ws, recogniser: Recogniser) -> None:
             continue
         if isinstance(msg, dict) and "irks" in msg:
             log(f"the router knows {recogniser.from_router(msg['irks'])} phone key(s)")
+        if isinstance(msg, dict) and "phones" in msg:
+            log(f"looking for {recogniser.wifi_from_router(msg['phones'])} phone(s) on the access point")
 
 
-async def report(tracker: Tracker, url: str, room: str, recogniser: Recogniser | None = None) -> None:
+async def report(tracker: Tracker, url: str, room: str, recogniser: Recogniser | None = None,
+                 wifi: Tracker | None = None) -> None:
     import websockets
 
     delay = 1
@@ -228,14 +305,17 @@ async def report(tracker: Tracker, url: str, room: str, recogniser: Recogniser |
     while True:
         try:
             async with websockets.connect(url) as ws:
-                await ws.send(json.dumps({"hello": {"room": room, "kind": "room-sensor", "proto": PROTOCOL}}))
+                hello = {"room": room, "kind": "room-sensor", "proto": PROTOCOL}
+                if wifi is not None:
+                    hello["wifi"] = True  # send the learned phones' Wi-Fi addresses
+                await ws.send(json.dumps({"hello": hello}))
                 log(f"room sensor of {room} at {url}")
                 delay = 1
                 listener = asyncio.create_task(listen(ws, recogniser)) if recogniser is not None else None
                 while True:
                     if listener is not None and listener.done():
                         listener.result()  # the connection closed: raise and reconnect
-                    seen = tracker.report(time.time())
+                    seen = sightings(tracker, wifi, time.time())
                     now_present = {s["person"] for s in seen}
                     for person in sorted(now_present - present):
                         log(f"{person}'s phone is here")
@@ -275,11 +355,25 @@ def main() -> None:
     log(f"knows {len(beacons)} beacon(s) and {sum(map(len, irks.values()))} key(s)")
     tracker = Tracker()
 
-    recogniser = Recogniser(beacons, irks)
+    ap = os.environ.get("AP_INTERFACE", "")
+    wifi_phones = {}
+    try:
+        for person, macs in json.loads(os.environ.get("WIFI_PHONES", "") or "{}").items():
+            for mac in macs if isinstance(macs, list) else []:
+                wifi_phones[mac] = person
+    except (ValueError, AttributeError):
+        pass
+    recogniser = Recogniser(beacons, irks, wifi=wifi_phones)
+    wifi = Tracker() if ap else None
+    if ap:
+        log(f"reading the access point's clients on {ap} ({len(recogniser.wifi)} phone(s) from the profile)")
 
     async def run() -> None:
-        await asyncio.gather(scan(recogniser, tracker),
-                             report(tracker, os.environ["ROUTER_BODY_URL"], os.environ["ROOM"], recogniser))
+        tasks = [scan(recogniser, tracker),
+                 report(tracker, os.environ["ROUTER_BODY_URL"], os.environ["ROOM"], recogniser, wifi)]
+        if wifi is not None:
+            tasks.append(stations(ap, recogniser, wifi))
+        await asyncio.gather(*tasks)
 
     asyncio.run(run())
 

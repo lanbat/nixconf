@@ -9,7 +9,10 @@
 # sensor the keys of the phones paired once (assistant-router irks.py), and the
 # room-presence-irks secret adds more when `irks` is set. Android phones are
 # also known by the iBeacon the Home Assistant app transmits
-# (people.<key>.bleBeacon). Only person keys and signal strengths leave the
+# (people.<key>.bleBeacon). On a host that serves Wi-Fi
+# (lanbat.wifi.accessPoint) it also reports the phones among the access
+# point's clients, by their Wi-Fi address (people.<key>.wifiMacs, and those the
+# router learned from taps). Only person keys and signal strengths leave the
 # host, and only to the router. A nearby phone is a hint, never authority.
 {
   config,
@@ -40,6 +43,11 @@ let
   };
   routerAddress = config.lanbat.endpointHost "assistant-router" routerHost;
   routerUrl = "ws://${routerAddress}:${toString config.lanbat.endpoints.assistant-router.endpoint.port}/v1/body";
+
+  # The phones among an access point's clients, when this host serves Wi-Fi.
+  ap = config.lanbat.wifi.accessPoint or { };
+  apHere = ap.enable or false;
+  wifiPhones = lib.filterAttrs (_: macs: macs != [ ]) (lib.mapAttrs (_: p: p.wifiMacs or [ ]) people);
 
   beacons = lib.concatStringsSep "," (
     lib.mapAttrsToList (key: p: "${key}=${p.bleBeacon}") (
@@ -103,7 +111,13 @@ in
       }
       // lib.optionalAttrs cfg.irks {
         IRK_FILE = config.lanbat.secrets.room-presence-irks.path;
+      }
+      // lib.optionalAttrs apHere {
+        AP_INTERFACE = ap.interface;
+        WIFI_PHONES = builtins.toJSON wifiPhones;
       };
+      # `iw` reads the access point's clients.
+      path = lib.optional apHere pkgs.iw;
       serviceConfig = {
         ExecStart = lib.getExe scanner;
         # BlueZ lets root scan over D-Bus; the rest is locked down.
@@ -124,7 +138,9 @@ in
           "AF_UNIX"
           "AF_INET"
           "AF_INET6"
-        ];
+        ]
+        # nl80211, for the access point's clients.
+        ++ lib.optional apHere "AF_NETLINK";
       };
     };
   };

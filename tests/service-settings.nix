@@ -375,6 +375,14 @@ let
           {
             lanbat.voiceSatellite.backend = "lva";
             lanbat.roomPresence.irks = irks;
+            # It serves Wi-Fi too, so it reads the access point's clients.
+            lanbat.network.bridge.enable = true;
+            lanbat.wifi.accessPoint = {
+              enable = true;
+              interface = "wlan1";
+              ssid = "Example";
+              countryCode = "GB";
+            };
           }
         ];
       };
@@ -1113,6 +1121,12 @@ let
       && env.PEOPLE == "alex,sam"
       && env.BEACONS == "alex=A1B2C3D4-E5F6-0718-293A-4B5C6D7E8F90"
       && !(env ? IRK_FILE)
+      # Serving Wi-Fi: the access point's clients, the profile's phones, iw
+      # and its netlink socket.
+      && env.AP_INTERFACE == "wlan1"
+      && builtins.fromJSON env.WIFI_PHONES == { alex = [ "3A-1F-00-AA-BB-01" ]; }
+      && lib.any (p: lib.hasInfix "-iw-" "${p}") unit.path
+      && lib.elem "AF_NETLINK" unit.serviceConfig.RestrictAddressFamilies
       && lib.elem serverIp unit.serviceConfig.IPAddressAllow
       && presencePi.lanbat.services.room-presence.consumes == [ "assistant-router" ]
       && lib.any (r: lib.hasInfix "--dport 8770 -s ${piIp} -j ACCEPT" r) (

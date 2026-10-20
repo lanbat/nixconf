@@ -8,6 +8,7 @@ morning, Alex!"), from these signals:
 | **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
 | **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
+| **Phone, Wi-Fi** | A host serving Wi-Fi measures the phones among its access point's clients (`pkgs/room-presence`, [wifi.md](wifi.md)) | live |
 | **Home** | The server hears a person's phone on the home network (`services/wifi-presence.nix`) | live |
 | **Voice** | `voice-id` matches the speaker's voice on the server (`services/voice-id.nix`) | live |
 
@@ -126,6 +127,12 @@ a new address. A phone heard in the last 10 minutes is home.
 Being home is weaker evidence than a phone in the room: it can tip a close voice call,
 it never names anyone by itself, and a phone that is away rules nobody out. It doesn't
 say anything about rooms ("nearby" is still Bluetooth, faces and the robot).
+
+A host that extends the home Wi-Fi (`lanbat.wifi.accessPoint`, [wifi.md](wifi.md)) does
+say which room: its room sensor reads the access point's clients every 15 s and reports
+the phones among them, by the same addresses (the profile's `wifiMacs` and those learned
+from taps), with the signal it measures. The router compares Wi-Fi signals only with
+other Wi-Fi sensors, as Bluetooth with Bluetooth, and the strongest room wins.
 
 Add each phone's Wi-Fi address for the home network to its person, and run the service
 on the router's host:
