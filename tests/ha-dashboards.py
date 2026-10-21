@@ -61,6 +61,11 @@ ENTITIES = [
     ("weather.forecast_home", "met", None, None, None, None),
     ("person.someone", "person", None, None, None, None),
     ("sensor.disabled_thing", "mqtt", "plug", "power", "W", None),
+    # Follow-me (lib/follow-me.nix): two switches, a room's occupied sensor, a rule.
+    ("input_boolean.followme_paused", "input_boolean", None, None, None, None),
+    ("input_boolean.followme_guests", "input_boolean", None, None, None, None),
+    ("binary_sensor.followme_office_occupied", "template", None, None, None, None),
+    ("automation.follow_me_lights_on_office", "automation", None, None, None, None),
 ]
 DISABLED = {"sensor.disabled_thing"}
 
@@ -168,6 +173,19 @@ with tempfile.TemporaryDirectory() as tmp:
     expect("System shows the Zigbee bridge, updates, batteries and the links",
            "switch.zigbee2mqtt_bridge_permit_join" in system and "update.button_remote" in system
            and "sensor.button_remote_battery" in system and "https://grafana.example.com" in system)
+    expect("System has a Follow-me section: pause and guests switches, each room's occupied sensor, its rules' log",
+           '"Follow-me"' in system and "input_boolean.followme_paused" in system
+           and "input_boolean.followme_guests" in system and "binary_sensor.followme_office_occupied" in system
+           and "automation.follow_me_lights_on_office" in system)
+    plain = os.path.join(tmp, "plain")
+    write_fixture(plain)
+    reg = json.load(open(os.path.join(plain, "core.entity_registry")))
+    reg["data"]["entities"] = [x for x in reg["data"]["entities"]
+                               if "followme" not in x["entity_id"] and "follow_me" not in x["entity_id"]]
+    json.dump(reg, open(os.path.join(plain, "core.entity_registry"), "w"))
+    p_ = run(plain, os.path.join(tmp, "p"))
+    expect("a home without follow-me has no Follow-me section",
+           "Follow-me" not in json.dumps(p_["lovelace.lanbat-system"]))
     expect("the System dashboard alone is for admins; the Overview is listed as lovelace",
            [(d["id"], d["require_admin"]) for d in a["dashboards.json"]]
            == [("lanbat-cameras", False), ("lanbat-system", True), ("lovelace", False)])

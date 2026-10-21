@@ -106,6 +106,7 @@
       plugins = [
         inputs.self.lanbatPlugins.services
         inputs.self.lanbatPlugins.android
+        inputs.self.lanbatPlugins.follow-me
         inputs.self.lanbatPlugins.xiaomi-clock
         inputs.self.lanbatPlugins.dns
       ];

@@ -1039,6 +1039,10 @@ plugin configuration before every qBittorrent start.
 - **Hosts installed before the nightly rebuild was removed:** deploy each host once
   with this version to remove the `nixos-upgrade` timer, then delete the `/etc/nixos`
   clone, which is no longer needed (`docs/operations.md` § Moving off the nightly rebuild).
+- **Follow-me** (optional, `docs/people.md#acting-on-where-people-are`): add
+  `inputs.self.lanbatPlugins.follow-me` to the server's plugins and set
+  `lanbat.homeAssistant.followMe` (rooms, lights). It starts as a dry run: watch the logbook
+  for "Follow-me would ..." for a few days, then set `dryRun = false`.
 - Back up the Tang key directory: `docs/runbook.md` § Backing up Tang keys.
 - Test Pi unlock after a server reboot to verify Clevis/Tang works.
 - Pin container image versions when stability matters.

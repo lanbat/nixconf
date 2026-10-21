@@ -567,6 +567,16 @@ def system_view(home: Home, links: dict) -> dict:
         if autos:
             cards.append({"type": "logbook", "hours_to_show": 24, "target": {"entity_id": autos}})
         sections.append({"type": "grid", "cards": cards})
+    # Follow-me (lib/follow-me.nix in the repository): its pause and guests
+    # switches, who is where, and what its rules did.
+    follow = [e["id"] for e in home.all if e["id"] in ("input_boolean.followme_paused", "input_boolean.followme_guests")]
+    if follow:
+        occupied = [e["id"] for e in home.all if re.fullmatch(r"binary_sensor\.followme_.+_occupied", e["id"])]
+        rules = [e["id"] for e in home.all if e["id"].startswith("automation.follow_me_")]
+        cards = [heading("Follow-me", "mdi:account-arrow-right")] + [tile(i) for i in follow + occupied]
+        if rules:
+            cards.append({"type": "logbook", "hours_to_show": 24, "target": {"entity_id": rules}})
+        sections.append({"type": "grid", "cards": cards})
     if links:
         cards = [heading("Services", "mdi:apps")]
         icons = {"Grafana": "mdi:chart-areaspline", "Frigate": "mdi:cctv", "Music Assistant": "mdi:music",

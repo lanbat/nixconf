@@ -134,6 +134,10 @@
         inputs.self.lanbatPlugins.services
         # inputs.self.lanbatPlugins.xiaomi-clock
         # inputs.self.lanbatPlugins.dns
+        # Music that follows people, lights and music off in empty rooms
+        # (docs/people.md#acting-on-where-people-are); set
+        # lanbat.homeAssistant.followMe in a module below.
+        # inputs.self.lanbatPlugins.follow-me
         # inputs.lanbat-justpark-parking.lanbatPlugin
       ];
       # NixOS modules merged last. Frigate's cameras, zones and retention

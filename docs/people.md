@@ -433,6 +433,54 @@ to no one), "not anyone known" (a library name that is nobody here), "no face fo
 (`face_probe`). Frigate's own pages don't list these: it shows only what its cameras
 detect, and a frame checked through its API is answered and not kept.
 
+## Acting on where people are
+
+The `follow-me` plugin (`lanbatPlugins.follow-me`, `modules/server/follow-me.nix`) turns
+the "Where is <name>" sensors into actions, through Home Assistant automations it
+generates (`lib/follow-me.nix`). It is off until `lanbat.homeAssistant.followMe.enable`
+is set, and starts as a **dry run**: every decision is written to the logbook as
+"Follow-me would ...", and nothing is switched. Turn `dryRun` off once the log looks right.
+
+```nix
+modules = [ {
+  lanbat.homeAssistant.followMe = {
+    enable = true;
+    rooms."Office" = { lights = [ "light.office_lamp" ]; illuminance = "sensor.office_lux"; };
+    rooms."Kitchen" = { lights = [ "light.kitchen_strip" ]; music = false; };
+  };
+} ];
+```
+
+A room must be one the router can place people in (a key of `voiceRooms`, or a TECHO5
+screen's room); the build rejects any other. A room's `lights` are the only lights follow-me ever switches;
+leave out a robot's or a screen's own. People are `lanbat.deployment.people` unless `people`
+lists some; someone not listed (a guest) neither moves music nor keeps a room occupied.
+
+| What | When (defaults) |
+|---|---|
+| **Lights on** | someone arrives in a room (stays 10 s), it is dark (the room's light sensor under 30 lx, or the sun below -1 degree) and it is evening (17:00 to 22:30: 100 %) or night (22:30 to 06:30: 20 %, warm). Never by day, and not if a light is already on. |
+| **Lights off** | the room has been empty 5 minutes, and follow-me turned its lights on. A light you switched on, or off, by hand is left alone. |
+| **Music follows** | a person's last room changes and holds 20 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per minute per person at most. |
+| **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
+
+The first time a person is placed in a room after a fresh install, the music does not follow:
+follow-me has no earlier room to take it from. From then on it is remembered, across restarts.
+
+"Empty" is judged from the sensor with care, because one person's sensor goes room, `home`,
+room within a minute or two as their phone drops out of Bluetooth. A person the house still
+hears but cannot place keeps their last room occupied for 20 minutes
+(`unlocatedMinutes`). So the lights of a room someone left silently go off about
+`unlocatedMinutes` plus `lightsOffMinutes` later, and in 5 minutes if they were seen in
+another room. `unknown` and `unavailable` presence (a router or Home Assistant restart) is never
+"empty": the rules do nothing.
+
+In Home Assistant, **System → Follow-me** has two switches: **Pause follow-me** (off means
+running; it stops every action, though the last-room bookkeeping goes on) and **Guests here** (stops the "empty room" rules, since guests
+carry no tracked phone), each room's occupied sensor, and what the rules did.
+
+Like everything here it is a hint: presence is never authority, and a wrong guess only ever
+costs a light left on or a song that moved.
+
 ## Never authority
 
 Recognition is never used to unlock, disarm, open or allow anything, and never picks the

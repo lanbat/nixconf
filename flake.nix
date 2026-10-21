@@ -129,6 +129,7 @@
 
       checks.x86_64-linux = {
         android-devices = import ./tests/android-devices.nix { inherit lib pkgs; };
+        follow-me = import ./tests/follow-me.nix { inherit lib pkgs; };
         android-provision = pkgs.callPackage ./pkgs/android-provision { };
         assertions = import ./tests/assertions.nix { inherit lib pkgs; };
         private-media = import ./tests/private-media.nix {
