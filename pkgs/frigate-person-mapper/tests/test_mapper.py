@@ -280,3 +280,10 @@ def test_the_cameras_are_configured_room_to_camera():
     from frigate_person_mapper.__main__ import cameras_by_name
     assert cameras_by_name({"Driveway": "c1", "Living Room": "front", "Bad": ""}) == {
         "c1": "Driveway", "front": "Living Room"}
+
+
+def test_subscriptions_are_topic_and_qos_pairs_as_paho_takes_them():
+    from frigate_person_mapper.__main__ import SUBSCRIBE, subscriptions
+    subs = subscriptions()
+    assert subs == [(topic, 0) for topic in SUBSCRIBE]
+    assert all(isinstance(t, str) and q == 0 for t, q in subs)  # what paho's subscribe unpacks
