@@ -48,6 +48,14 @@ class Greeter:
         self._seen_at: dict[tuple[str, str], float] = {}     # (room, person) -> last look they were there
         self._arrived: dict[tuple[str, str], float] = {}     # arrivals not greeted yet (the robot was busy)
         self._greeted_at: dict[tuple[str, str], float] = {}  # (room, person) -> when they were greeted
+        self._said: dict[tuple[str, str], str] = {}          # (room, person) -> why not greeted, as last logged
+
+    def _why(self, k: tuple[str, str], why: str, sure: float) -> None:
+        """Say once why someone placed in a room was not greeted, and again
+        only when the reason changes (the log would fill up otherwise)."""
+        if self._said.get(k) != why:
+            self._said[k] = why
+            LOG.info(json.dumps({"greet": "no", "room": k[0], "person": k[1], "why": why, "sure": round(sure, 2)}))
 
     def due(self, now: float) -> list[tuple[str, str, list[str]]]:
         """(room, person key, the sources) of each greeting due now."""
@@ -65,12 +73,19 @@ class Greeter:
                 # There at the router's start, or at the last look: not arriving.
                 if now - (self._started if last is None else last) >= ARRIVAL_S:
                     self._arrived[k] = now
-                if k not in self._arrived or busy:
-                    continue  # asleep, or talking: when it's over
+                if k not in self._arrived:
+                    self._why(k, "already there at the last look", sure)
+                    continue
+                if busy:  # asleep, or talking: when it's over
+                    self._why(k, "the body is " + ("not known" if state is None else "asleep" if state.asleep
+                                                   else "in night mode" if state.night else "busy"), sure)
+                    continue
                 del self._arrived[k]
                 if now - self._greeted_at.get(k, -GREET_AGAIN_S) < GREET_AGAIN_S:
+                    self._why(k, f"greeted {int(now - self._greeted_at[k])} s ago", sure)
                     continue
                 self._greeted_at[k] = now
+                self._said.pop(k, None)
                 if person != spoke:
                     out.append((room, person, by))
         for k in [k for k, at in self._arrived.items() if now - at > 600]:
@@ -78,6 +93,7 @@ class Greeter:
         for k in [k for k, at in self._seen_at.items() if now - at > 86400]:
             del self._seen_at[k]
             self._greeted_at.pop(k, None)
+            self._said.pop(k, None)
         return out
 
     async def tick(self) -> None:

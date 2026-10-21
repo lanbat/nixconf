@@ -121,3 +121,23 @@ async def test_arriving_out_of_its_sight_it_looks_round_for_them():
     people2.observe("Bedroom 1", "phone", "maria", 0.9, clock2[0])
     await greeter2.tick()
     assert {"scan": True} not in [m["act"] for m in sock2.sent if "act" in m]
+
+
+async def test_why_someone_is_not_greeted_is_logged_once_per_reason(caplog):
+    _, people, greeter, sock, clock = setup()
+    with caplog.at_level("INFO", logger="assistant-router"):
+        for _ in range(4):  # there since the router started: not arriving
+            people.observe("Bedroom 1", "seen", "kiril", 0.9, clock[0])
+            await greeter.tick()
+            clock[0] += 5
+        said = [r.message for r in caplog.records if '"greet": "no"' in r.message]
+        assert len(said) == 1 and "already there at the last look" in said[0] and '"person": "kiril"' in said[0]
+        clock[0] += ARRIVAL_S  # gone, then back: arriving, so greeted, and nothing more said
+        people.observe("Bedroom 1", "seen", "kiril", 0.9, clock[0])
+        await greeter.tick()
+        assert len(greets(sock)) == 1
+        clock[0] += ARRIVAL_S  # gone again within the half hour: arriving, greeted lately
+        people.observe("Bedroom 1", "seen", "kiril", 0.9, clock[0])
+        await greeter.tick()
+    said = [r.message for r in caplog.records if '"greet": "no"' in r.message]
+    assert len(greets(sock)) == 1 and "greeted" in said[-1] and "s ago" in said[-1]
