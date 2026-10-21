@@ -157,10 +157,24 @@
             nixos-raspberrypi
             ;
         };
+        ha-oidc-login = import ./tests/ha-oidc-login.nix {
+          inherit
+            lib
+            pkgs
+            inputs
+            self
+            agenix
+            disko
+            deploy-rs
+            nixpkgs
+            nixos-raspberrypi
+            ;
+        };
         music-assistant = import ./tests/music-assistant.nix { inherit pkgs; };
         media-feed-bridge = import ./tests/media-feed-bridge.nix { inherit pkgs; };
         pkgs-build = import ./tests/pkgs-build.nix { inherit pkgs; };
         ha-dashboards = import ./tests/ha-dashboards.nix { inherit pkgs; };
+        ha-oidc-secret = import ./tests/ha-oidc-secret.nix { inherit pkgs; };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };

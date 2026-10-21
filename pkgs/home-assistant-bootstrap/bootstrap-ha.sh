@@ -6,7 +6,8 @@ INTERNAL_URL="${INTERNAL_URL:-http://127.0.0.1:8123}"
 EXTERNAL_URL="${EXTERNAL_URL:?EXTERNAL_URL is required}"
 OWNER_USERNAME="${OWNER_USERNAME:?OWNER_USERNAME is required}"
 OWNER_PASSWORD="${OWNER_PASSWORD:?OWNER_PASSWORD is required}"
-# Space-separated Authentik usernames to mirror in HA (header auth only).
+# Space-separated Authentik usernames to mirror in HA (they log in through
+# Authentik; auth_oidc links each to the HA user of the same name).
 SSO_USERS="${SSO_USERS:-$OWNER_USERNAME}"
 STATE_FILE="${STATE_FILE:-/var/lib/hass/.lanbat-onboarding-complete}"
 
@@ -95,7 +96,7 @@ ensure_sso_users() {
       continue
     fi
     log "creating SSO user ${user}"
-    # Random password — login is via Authentik header auth, not this password.
+    # Random password: login is through Authentik (auth_oidc), not this password.
     hass --script auth -c "$config_dir" add "$user" "$(openssl rand -base64 32)"
   done
 }

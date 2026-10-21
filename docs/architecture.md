@@ -117,7 +117,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 |---|---|---|
 | Authentik | local only | It IS the identity provider |
 | Homepage | none | LAN landing page |
-| Home Assistant | Caddy forward-auth (Authentik) + header auth + local break-glass | Companion apps use /auth/token; browser SSO via hass-auth-header |
+| Home Assistant | Native OIDC (`auth_oidc`, linked by username) + local password fallback | Companion apps sign in through authentik with a device code; API clients use long-lived tokens |
 | Nextcloud | OIDC (user_oidc app) + local admin | Native OIDC support |
 | Immich | Caddy forward-auth (Authentik) + native OIDC | Bootstrap admin links to Authentik email; mobile apps use /api/* |
 | Jellyfin | OIDC (plugin) or local | Native OIDC plugin available |

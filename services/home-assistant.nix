@@ -25,16 +25,19 @@
 #
 # Auth with Authentik
 # -------------------
-# Browser access is gated by Caddy forward-auth (Authentik session).  The
-# hass-auth-header custom component maps X-Authentik-Username to an existing HA
-# user, so entitled Authentik users land in HA without a second login.
+# HA's own login page hands over to Authentik over OpenID Connect (the
+# auth_oidc custom component); Caddy proxies HA without forward auth. Browsers
+# and the companion apps use the same hostname: the apps sign in with a device
+# code that is entered in the phone's browser. An Authentik username links to
+# the existing HA user of the same name, which the bootstrap provisions from
+# ssoUsers; no new HA users are created.
 #
-# Companion apps and REST clients bypass forward-auth on /auth/token and /api/*
-# and authenticate with HA long-lived tokens as usual.
+# API clients authenticate with HA long-lived tokens as usual. HA's password
+# login stays, at ?skip_oidc_redirect=true, for the owner and the loopback
+# setup scripts.
 #
 # First-run onboarding is completed automatically by home-assistant-bootstrap
-# (owner account + SSO user mirror).  Break-glass local login remains available
-# on localhost.
+# (owner account + SSO user mirror).
 #
 # Bluetooth
 # ---------
@@ -80,7 +83,12 @@
 
 let
   domain = config.lanbat.deployment.domain;
-  authHeaderComponent = pkgs.callPackage ../pkgs/home-assistant-auth-header { };
+  # Called from HA's own Python package set, which provides its dependencies,
+  # as nixpkgs calls home-assistant-custom-components.
+  authOidcComponent =
+    pkgs.home-assistant.python.pkgs.callPackage ../pkgs/home-assistant-auth-oidc
+      { };
+  oidcSecret = pkgs.callPackage ../pkgs/home-assistant-oidc-secret { };
   bootstrap = pkgs.callPackage ../pkgs/home-assistant-bootstrap { };
   postSetup = pkgs.callPackage ../pkgs/home-assistant-post-setup { };
   haDashboards = pkgs.callPackage ../pkgs/home-assistant-dashboards { };
@@ -1379,8 +1387,9 @@ in
       type = lib.types.listOf lib.types.str;
       default = [ "akadmin" ];
       description = ''
-        Authentik usernames to provision as Home Assistant users.  Login is via
-        header auth (no password); usernames must match Authentik exactly.
+        Authentik usernames to provision as Home Assistant users. Each logs in
+        through Authentik (auth_oidc), which links the Authentik username to
+        the HA user of the same name; usernames must match Authentik exactly.
       '';
     };
   };
@@ -1441,15 +1450,22 @@ in
       readsSecrets =
         lib.optional (config.lanbat.hasService "mosquitto") "mosquitto-ha-pass"
         # The Echo Shows' keys (services/techo5-bridge.nix), for their ESPHome entries.
-        ++ lib.optionals hasTechos (map (key: "techo5-${key}-api-key") (lib.attrNames techo5Devices));
+        ++ lib.optionals hasTechos (map (key: "techo5-${key}-api-key") (lib.attrNames techo5Devices))
+        # auth_oidc's client secret, copied into secrets.yaml before HA starts.
+        ++ [ "authentik-oidc-secrets" ];
       subdomain = "ha";
       port = 8123;
-      auth = "forward-auth";
-      apiClients = true; # companion apps — /auth/token and /api/* bypass forward-auth
-      # Sign-in is forward auth plus hass-auth-header; the OIDC client stays
-      # for optional native OAuth integrations.
+      # Sign-in is HA's own login, which hands over to Authentik over OpenID
+      # Connect (auth_oidc). Forward auth would break the companion apps: they
+      # start the login in a WebView and finish it in the browser, which never
+      # has the outpost's session cookie (docs/auth.md).
+      auth = "app";
+      apiClients = true; # companion apps and REST clients call HA directly
+      # Who may log in at all: auth_oidc would create an HA user for anyone
+      # Authentik lets through. Add people to this group in Authentik.
+      access.groups = [ "home-assistant" ];
       oidc = {
-        redirectPaths = [ "/auth/external/callback" ];
+        redirectPaths = [ "/auth/oidc/callback" ];
         secretVariable = "AUTHENTIK_HA_CLIENT_SECRET";
       };
       secrets = {
@@ -1519,6 +1535,12 @@ in
       # Bluetooth is a soft dependency: a missing or failed adapter must not
       # stop HA, matching its always-on posture.
       wants = [ "bluetooth.service" ];
+      # auth_oidc reads its client secret as !secret auth_oidc_client_secret.
+      # Root ("+") reads the Authentik client-secret file, which only root can;
+      # the script writes secrets.yaml as hass.
+      serviceConfig.ExecStartPre = [
+        "+${oidcSecret}/bin/ha-oidc-secret ${config.lanbat.secrets.authentik-oidc-secrets.path} ${config.services.home-assistant.configDir}/secrets.yaml hass"
+      ];
     };
 
     systemd.services.home-assistant-bootstrap = {
@@ -1682,9 +1704,7 @@ in
         (pkgs.home-assistant-custom-components.frigate.overridePythonAttrs (_: {
           doCheck = false;
         }))
-        (authHeaderComponent.overridePythonAttrs (_: {
-          doCheck = false;
-        }))
+        authOidcComponent
       ]
       # The conversation agent for the LLM in lanbat.haLlm.
       ++ lib.optional (llm != null) llmComponent;
@@ -1865,9 +1885,26 @@ in
           };
         };
 
-        # Authentik forward-auth → header-based login (users must exist in HA).
-        auth_header = {
-          username_header = "X-Authentik-Username";
+        # Login through Authentik over OpenID Connect. An Authentik username
+        # links to the HA user of the same name (the bootstrap creates
+        # ssoUsers); linking stays on only until each of them has logged in
+        # once (docs/auth.md). auth_oidc creates an HA user for any other
+        # identity it is handed, so only the home-assistant group gets that
+        # far: Authentik binds it to the application (access.groups below) and
+        # roles.user refuses anyone outside it. HA's password login remains at
+        # ?skip_oidc_redirect=true.
+        auth_oidc = {
+          client_id = "home-assistant";
+          client_secret = "!secret auth_oidc_client_secret";
+          discovery_url = "https://auth.${domain}/application/o/home-assistant/.well-known/openid-configuration";
+          display_name = "Authentik";
+          features = {
+            default_redirect = true;
+            automatic_user_linking = true;
+          };
+          roles.user = "home-assistant";
+          # Authentik is served with the internal Caddy CA.
+          network.tls_ca_path = "/var/lib/caddy-local-ca/ca-certificates.crt";
         };
 
         # Recorder — keep 30 days in the always-on PostgreSQL.
