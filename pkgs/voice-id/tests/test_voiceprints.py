@@ -64,6 +64,19 @@ def test_forget(tmp_path):
     assert set(s.scores(ALEX)) == {"sam"}
 
 
+def test_merge_moves_a_voice_into_someone_else(tmp_path):
+    s = store_with(tmp_path, alex=[ALEX, ALEX_ISH], sam=[SAM])
+    assert s.merge("alex", "sam")
+    assert "alex" not in s._prints and len(s._prints["sam"]) == 3
+    assert not s.merge("alex", "sam") and not s.merge("sam", "sam")
+    # Into someone with no voiceprint: theirs now.
+    assert s.merge("sam", "jo") and set(s._prints) == {"jo"}
+    # Capped, the newest kept.
+    s._prints["many"] = [list(ALEX)] * Store.CAP
+    assert s.merge("jo", "many") and len(s._prints["many"]) == Store.CAP
+    assert json.load(open(s.path))["people"].keys() == {"many"}
+
+
 def test_recent_utterances_by_text():
     r = Recent(seconds=600)
     r.add("Hello there, Nabu!", ALEX, now=0.0)

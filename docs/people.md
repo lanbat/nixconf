@@ -17,6 +17,27 @@ morning, Alex!"), from these signals:
 This page describes the part they share: the people list and how the assistant router
 combines what it hears into one line for the cloud model.
 
+## How Nabu learns who you are
+
+One sequence, with a phone: **tap, and say hi.**
+
+1. Hold your phone to a robot's head. The page has your name: your account's, or the one
+   you type there, with no account ([Tap your phone](#tap-your-phone)).
+2. For the next two minutes, just talk to Nabu. It learns your phone's Wi-Fi address at
+   once, your face from up to three frames of whoever is in front of it, and your voice
+   from what you say. Nobody needs to say "remember me" (and doing so then only tops up,
+   without asking your name).
+
+The name is always typed, never heard: speech-to-text spells names its own way. Learning
+happens only in a short window something explicit opened (a tap, a card, "remember me"),
+in that robot's room, and each source teaches only when it is unambiguous: a face only
+when exactly one is in view, a voice not when voice-id says it is clearly someone else
+already known, Wi-Fi only for the phone that opened the page.
+
+Without a phone (a child, a guest), "remember me" still works by voice: the name as Nabu
+heard it, shown on the robot's screen, waits on the [admins' list](#people-nabu-knows) to
+be spelled right.
+
 ## The people list
 
 ```nix
@@ -244,6 +265,30 @@ they can't be used as cards. A card's UID is easy to copy: it personalises, it n
 anything. People met this way are kept in `/var/lib/assistant-router/people.json`, their
 login links in `people-aliases.json`, how each was met (an account, a guest, or heard) in
 `people-kinds.json`, cards in `cards.json`.
+
+## People Nabu knows
+
+The home's admins (Authentik's `authentik Admins` group, or the groups in
+`lanbat.services.assistant-router.settings.tapAdmins`) have a page with everyone Nabu
+knows: `https://who.<domain>/admin`, linked from the who page once signed in. Each person
+is labelled with how Nabu knows their name, and with what it has learned (voice, face
+pictures, Wi-Fi, Bluetooth, card):
+
+- **Account:** signed in on the who page, or in the home's profile. The name comes from
+  there, so it isn't changed here.
+- **Guest:** a name typed on the who page, with no account (or fixed by an admin).
+- **Heard:** met by voice, the name as Nabu heard it.
+
+For guests and names heard, an admin can:
+
+- **fix the name** (a heard name is then confirmed, a guest);
+- **forget** them: voice, faces, cards and phones;
+- **link them to an account**, when they turn out to be the same person: their voice,
+  face pictures, phones and cards move to the account, and the entry goes. It can't be
+  split apart again, so the page asks first.
+
+Nobody else sees the list: the page is behind the login, and checks the groups the
+provider passes on.
 
 ## Voices
 

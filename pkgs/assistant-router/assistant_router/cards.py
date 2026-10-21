@@ -84,3 +84,12 @@ class Cards:
         if gone:
             self._save()
         return len(gone)
+
+    def rekey(self, key: str, into: str) -> int:
+        """`key`'s cards are `into`'s (an admin linked the two)."""
+        moved = [u for u, k in self.cards.items() if k == key]
+        for u in moved:
+            self.cards[u] = into
+        if moved:
+            self._save()
+        return len(moved)

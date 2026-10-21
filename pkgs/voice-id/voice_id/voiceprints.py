@@ -124,6 +124,15 @@ class Store:
         self._save()
         return True
 
+    def merge(self, key: str, into: str) -> bool:
+        """`key`'s voice is `into`'s (an admin linked the two): its utterances
+        join theirs, the newest CAP kept, and `key` has no voiceprint left."""
+        if key == into or key not in self._prints or not self.available():
+            return False
+        self._prints[into] = (self._prints.get(into, []) + self._prints.pop(key))[-self.CAP:]
+        self._save()
+        return True
+
 
 class Recent:
     """The last minutes of utterances, by transcript, in memory only."""

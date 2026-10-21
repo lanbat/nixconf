@@ -137,6 +137,19 @@ def test_who_to_learn_from():
     assert q.assess("Kitchen", now=1.0, voice=scores(kiril=0.62, ivo=0.6)).learn is None
 
 
+def test_a_tap_window_teaches_nothing_when_someone_else_clearly_speaks():
+    p = People(NAMES)
+    p.observe("Kitchen", "tap", "kiril", 1.0, now=0.0)
+    # Kiril tapped; what he says teaches his voice.
+    assert p.assess("Kitchen", now=1.0, voice=scores(kiril=0.3)).learn == "kiril"
+    # But this voice is clearly Maria's, enrolled already: she is the one talking
+    # in his window, so nothing is learned, whoever the tap says is speaking.
+    a = p.assess("Kitchen", now=1.0, voice=scores(kiril=0.3, maria=0.86))
+    assert a.learn is None
+    # Close, not clear: the tap still teaches.
+    assert p.assess("Kitchen", now=1.0, voice=scores(kiril=0.7, maria=0.82)).learn == "kiril"
+
+
 def test_being_home_tips_a_close_call_but_never_overrules():
     # Kiril sounds a little more like himself than Ivo does: too close to
     # call alone; Kiril's phone on the home network tips it. Home is weaker

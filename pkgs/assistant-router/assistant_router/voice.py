@@ -114,6 +114,10 @@ class VoiceIdClient:
     async def forget(self, key: str) -> bool:
         return bool((await self._call("DELETE", f"/people/{key}")).get("forgotten"))
 
+    async def merge(self, key: str, into: str) -> bool:
+        """`key`'s voiceprint becomes part of `into`'s (an admin linked them)."""
+        return bool((await self._call("POST", f"/people/{key}/merge", {"into": into})).get("merged"))
+
     async def aclose(self) -> None:
         if self._session is not None:
             await self._session.close()

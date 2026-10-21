@@ -60,6 +60,16 @@ class Irks:
         self._save()
         return True
 
+    def rekey(self, key: str, into: str) -> bool:
+        """`key`'s phones' keys are `into`'s (an admin linked the two)."""
+        if key == into or not self._keys.get(key):
+            return False
+        moved = self._keys.pop(key)
+        keep = [i for i in self._keys.get(into, []) if i not in moved]
+        self._keys[into] = (keep + moved)[-MAX_PER_PERSON:]
+        self._save()
+        return True
+
     def _save(self) -> None:
         if self.path:
             tmp = self.path + ".new"

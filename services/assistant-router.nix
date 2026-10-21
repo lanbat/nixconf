@@ -136,6 +136,19 @@ let
       phone must trust the site's certificate.
     '';
   };
+  routerSettings.options.tapAdmins = mkOption {
+    type = types.listOf types.str;
+    default = [ "authentik Admins" ];
+    example = [ "family-admins" ];
+    description = ''
+      The provider's groups whose members see "People Nabu knows" on the
+      who page (/admin, behind the login): everyone Nabu knows, labelled as
+      an account, a guest or a name heard by voice, where they fix a name,
+      forget someone or link them to an account (pkgs/assistant-router
+      household.py, docs/people.md). Needs a provider that passes the
+      user's groups (Authentik does). Empty: no such page.
+    '';
+  };
   provider = config.lanbat.authProvider;
   tapping = cfg.tap && provider != null && provider.userHeader != null;
   # Mosquitto beside it, and Home Assistant wanted: the MQTT publisher.
@@ -252,12 +265,19 @@ in
               ]
               # Authentik also passes the display name, after its check, and
               # its user settings are where an account's name is changed.
-              ++ lib.optionals (provider.userHeader == "X-Authentik-Username") [
-                "--tap-name-header X-Authentik-Name"
-                "--tap-account-url https://${
-                  config.lanbat.services.${provider.service}.subdomain
-                }.${config.lanbat.deployment.domain}/if/user/#/settings"
-              ]
+              ++ lib.optionals (provider.userHeader == "X-Authentik-Username") (
+                [
+                  "--tap-name-header X-Authentik-Name"
+                  "--tap-account-url https://${
+                    config.lanbat.services.${provider.service}.subdomain
+                  }.${config.lanbat.deployment.domain}/if/user/#/settings"
+                ]
+                # Its groups, for the admins' page.
+                ++ lib.optionals (cfg.tapAdmins != [ ]) (
+                  [ "--tap-groups-header X-Authentik-Groups" ]
+                  ++ map (g: "--tap-admin-group ${lib.escapeShellArg g}") cfg.tapAdmins
+                )
+              )
             )
             # Co-located on this host (localhost); its API needs no auth. The URL
             # is only rendered when Frigate is present, so its port is read then.

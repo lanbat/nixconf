@@ -357,9 +357,12 @@ class People:
                 a.how = " and ".join(by) or (
                     "presence" if top in phones or top in faces or top in seen or top in heard else "conversation")
                 second = max([v for k, v in voice.items() if k != top], default=0.0)
-                # A tap or a card names them for sure: what they say teaches the voice.
-                if aimed.get(top, 0.0) >= LEARN_AIMED or top in cards or top in taps or (
-                        voice.get(top, 0.0) >= LEARN_VOICE and voice[top] - second >= LEARN_MARGIN):
+                # A tap or a card names them for sure: what they say teaches the
+                # voice. Unless the voice is clearly someone else's, already
+                # enrolled: then someone else is talking in their window.
+                someone_else = second >= LEARN_VOICE and second - voice.get(top, 0.0) >= LEARN_MARGIN
+                if not someone_else and (aimed.get(top, 0.0) >= LEARN_AIMED or top in cards or top in taps or (
+                        voice.get(top, 0.0) >= LEARN_VOICE and voice[top] - second >= LEARN_MARGIN)):
                     a.learn = top
         a.nearby = [p for p in self.here(room, now) if p != a.speaker]
         return a
