@@ -161,6 +161,8 @@ let
   lightsOn = automation "followme_lights_on_office";
   lightsOnLive = automationLive "followme_lights_on_office";
   litClear = automation "followme_lit_clear_office";
+  musicPause = automation "followme_music_pause_office";
+  musicPauseLive = automationLive "followme_music_pause_office";
   lastRoom = automation "followme_lastroom_alex";
   musicFollow = automation "followme_music_follow_alex";
   musicFollowLive = automationLive "followme_music_follow_alex";
@@ -480,6 +482,40 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
         };
       in
       !(lib.any (a: lib.hasPrefix "followme_music_follow" (a.id or "")) one.automation)
+    )
+    + expect "pause: a rule for each room with music on, none for a room with music off" (
+      musicPause != null && automation "followme_music_pause_kitchen" == null
+    )
+    + expect "pause: triggered by the room going from occupied to empty for musicPauseMinutes" (
+      let
+        t = lib.head musicPause.triggers;
+      in
+      t.entity_id == "binary_sensor.followme_office_occupied"
+      && t.from == "on"
+      && t.to == "off"
+      && t.for.minutes == 15
+    )
+    + expect "pause: not while paused or with guests, and only if something is playing" (
+      let
+        c = json musicPause.conditions;
+      in
+      lib.hasInfix "input_boolean.followme_paused" c
+      && lib.hasInfix "input_boolean.followme_guests" c
+      && lib.hasInfix "players" c
+    )
+    + expect "pause: pauses the room's Music Assistant players, never stops, never a TV" (
+      let
+        a = json musicPauseLive.actions;
+        v = json musicPauseLive.variables;
+      in
+      lib.hasInfix "media_player.media_pause" a
+      && !(lib.hasInfix "media_stop" a)
+      && lib.hasInfix "integration_entities('music_assistant')" v
+      && !(lib.hasInfix "kodi" v)
+      && !(lib.hasInfix "androidtv" v)
+    )
+    + expect "pause: dry run only logs" (
+      lib.length musicPause.actions == 1 && lib.hasPrefix "would " (lib.head musicPause.actions).data.message
     )
     + expect "manual off: the marker clears when the room's lights all go off" (
       litClear != null

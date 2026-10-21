@@ -388,6 +388,48 @@ let
       };
     };
 
+  # Music pauses (not stops, so "resume" works) once the room has been empty a
+  # while: the room's Music Assistant players only, never a TV, and not while
+  # guests, who carry no tracked phone, may be there.
+  musicPause =
+    cfg: room:
+    let
+      r = slug room;
+    in
+    {
+      id = "followme_music_pause_${r}";
+      alias = "Follow-me: pause the music in ${room}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.followme_${r}_occupied";
+          from = "on";
+          to = "off";
+          for.minutes = cfg.musicPauseMinutes;
+        }
+      ];
+      variables.players = "{{ integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${toJSON room})) | select('is_state', 'playing') | list }}";
+      conditions = [
+        notPaused
+        notGuests
+        {
+          condition = "template";
+          value_template = "{{ players | count > 0 }}";
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "pause the music in ${room} (nobody there)";
+        steps = [
+          {
+            action = "media_player.media_pause";
+            target.entity_id = "{{ players }}";
+          }
+        ];
+      };
+    };
+
   mkFollowMe =
     { cfg, people }:
     let
@@ -447,6 +489,7 @@ let
             ]
           ) rooms
         )
+        ++ lib.mapAttrsToList (r: _: musicPause cfg r) (lib.filterAttrs (_: rc: rc.music) rooms)
         ++ map (lastRoom cfg) people
         ++ lib.optionals (lib.length (lib.filter (rc: rc.music) (lib.attrValues rooms)) >= 2) (
           map (musicFollow cfg) people
