@@ -145,6 +145,11 @@ add_library() {
 
 # All media folders on Pi storage except adult (Samba-only) and incomplete
 # (in-progress downloads). roms/ is served by RomM, not Jellyfin.
+#
+# A TV library's root must hold one folder per show: Jellyfin takes every
+# folder there for a series. A qBittorrent category that saves into a single
+# folder (a "TV Shows" category saving to tv/misc, say) makes the whole library
+# one series, named after whatever TMDb matches "misc" to.
 # Format: collectionType|displayName|path
 LIBRARY_SPECS=(
   "movies|Movies|/srv/storage/a/media/movies"
@@ -410,6 +415,41 @@ configure_opensubtitles() {
     -o /dev/null
 }
 
+# The IMVDb plugin also registers an artist provider that is on by default in
+# every library with music artists. In the Music library it asks IMVDb about
+# each of thousands of artists on every scan, which has no use there (it only
+# knows music videos) and fills the log with errors whenever IMVDb refuses a
+# request. List the Music library's artist providers explicitly, without IMVDb.
+exclude_imvdb_from_music_artists() {
+  [[ -n "$IMVDB_API_KEY" ]] || return 0
+  local lib id avail opts
+  lib="$(api_call "${JELLYFIN_URL}/Library/VirtualFolders" | jq -c '.[] | select(.Name == "Music")')"
+  [[ -n "$lib" ]] || return 0
+  id="$(jq -r .ItemId <<<"$lib")"
+  avail="$(api_call "${JELLYFIN_URL}/Libraries/AvailableOptions?libraryContentType=music&isNewLibrary=false" \
+    | jq -c '.TypeOptions[] | select(.Type == "MusicArtist")')"
+  [[ -n "$avail" ]] || return 0
+  opts="$(jq -c --argjson avail "$avail" '
+    ($avail.MetadataFetchers | map(select(.DefaultEnabled and .Name != "IMVDb") | .Name)) as $fetchers
+    | .LibraryOptions
+    | .TypeOptions = ((.TypeOptions // []) | map(select(.Type != "MusicArtist")) + [{
+        Type: "MusicArtist",
+        MetadataFetchers: $fetchers,
+        MetadataFetcherOrder: $fetchers,
+        ImageFetchers: [],
+        ImageFetcherOrder: [],
+        ImageOptions: []
+      }])' <<<"$lib")"
+  if [[ "$(jq -c '.TypeOptions' <<<"$opts")" == "$(jq -c '.LibraryOptions.TypeOptions' <<<"$lib")" ]]; then
+    return 0
+  fi
+  log "excluding IMVDb from the Music library's artist providers"
+  api_call -X POST "${JELLYFIN_URL}/Library/VirtualFolders/LibraryOptions" \
+    -H 'Content-Type: application/json' \
+    -d "$(jq -n --arg id "$id" --argjson opts "$opts" '{Id: $id, LibraryOptions: $opts}')" \
+    -o /dev/null
+}
+
 # Fetch missing metadata and images for a whole library, as its "Refresh
 # metadata" menu does, keeping what items already have.
 refresh_library_metadata() {
@@ -581,6 +621,7 @@ run_configuration() {
   configure_scheduled_scan
   setup_plugins
   configure_imvdb
+  exclude_imvdb_from_music_artists
   configure_opensubtitles
   setup_sso
   setup_branding
@@ -602,6 +643,7 @@ if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>
   # Plugins added to this script after the server was first set up.
   setup_plugins
   configure_imvdb
+  exclude_imvdb_from_music_artists
   configure_opensubtitles
   setup_branding
   refresh_all_libraries

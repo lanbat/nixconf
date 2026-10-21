@@ -10,7 +10,7 @@ Raspberry Pi 5
 ├── Drive A  /dev/disk/by-id/DRIVE_A  →  LUKS  →  /dev/mapper/storage-a  →  XFS  →  /mnt/storage-a
 │   ├── /mnt/storage-a/media/              ← qBittorrent saves here, Jellyfin reads
 │   │   ├── movies/
-│   │   ├── tv/
+│   │   ├── tv/                            ← one folder per show: Jellyfin takes every folder here for a series
 │   │   └── music-videos/
 │   ├── /mnt/storage-a/photos/             ← Immich originals / uploads
 │   └── /mnt/storage-a/surveillance/       ← Frigate recordings
