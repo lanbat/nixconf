@@ -6,6 +6,21 @@ from assistant_router.people_store import PeopleStore
 BASE = {"kiril": "Kiril", "maria": "Maria"}
 
 
+def test_kinds_are_kept_and_go_with_the_person(tmp_path):
+    path = tmp_path / "people.json"
+    store = PeopleStore(People(dict(BASE)), str(path))
+    store.add("guest_jane", "Jane")
+    store.set_kind("guest_jane", "guest")
+    store.set_kind("guest_jane", "nonsense")  # not a kind: ignored
+    again = PeopleStore(People(dict(BASE)), str(path))
+    assert again.kind("guest_jane") == "guest" and again.kind("kiril") is None
+    again.set_kind("guest_jane", "account")
+    assert PeopleStore(People(dict(BASE)), str(path)).kind("guest_jane") == "account"
+    again.remove("guest_jane")
+    assert again.kind("guest_jane") is None
+    assert json.loads((tmp_path / "people-kinds.json").read_text()) == {}
+
+
 def test_overlay_merges_over_the_base(tmp_path):
     path = tmp_path / "people.json"
     path.write_text(json.dumps({"ivo": "Ivo", "kiril": "Kiril-renamed"}))

@@ -126,11 +126,14 @@ let
     description = ''
       Tap a phone on a robot to say who you are: each robot is an NFC tag
       holding a link to https://who.<domain>, a new one every minute. Opened
-      on a phone, the page asks the forward-auth provider's login (Authentik),
-      counts that person in the robot's room for two minutes, and learns the
-      phone's Wi-Fi address for wifi-presence. People who tap are added by
-      their username; nothing is listed in the profile. Needs a forward-auth
-      provider on this host; the phone must trust the site's certificate.
+      on a phone, the page knows the person by its own cookie: signed in
+      once through the forward-auth provider's login (Authentik), or, for
+      someone without an account, the name they type (a guest, who can
+      rename themselves). It counts them in the robot's room for two
+      minutes and learns the phone's Wi-Fi address for wifi-presence.
+      People who tap are added by their username or as guests; nothing is
+      listed in the profile. Needs a forward-auth provider on this host; the
+      phone must trust the site's certificate.
     '';
   };
   provider = config.lanbat.authProvider;
@@ -189,13 +192,22 @@ in
         extraPorts = [ bodyPort ];
         readsSecrets = lib.optional mqttHere "mosquitto-assistant-router-pass";
       };
-      # The page a phone held to a robot opens, behind the login. Declared
-      # with the router, and given a host name only with tapping: whether a
-      # provider runs here is known from the services themselves.
+      # The page a phone held to a robot opens. Declared with the router, and
+      # given a host name only with tapping: whether a provider runs here is
+      # known from the services themselves. Open to anyone, accounts or not:
+      # the page knows who by its own signed cookie, and only /signin is
+      # behind the login, where the provider's headers are read (tap.py).
       lanbat.services.who = {
         subdomain = lib.mkIf tapping "who";
         port = lib.mkIf tapping tapPort;
         auth = lib.mkIf tapping "forward-auth";
+        caddy.authBypassPaths = lib.mkIf tapping [
+          "/"
+          "/tap/*"
+          "/name"
+          "/forget-phone"
+          "/forget-me"
+        ];
       };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];
       systemd.services.assistant-router = {
@@ -236,9 +248,16 @@ in
                 "--tap-user-header ${provider.userHeader}"
                 "--phones-state /var/lib/assistant-router/phones.json"
                 "--irks-state /var/lib/assistant-router/irks.json"
+                "--tap-session-key /var/lib/assistant-router/who-session.key"
               ]
-              # Authentik also passes the display name, after its check.
-              ++ lib.optional (provider.userHeader == "X-Authentik-Username") "--tap-name-header X-Authentik-Name"
+              # Authentik also passes the display name, after its check, and
+              # its user settings are where an account's name is changed.
+              ++ lib.optionals (provider.userHeader == "X-Authentik-Username") [
+                "--tap-name-header X-Authentik-Name"
+                "--tap-account-url https://${
+                  config.lanbat.services.${provider.service}.subdomain
+                }.${config.lanbat.deployment.domain}/if/user/#/settings"
+              ]
             )
             # Co-located on this host (localhost); its API needs no auth. The URL
             # is only rendered when Frigate is present, so its port is read then.

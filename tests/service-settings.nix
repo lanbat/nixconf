@@ -1048,53 +1048,63 @@ let
       && failedAssertions presenceServer == [ ]
     ))
 
-    (expect "who: a phone held to a robot opens a page behind the login, and its phone is learned" (
-      let
-        exec = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;
-        domain = routerServer.lanbat.deployment.domain;
-      in
-      routerServer.lanbat.services.who.subdomain == "who"
-      && routerServer.lanbat.services.who.port == 8772
-      && routerServer.lanbat.services.who.auth == "forward-auth"
-      && routerServer.services.caddy.virtualHosts ? "who.${domain}"
-      && lib.hasInfix "--tap-url https://who.${domain}" exec
-      && lib.hasInfix "--tap-user-header X-Authentik-Username" exec
-      && lib.hasInfix "--tap-name-header X-Authentik-Name" exec
-      && lib.hasInfix "--phones-state /var/lib/assistant-router/phones.json" exec
-      # wifi-presence runs for the learned phones, with none in the profile.
-      && builtins.fromJSON routerServer.systemd.services.wifi-presence.environment.PHONES == { }
-      # On the bridge: the address, the gateway and the LAN listeners move
-      # to it, the ports join it, and the access point serves the home
-      # network from the dongle into it (docs/wifi.md).
-      && routerServer.systemd.services.wifi-presence.environment.INTERFACE == "br0"
-      && routerServer.networking.interfaces ? br0
-      && !(routerServer.networking.interfaces ? eno1)
-      && routerServer.networking.defaultGateway.interface == "br0"
-      && routerServer.systemd.network.netdevs."20-br0".netdevConfig.Kind == "bridge"
-      && routerServer.systemd.network.netdevs."20-br0".netdevConfig.MACAddress == "6c:2b:59:00:00:01"
-      && routerServer.systemd.network.networks."30-eno1".networkConfig.Bridge == "br0"
-      && routerServer.systemd.network.networks."30-enp2s0".networkConfig.Bridge == "br0"
-      && routerServer.systemd.network.networks."30-wlp0s20f0u1".linkConfig.Unmanaged
-      && (
+    (expect
+      "who: a phone held to a robot opens a page open to guests, accounts sign in, its phone is learned"
+      (
         let
-          ap = routerServer.services.hostapd.radios.wlp0s20f0u1;
-          net = ap.networks.wlp0s20f0u1;
+          exec = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;
+          domain = routerServer.lanbat.deployment.domain;
+          vhost = routerServer.services.caddy.virtualHosts."who.${domain}".extraConfig;
         in
-        routerServer.services.hostapd.enable
-        && ap.channel == 6
-        && ap.countryCode == "GB"
-        && net.ssid == "Example"
-        && net.settings.bridge == "br0"
-        && net.authentication.wpaPasswordFile == routerServer.lanbat.secrets.wifi-access-point.path
+        routerServer.lanbat.services.who.subdomain == "who"
+        && routerServer.lanbat.services.who.port == 8772
+        && routerServer.lanbat.services.who.auth == "forward-auth"
+        && routerServer.services.caddy.virtualHosts ? "who.${domain}"
+        # Open to anyone; only /signin is behind the login, where the
+        # provider's headers are read (the page's own cookie elsewhere).
+        && lib.hasInfix "@auth_bypass path / /tap/* /name /forget-phone /forget-me" vhost
+        && !(lib.hasInfix "/signin" vhost)
+        && lib.hasInfix "--tap-url https://who.${domain}" exec
+        && lib.hasInfix "--tap-user-header X-Authentik-Username" exec
+        && lib.hasInfix "--tap-name-header X-Authentik-Name" exec
+        && lib.hasInfix "--tap-session-key /var/lib/assistant-router/who-session.key" exec
+        && lib.hasInfix "--tap-account-url https://auth.${domain}/if/user/#/settings" exec
+        && lib.hasInfix "--phones-state /var/lib/assistant-router/phones.json" exec
+        # wifi-presence runs for the learned phones, with none in the profile.
+        && builtins.fromJSON routerServer.systemd.services.wifi-presence.environment.PHONES == { }
+        # On the bridge: the address, the gateway and the LAN listeners move
+        # to it, the ports join it, and the access point serves the home
+        # network from the dongle into it (docs/wifi.md).
+        && routerServer.systemd.services.wifi-presence.environment.INTERFACE == "br0"
+        && routerServer.networking.interfaces ? br0
+        && !(routerServer.networking.interfaces ? eno1)
+        && routerServer.networking.defaultGateway.interface == "br0"
+        && routerServer.systemd.network.netdevs."20-br0".netdevConfig.Kind == "bridge"
+        && routerServer.systemd.network.netdevs."20-br0".netdevConfig.MACAddress == "6c:2b:59:00:00:01"
+        && routerServer.systemd.network.networks."30-eno1".networkConfig.Bridge == "br0"
+        && routerServer.systemd.network.networks."30-enp2s0".networkConfig.Bridge == "br0"
+        && routerServer.systemd.network.networks."30-wlp0s20f0u1".linkConfig.Unmanaged
+        && (
+          let
+            ap = routerServer.services.hostapd.radios.wlp0s20f0u1;
+            net = ap.networks.wlp0s20f0u1;
+          in
+          routerServer.services.hostapd.enable
+          && ap.channel == 6
+          && ap.countryCode == "GB"
+          && net.ssid == "Example"
+          && net.settings.bridge == "br0"
+          && net.authentication.wpaPasswordFile == routerServer.lanbat.secrets.wifi-access-point.path
+        )
+        && routerNoTap.networking.interfaces ? eno1
+        && !routerNoTap.services.hostapd.enable
+        && routerNoTap.lanbat.services.who.subdomain == null
+        && !(routerNoTap.services.caddy.virtualHosts ? "who.${domain}")
+        && !(lib.hasInfix "--tap-url" routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart)
+        && failedAssertions routerServer == [ ]
+        && failedAssertions routerNoTap == [ ]
       )
-      && routerNoTap.networking.interfaces ? eno1
-      && !routerNoTap.services.hostapd.enable
-      && routerNoTap.lanbat.services.who.subdomain == null
-      && !(routerNoTap.services.caddy.virtualHosts ? "who.${domain}")
-      && !(lib.hasInfix "--tap-url" routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart)
-      && failedAssertions routerServer == [ ]
-      && failedAssertions routerNoTap == [ ]
-    ))
+    )
 
     # Telegraf 1.38 won't start with an empty input list ("unsupported config
     # format: prometheus"): a Pi without CoreDNS has no prometheus input at all.

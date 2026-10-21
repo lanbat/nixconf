@@ -21,7 +21,7 @@ from .voice import VoiceIdClient
 from .people_store import PeopleStore
 from .mqtt import HomeAssistant, run_mqtt
 from .server import Config, forget_person, make_app, make_body_app
-from .tap import Taps, make_tap_app
+from .tap import Sessions, Taps, make_tap_app, session_secret
 
 
 async def serve(cfg: Config, a: argparse.Namespace) -> None:
@@ -54,7 +54,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     runtime=people_store.has if people_store is not None else None, store=people_store,
                     user_header=a.tap_user_header, name_header=a.tap_name_header,
-                    learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None))
+                    learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None),
+                    sessions=Sessions(session_secret(a.tap_session_key)), account_url=a.tap_account_url)
         if irks is not None:
             taps.forgetters.append(irks.forget)
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
@@ -122,6 +123,10 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--tap-user-header", default="X-Authentik-Username",
                    help="who signed in, set by the forward-auth provider after its check (Caddy drops a client's)")
     p.add_argument("--tap-name-header", help="their display name, likewise; unset: the username")
+    p.add_argument("--tap-session-key", help="the key the page signs its cookies with, in the state dir "
+                   "(made on first start); unset: new each start, so everyone signs in again")
+    p.add_argument("--tap-account-url", help="where an account's name is changed (the provider's user "
+                   "settings), linked from the page")
     p.add_argument("--phones-state", help="JSON {mac: key} in the state dir: phones learned from taps (tap.py)")
     p.add_argument("--irks-state", help="JSON {key: [irk]} in the state dir: phones' Bluetooth keys, for the "
                    "room sensors (irks.py)")

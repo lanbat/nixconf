@@ -12,6 +12,11 @@ Aliases tie a login (an Authentik username, from a phone tap) to a person met
 by voice before they had one, so the tap names the person Nabu already knows
 instead of making a second one ("Meeting Nabu", docs/people.md). They are kept
 next to the people, in `<name>-aliases.json`.
+
+Each runtime person also has a kind, how their name came to be known, kept in
+`<name>-kinds.json`: "account" (a login), "guest" (typed on the who page,
+with no account) or "heard" (said to Nabu). A guest may rename themselves; an
+account's name follows the login.
 """
 from __future__ import annotations
 
@@ -19,6 +24,8 @@ import json
 import os
 
 from .people import People
+
+KINDS = ("account", "guest", "heard")
 
 
 def _load(path: str) -> dict[str, str]:
@@ -49,6 +56,8 @@ class PeopleStore:
             people.names[key] = name
         self.aliases_path = os.path.splitext(path)[0] + "-aliases.json"
         self._aliases = _load(self.aliases_path)  # login -> key
+        self.kinds_path = os.path.splitext(path)[0] + "-kinds.json"
+        self._kinds = {k: v for k, v in _load(self.kinds_path).items() if v in KINDS}  # key -> kind
 
     def add(self, key: str, name: str) -> None:
         key, name = str(key), str(name)
@@ -68,6 +77,8 @@ class PeopleStore:
         if any(k == key for k in self._aliases.values()):
             self._aliases = {login: k for login, k in self._aliases.items() if k != key}
             _persist(self.aliases_path, self._aliases)
+        if self._kinds.pop(key, None) is not None:
+            _persist(self.kinds_path, self._kinds)
 
     def link(self, login: str, key: str) -> None:
         """`login` is the person `key` from now on."""
@@ -81,3 +92,13 @@ class PeopleStore:
     def linked(self, key: str) -> bool:
         """Whether a login is linked to `key` (its name then follows the login)."""
         return str(key) in self._aliases.values()
+
+    def kind(self, key: str) -> str | None:
+        """How a runtime person's name came to be known (KINDS), or None."""
+        return self._kinds.get(str(key))
+
+    def set_kind(self, key: str, kind: str) -> None:
+        if kind not in KINDS or self._kinds.get(str(key)) == kind:
+            return
+        self._kinds[str(key)] = kind
+        _persist(self.kinds_path, self._kinds)
