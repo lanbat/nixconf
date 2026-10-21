@@ -1,16 +1,22 @@
 import json
+import os
+import stat
 
 import pytest
 from assistant_router.body import Bodies
 from assistant_router.people import People
+from assistant_router.people_store import PeopleStore
 from assistant_router.server import make_body_app
-from assistant_router.tap import Taps, arp_lookup, display_name, make_tap_app, person_key
+from assistant_router.tap import (SESSION_COOKIE, Sessions, Taps, arp_lookup, display_name, make_tap_app,
+                                  person_key, safe_next, session_secret)
 
 BASE = "https://who.example.org"
 ARP = """IP address       HW type     Flags       HW address            Mask     Device
 192.168.1.50     0x1         0x2         a2:3b:4c:5d:6e:7f     *        eth0
 192.168.1.51     0x1         0x0         00:00:00:00:00:00     *        eth0
 """
+ME = {"X-Authentik-Username": "kiril", "X-Authentik-Name": "Kiril"}
+PHONE = {"X-Forwarded-For": "192.168.1.50"}
 
 
 class Clock:
@@ -31,8 +37,37 @@ def setup(tmp_path):
     return taps, people, clock, tmp_path
 
 
+@pytest.fixture
+def stored(setup):
+    """With the runtime people store, as the router runs, and a wall clock for the cookies."""
+    taps, people, clock, tmp_path = setup
+    store = PeopleStore(people, str(tmp_path / "people.json"))
+    taps._store, taps._runtime, taps._remember = store, store.has, store.add
+    wall = Clock(1_800_000_000.0)
+    taps.sessions = Sessions(b"k" * 32, clock=wall)
+    return taps, people, clock, store, wall
+
+
 def nonce(link):
     return link.split("?n=")[1]
+
+
+def cookie_of(resp):
+    morsel = resp.cookies.get(SESSION_COOKIE)
+    return morsel.value if morsel is not None else None
+
+
+def with_cookie(cookie, **headers):
+    return {**headers, "Cookie": f"{SESSION_COOKIE}={cookie}"}
+
+
+async def sign_in(c, user="kiril", name="Kiril", cookie=None, next_="/"):
+    headers = {"X-Authentik-Username": user, "X-Authentik-Name": name}
+    if cookie:
+        headers["Cookie"] = f"{SESSION_COOKIE}={cookie}"
+    r = await c.get(f"/signin?next={next_}", headers=headers, allow_redirects=False)
+    assert r.status == 302
+    return cookie_of(r)
 
 
 def test_a_link_lasts_one_to_two_minutes_and_one_room(setup):
@@ -116,17 +151,17 @@ async def test_the_page(aiohttp_client, setup):
         return False
 
     c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], forget))
-    me = {"X-Authentik-Username": "kiril", "X-Authentik-Name": "Kiril", "X-Forwarded-For": "192.168.1.50"}
+    me = with_cookie(await sign_in(c), **PHONE)
     r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=me)
     text = await r.text()
     assert r.status == 200 and "Hi Kiril!" in text and "in the Kitchen" in text and "Forget my phone" in text
     assert "learns" not in text  # no voice-id or Frigate to learn with
+    assert "Change my name" not in text  # an account's name is its login's
     taps.learns = ("voice", "face")
     r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=me)
     assert "For two minutes, Nabu learns your voice and your face there" in await r.text()
     r = await c.get("/tap/kitchen?n=nope", headers=me)
     assert "expired" in await r.text()
-    assert (await c.get("/tap/kitchen?n=x")).status == 403  # not signed in
 
     r = await c.post("/forget-phone", headers={**me, "Origin": "https://evil.example"})
     assert r.status == 403 and taps.phones
@@ -134,6 +169,135 @@ async def test_the_page(aiohttp_client, setup):
     assert r.status == 200 and taps.phones == {}
     r = await c.post("/forget-me", headers={**me, "Referer": f"{BASE}/"})
     assert r.status == 200 and forgotten == ["kiril"] and "home's settings" in await r.text()
+
+
+async def test_without_a_cookie_the_page_asks_and_headers_name_nobody(aiohttp_client, setup):
+    taps, people, clock, _ = setup
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    # The provider's headers reach only /signin: on the open paths a client could send them.
+    r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers={**ME, **PHONE})
+    text = await r.text()
+    assert r.status == 200 and "tell me your name" in text and "Sign in with your account" in text
+    assert "Hi Kiril!" not in text and people.assess("Kitchen", clock()).speaker is None and taps.phones == {}
+    assert "/signin?next=%2Ftap%2Fkitchen%3Fn%3D" in text  # back to this tap after signing in
+    r = await c.get("/", headers=ME)
+    assert "Sign in with your account" in await r.text()
+    assert (await c.post("/forget-me", headers={**ME, "Origin": BASE})).status == 403
+    assert "expired" in await (await c.get("/tap/kitchen?n=nope")).text()
+
+
+async def test_a_guest_says_their_name_and_is_remembered(aiohttp_client, stored):
+    taps, people, clock, store, _ = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    form = {"name": "Jane <i>", "room": "kitchen", "n": nonce(taps.link("Kitchen"))}
+    r = await c.post("/name", data=form, headers={"Origin": BASE, **PHONE})
+    text = await r.text()
+    assert r.status == 200 and "Hi Jane i!" in text and "in the Kitchen" in text and "Change my name" in text
+    guest = cookie_of(r)
+    assert people.names["guest_jane_i"] == "Jane i" and store.kind("guest_jane_i") == "guest"
+    assert taps.phones == {"a2:3b:4c:5d:6e:7f": "guest_jane_i"}
+    assert people.assess("Kitchen", clock()).speaker == "guest_jane_i"
+    # Their next tap knows them; they may change their name.
+    r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=with_cookie(guest, **PHONE))
+    assert "Hi Jane i!" in await r.text()
+    r = await c.post("/name", data={"name": "Janie"}, headers=with_cookie(guest, Origin=BASE))
+    assert r.status == 200 and people.names["guest_jane_i"] == "Janie"
+    assert (await c.post("/name", data={"name": "<>"}, headers=with_cookie(guest, Origin=BASE))).status == 400
+    assert "Hi Janie!" in await (await c.get("/", headers=with_cookie(guest))).text()
+
+
+async def test_a_guest_needs_a_fresh_link_and_a_form_from_here(aiohttp_client, stored):
+    taps, people, clock, _, _ = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    stale = {"name": "Jane", "room": "kitchen", "n": nonce(taps.link("Kitchen"))}
+    clock.t += 180
+    r = await c.post("/name", data=stale, headers={"Origin": BASE})
+    assert r.status == 400 and "expired" in await r.text()
+    fresh = {**stale, "n": nonce(taps.link("Kitchen"))}
+    assert (await c.post("/name", data=fresh, headers={"Origin": "https://evil.example"})).status == 403
+    assert (await c.post("/name", data={**fresh, "room": "garage"}, headers={"Origin": BASE})).status == 400
+    assert not [k for k in people.names if k.startswith("guest_")]
+
+
+def test_a_guest_never_takes_an_accounts_key(stored):
+    taps, people, _, store, _ = stored
+    people.add("maria", "Maria")
+    assert taps.new_guest("Maria") == "guest_maria"
+    assert taps.new_guest("Maria") == "guest_maria_2"
+    store.link("guest_x", "kiril")  # a login named like a guest key
+    assert taps.new_guest("X") == "guest_x_2"
+    assert taps.new_guest("!!") is None
+
+
+def test_without_the_people_store_nobody_is_added_as_a_guest(setup):
+    taps, people, _, _ = setup
+    assert taps.new_guest("Jane") is None and not [k for k in people.names if k.startswith("guest_")]
+
+
+async def test_a_guest_who_signs_in_becomes_that_account(aiohttp_client, stored):
+    taps, people, _, store, _ = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    form = {"name": "Jane", "room": "kitchen", "n": nonce(taps.link("Kitchen"))}
+    guest = cookie_of(await c.post("/name", data=form, headers={"Origin": BASE, **PHONE}))
+    account = await sign_in(c, "jdoe", "Jane Doe", cookie=guest)
+    assert store.resolve("jdoe") == "guest_jane" and store.kind("guest_jane") == "account"
+    assert people.names["guest_jane"] == "Jane Doe"  # the account's name, from now on
+    r = await c.get(f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}", headers=with_cookie(account, **PHONE))
+    text = await r.text()
+    assert "Hi Jane Doe!" in text and "Change my name" not in text and "jdoe" not in people.names
+    # The old guest cookie is nobody now: the guest is an account.
+    r = await c.post("/name", data={"name": "Someone"}, headers=with_cookie(guest, Origin=BASE))
+    assert r.status == 400 and people.names["guest_jane"] == "Jane Doe"
+    # An account's name isn't changed here.
+    r = await c.post("/name", data={"name": "Someone"}, headers=with_cookie(account, Origin=BASE))
+    assert r.status == 403 and "comes from your account" in await r.text()
+
+
+async def test_signing_in_as_someone_known_keeps_them_and_the_guest_apart(aiohttp_client, stored):
+    taps, people, _, store, _ = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    form = {"name": "Kid", "room": "kitchen", "n": nonce(taps.link("Kitchen"))}
+    guest = cookie_of(await c.post("/name", data=form, headers={"Origin": BASE}))
+    await sign_in(c, "kiril", "Kiril", cookie=guest)  # a parent signing in on the child's phone
+    assert store.resolve("kiril") is None and store.kind("guest_kid") == "guest"
+
+
+async def test_an_account_is_checked_with_the_provider_again_after_a_day(aiohttp_client, stored):
+    taps, people, _, store, wall = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    account = await sign_in(c)
+    link = f"/tap/kitchen?n={nonce(taps.link('Kitchen'))}"
+    wall.t += 86400 + 1
+    r = await c.get(link, headers=with_cookie(account), allow_redirects=False)
+    assert r.status == 302 and r.headers["Location"].startswith("/signin?next=%2Ftap%2Fkitchen%3Fn%3D")
+
+
+async def test_a_forged_or_old_cookie_is_nobody(aiohttp_client, stored):
+    taps, _, _, _, wall = stored
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    account = await sign_in(c)
+    body, _, sig = account.rpartition(".")
+    forged = Sessions(b"x" * 32, clock=wall).make("account", "kiril", login="kiril")
+    for cookie in (f"{body}.{sig[:-2]}AA", forged, "garbage", f"{body}x.{sig}"):
+        assert "Sign in with your account" in await (await c.get("/", headers=with_cookie(cookie))).text()
+    wall.t += 366 * 86400
+    assert taps.sessions.read(account) is None
+
+
+def test_signin_goes_back_only_to_this_page():
+    assert safe_next("/tap/kitchen?n=0123abcd") == "/tap/kitchen?n=0123abcd"
+    assert safe_next("/tap/bedroom%201?n=ab") == "/tap/bedroom%201?n=ab"
+    assert safe_next("/") == "/"
+    for bad in ("https://evil.example", "//evil.example", "/tap/../x", "/tap/k?n=1&x=2", "", "/admin"):
+        assert safe_next(bad) == "/"
+
+
+def test_the_cookies_key_is_kept_for_the_router_alone(tmp_path):
+    path = str(tmp_path / "who-session.key")
+    first = session_secret(path)
+    assert len(first) == 32 and session_secret(path) == first
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert session_secret(None) != session_secret(None)
 
 
 async def test_robots_get_links_and_the_house_sensor_gets_phones(aiohttp_client, setup):
@@ -194,25 +358,25 @@ def test_a_stale_link_renames_nobody(setup):
     assert people.names["akadmin"] == "Old Name"
 
 
-async def test_opening_the_page_picks_up_the_new_name(aiohttp_client, setup):
+async def test_signing_in_picks_up_the_new_name(aiohttp_client, setup):
     taps, people, _, _ = setup
     taps._runtime = {"akadmin"}.__contains__
     people.add("akadmin", "authentik Default Admin")
     c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
-    r = await c.get("/", headers={"X-Authentik-Username": "akadmin", "X-Authentik-Name": "Kiril"})
-    assert "Hi Kiril!" in await r.text() and people.names["akadmin"] == "Kiril"
+    account = await sign_in(c, "akadmin", "Kiril")
+    assert people.names["akadmin"] == "Kiril"
+    assert "Hi Kiril!" in await (await c.get("/", headers=with_cookie(account))).text()
 
 
 def test_a_first_tap_links_the_person_nabu_met_by_voice(setup, tmp_path):
     from assistant_router.people import Assessment
-    from assistant_router.people_store import PeopleStore
     taps, people, clock, _ = setup
     store = PeopleStore(people, str(tmp_path / "people.json"))
     store.add("jane", "Jane")
     taps._store, taps._runtime, taps._remember = store, store.has, store.add
     people.remember("Kitchen", Assessment(speaker="jane", posterior=0.9, how="voice"), clock())
     got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "jdoe", "Jane Doe", "", ["Kitchen"])
-    assert got["key"] == "jane" and store.resolve("jdoe") == "jane"
+    assert got["key"] == "jane" and store.resolve("jdoe") == "jane" and store.kind("jane") == "account"
     assert people.names["jane"] == "Jane Doe" and "jdoe" not in people.names  # one person, Authentik's name
     clock.t += 600  # later, nobody speaking: the login still names her
     got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "jdoe", "Jane Doe", "", ["Kitchen"])
@@ -220,9 +384,25 @@ def test_a_first_tap_links_the_person_nabu_met_by_voice(setup, tmp_path):
 
 
 def test_a_login_with_nobody_recognised_is_a_new_person(setup, tmp_path):
-    from assistant_router.people_store import PeopleStore
     taps, people, _, _ = setup
     store = PeopleStore(people, str(tmp_path / "people.json"))
     taps._store, taps._runtime, taps._remember = store, store.has, store.add
     got = taps.tap("kitchen", nonce(taps.link("Kitchen")), "sam", "Sam", "", ["Kitchen"])
     assert got["key"] == "sam" and people.names["sam"] == "Sam" and store.resolve("sam") is None
+    assert store.kind("sam") == "account"
+
+
+async def test_forgetting_a_linked_login_forgets_the_person_it_is(aiohttp_client, stored):
+    taps, people, _, store, _ = stored
+    store.add("jane", "Jane")
+    store.link("jdoe", "jane")
+    forgotten = []
+
+    async def forget(key):
+        forgotten.append(key)
+        return True
+
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], forget))
+    account = await sign_in(c, "jdoe", "Jane Doe")
+    assert (await c.post("/forget-me", headers=with_cookie(account, Origin=BASE))).status == 200
+    assert forgotten == ["jane"]

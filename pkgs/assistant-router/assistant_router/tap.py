@@ -2,15 +2,27 @@
 
 Each robot is an NFC tag holding a link to this page (firmware nfc.h), a new
 one every minute: https://who.<domain>/tap/<room>?n=<nonce>. A phone held to
-the robot opens it. Caddy lets it through only after Authentik's login
-(forward auth), and passes on who that is (its user header, after the check:
-a client's own is dropped; X-Authentik-Username) and where the
-request came from (X-Forwarded-For). So:
+the robot opens it. The page is open to anyone, accounts or not (Caddy lets /,
+/tap/*, /name and /forget-* through without a login); who the browser is comes
+from the page's own signed cookie, never from a header a client could send:
 
-- the signed-in user is a person here: their username is their key (a
-  profile's person when it matches one, else added at runtime, people_store).
-  A runtime person's name follows Authentik's on every visit, so renaming
-  yourself there renames you here; a profile's person keeps the profile's;
+- an account: /signin, behind the forward-auth provider's login (Authentik),
+  reads who that is from its user header (after the check: a client's own is
+  dropped; X-Authentik-Username), sets the cookie and goes back to the page.
+  The username is their key (a profile's person when it matches one, else
+  added at runtime, people_store, of kind "account"). After a day the cookie
+  is checked with the provider again: a tap then passes through /signin,
+  unseen while the provider's own login lasts, which also picks up a name
+  changed there (a runtime person's name follows it; a profile's person keeps
+  the profile's);
+- a guest, with no account: they type their name on the page, and a fresh
+  link proves they are at the robot. They become a runtime person of kind
+  "guest" (key guest_<name>), the cookie remembers them for a year, and they
+  may rename themselves. Signing in later on the same phone makes their
+  account that person.
+
+Either way, a tap with a fresh link means:
+
 - they are in that room, for two minutes ("tap" in people.py, as strong as a
   card): a hint for who is speaking, never authority over anything;
 - the phone's Wi-Fi address, from the server's ARP table for the address it
@@ -20,10 +32,12 @@ request came from (X-Forwarded-For). So:
 A link older than two minutes, or one for a room without a robot, only shows
 the page. The page offers to forget the phone, or the person (one added here,
 not one the profile declares). Learned phones are kept in a small JSON file
-in the router's state directory: {mac: key}.
+in the router's state directory: {mac: key}; the cookies' key next to them.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import html
@@ -32,6 +46,7 @@ import logging
 import os
 import re
 import secrets
+import time
 import urllib.parse
 from typing import Any, Awaitable, Callable
 
@@ -45,7 +60,11 @@ LINK_PERIOD_S = 60.0     # a new link every minute
 LINK_WITHIN_S = 120.0    # a first tap links the room's speaker of the last two minutes
 MAX_PHONES = 48          # wifi-presence's kernel filter holds 60, with the profile's
 PHONES_PER_PERSON = 4
+SESSION_COOKIE = "nabu_who"
+SESSION_MAX_AGE_S = 365 * 86400.0  # a phone stays someone this long
+ACCOUNT_RECHECK_S = 86400.0        # an account's cookie goes past the provider's login again after this
 _MAC = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+_NEXT = re.compile(r"/(tap/[A-Za-z0-9%._-]{1,96}(\?n=[0-9a-f]{0,32})?)?")
 
 
 def _key(room: str) -> str:
@@ -94,6 +113,68 @@ def _load(path: str | None) -> dict[str, str]:
     return {str(m): str(k) for m, k in data.items() if _MAC.match(str(m))}
 
 
+def session_secret(path: str | None) -> bytes:
+    """The cookies' key: kept in the router's state so sessions outlive a
+    restart, made on first use, readable by the router only. Without a path,
+    one for this run."""
+    if not path:
+        return secrets.token_bytes(32)
+    try:
+        with open(path, "rb") as f:
+            key = f.read()
+        if len(key) >= 32:
+            return key[:32]
+    except OSError:
+        pass
+    key = secrets.token_bytes(32)
+    fd = os.open(f"{path}.tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(key)
+    os.replace(f"{path}.tmp", path)
+    return key
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+class Sessions:
+    """Who a browser is, in a cookie the router signs (HMAC-SHA256): an account
+    (its login and name, as /signin saw them) or a guest (their key)."""
+
+    def __init__(self, secret: bytes, clock: Callable[[], float] = time.time) -> None:
+        self._secret = secret
+        self.clock = clock
+
+    def _sign(self, body: str) -> str:
+        return _b64(hmac.new(self._secret, body.encode(), hashlib.sha256).digest())
+
+    def make(self, kind: str, key: str, login: str = "", name: str = "") -> str:
+        body = _b64(json.dumps({"kind": kind, "key": key, "login": login, "name": name,
+                                "at": int(self.clock())}, separators=(",", ":")).encode())
+        return f"{body}.{self._sign(body)}"
+
+    def read(self, value: str | None) -> dict | None:
+        """The session in `value`, or None: unsigned, altered, or too old."""
+        body, _, sig = (value or "").rpartition(".")
+        if not body or not hmac.compare_digest(sig, self._sign(body)):
+            return None
+        try:
+            data = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        except (ValueError, binascii.Error):
+            return None
+        if not isinstance(data, dict) or data.get("kind") not in ("account", "guest") \
+                or not isinstance(data.get("key"), str) or type(data.get("at")) is not int:
+            return None
+        if self.clock() - data["at"] > SESSION_MAX_AGE_S:
+            return None
+        return data
+
+    def fresh(self, session: dict) -> bool:
+        """Whether the cookie may name them without asking the provider again."""
+        return session["kind"] != "account" or self.clock() - session["at"] <= ACCOUNT_RECHECK_S
+
+
 class Taps:
     """The links, and the phones learned from taps."""
 
@@ -101,7 +182,8 @@ class Taps:
                  phones_path: str | None = None, remember: Callable[[str, str], None] | None = None,
                  runtime: Callable[[str], bool] | None = None, store=None,
                  arp_path: str = "/proc/net/arp", user_header: str = "X-Authentik-Username",
-                 name_header: str | None = "X-Authentik-Name", learns: tuple[str, ...] = ()) -> None:
+                 name_header: str | None = "X-Authentik-Name", learns: tuple[str, ...] = (),
+                 sessions: Sessions | None = None, account_url: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.people = people
         self.clock = clock
@@ -109,11 +191,13 @@ class Taps:
         self.phones = _load(phones_path)
         self._remember = remember or people.add
         self._runtime = runtime or (lambda key: False)  # added here, not by the profile
-        self._store = store  # people_store.PeopleStore: logins linked to people (aliases)
+        self._store = store  # people_store.PeopleStore: logins linked to people (aliases), and kinds
         self.arp_path = arp_path
         self.user_header = user_header
         self.name_header = name_header
         self.learns = learns  # what a tap teaches the router meanwhile: "voice", "face" (the page says so)
+        self.sessions = sessions or Sessions(session_secret(None))
+        self.account_url = account_url  # where an account's name is changed (the provider's settings)
         self._secret = secrets.token_bytes(16)  # links die with a restart; robots get new ones
         self.listeners: list[Callable[[dict[str, str]], Any]] = []
         self.forgetters: list[Callable[[str], Any]] = []
@@ -132,6 +216,11 @@ class Taps:
         now = self.clock() if now is None else now
         period = int(now // LINK_PERIOD_S)
         return any(hmac.compare_digest(nonce or "", self._nonce(room, p)) for p in (period, period - 1))
+
+    def room(self, room: str, nonce: str, rooms: list[str]) -> str | None:
+        """The room, as the robot names it, when `nonce` is its fresh link."""
+        name = next((r for r in rooms if _key(r) == _key(room)), None)
+        return name if name is not None and self.valid(room, nonce) else None
 
     def _save(self) -> None:
         if self.phones_path:
@@ -170,40 +259,56 @@ class Taps:
 
     def refresh_name(self, key: str, name: str, username: str) -> None:
         """A runtime person's name from Authentik's, when it changed (the
-        user renamed themselves there). Never a profile's person, and never
-        to nothing: without the name header the stored name stays."""
-        if not name or key not in self.people.names or not self._runtime(key):
+        user renamed themselves there). Never a profile's person, never a
+        guest, and never to nothing: without the name header the stored name
+        stays."""
+        if not name or key not in self.people.names or not self._runtime(key) or self.is_guest(key):
             return
         fresh = display_name(name, username)
         if fresh != self.people.names[key]:
             LOG.info(json.dumps({"renamed": key}))
             self._remember(key, fresh)
 
-    def tap(self, room: str, nonce: str, username: str, name: str, ip: str, rooms: list[str]) -> dict:
-        """A phone opened a robot's link: what happened, for the page."""
+    def _kind(self, key: str) -> str | None:
+        return self._store.kind(key) if self._store is not None else None
+
+    def _set_kind(self, key: str, kind: str) -> None:
+        if self._store is not None:
+            self._store.set_kind(key, kind)
+
+    def is_guest(self, key: str) -> bool:
+        return key in self.people.names and self._kind(key) == "guest"
+
+    def account_key(self, username: str) -> str | None:
+        """The person a login is: the one it is linked to, else its own key."""
         login = person_key(username)
-        key = (self._store.resolve(login) if self._store is not None and login else None) or login
-        out: dict = {"key": key, "name": None, "room": None, "phone": False, "stale": False}
-        if key is None:
-            return out
-        room_name = next((r for r in rooms if _key(r) == _key(room)), None)
-        if room_name is None or not self.valid(room, nonce):
-            out["stale"] = True
-            out["name"] = self.people.names.get(key) or display_name(name, username)
-            return out
-        if key not in self.people.names and self._store is not None:
-            # A first tap by someone Nabu met by voice: the login becomes them,
-            # instead of a second person (identity.py, "Meeting Nabu").
-            spoke, _, _ = self.people.last_speaker(room_name, self.clock(), within=LINK_WITHIN_S)
-            if spoke and self._runtime(spoke) and not self._store.linked(spoke):
-                self._store.link(login, spoke)
-                LOG.info(json.dumps({"linked": spoke}))
-                key = out["key"] = spoke
-        if key not in self.people.names:
-            self._remember(key, display_name(name, username))
-        else:
+        return (self._store.resolve(login) if self._store is not None and login else None) or login
+
+    def signed_in(self, username: str, name: str, guest: str | None = None) -> str | None:
+        """/signin saw this login: their key. A guest signing in on the same
+        phone becomes that account, when the login is nobody here yet."""
+        login = person_key(username)
+        if login is None:
+            return None
+        key = self.account_key(username)
+        if key not in self.people.names and guest and self.is_guest(guest) \
+                and self._store is not None and not self._store.linked(guest):
+            self._store.link(login, guest)
+            self._set_kind(guest, "account")
+            LOG.info(json.dumps({"linked": guest, "was": "guest"}))
+            key = guest
+        if key in self.people.names:
             self.refresh_name(key, name, username)
-        out["name"] = self.people.names.get(key)
+        return key
+
+    def visit(self, room: str, nonce: str, key: str, ip: str, rooms: list[str]) -> dict:
+        """`key`'s phone opened a robot's link: they are there, and it is theirs."""
+        out: dict = {"key": key, "name": self.people.names.get(key), "room": None, "phone": False,
+                     "stale": False}
+        room_name = self.room(room, nonce, rooms)
+        if room_name is None:
+            out["stale"] = True
+            return out
         out["room"] = room_name
         self.people.observe(room_name, "tap", key, 1.0, self.clock())
         mac = arp_lookup(ip, self.arp_path) if ip else None
@@ -211,6 +316,60 @@ class Taps:
             out["phone"] = True
         LOG.info(json.dumps({"tap": room_name, "person": key, "phone": out["phone"]}))
         return out
+
+    def tap(self, room: str, nonce: str, username: str, name: str, ip: str, rooms: list[str]) -> dict:
+        """An account's phone opened a robot's link: what happened, for the page."""
+        login = person_key(username)
+        key = self.account_key(username)
+        out: dict = {"key": key, "name": None, "room": None, "phone": False, "stale": False}
+        if key is None:
+            return out
+        room_name = self.room(room, nonce, rooms)
+        if room_name is None:
+            out["stale"] = True
+            out["name"] = self.people.names.get(key) or display_name(name, username)
+            return out
+        if key not in self.people.names and self._store is not None:
+            # A first tap by someone Nabu met by voice: the login becomes them,
+            # instead of a second person (identity.py, "Meeting Nabu").
+            spoke, _, _ = self.people.last_speaker(room_name, self.clock(), within=LINK_WITHIN_S)
+            if spoke and self._runtime(spoke) and not self._store.linked(spoke) and not self.is_guest(spoke):
+                self._store.link(login, spoke)
+                self._set_kind(spoke, "account")
+                LOG.info(json.dumps({"linked": spoke}))
+                key = spoke
+        if key not in self.people.names:
+            self._remember(key, display_name(name, username))
+            self._set_kind(key, "account")
+        else:
+            self.refresh_name(key, name, username)
+        return self.visit(room_name, nonce, key, ip, rooms)
+
+    def new_guest(self, name: str) -> str | None:
+        """Someone without an account, by the name they typed: their new key,
+        guest_<name> (never an account's), or None when no one can be added."""
+        clean = display_name(name, "")
+        slug = person_key(clean)
+        if self._store is None or not clean or slug is None:
+            return None
+        base = f"guest_{slug}"[:40]
+        key, n = base, 2
+        while key in self.people.names or self._store.resolve(key) is not None:
+            key, n = f"{base}_{n}", n + 1
+        self._remember(key, clean)
+        self._set_kind(key, "guest")
+        LOG.info(json.dumps({"guest": key}))
+        return key
+
+    def rename_guest(self, key: str, name: str) -> bool:
+        """A guest gave a new name; an account's name follows its login."""
+        clean = display_name(name, "")
+        if not clean or not self.is_guest(key):
+            return False
+        if clean != self.people.names[key]:
+            LOG.info(json.dumps({"renamed": key}))
+            self._remember(key, clean)
+        return True
 
 
 PAGE = """<!doctype html>
@@ -224,8 +383,13 @@ body {{ margin: 0; background: var(--bg); color: var(--fg); font: 18px/1.5 syste
 main {{ max-width: 32rem; margin: 0 auto; padding: 2rem 1rem; }}
 h1 {{ font-size: 1.6rem; margin: 0 0 .5rem; }}
 p {{ margin: .5rem 0; }}
+a {{ color: var(--accent); }}
 .muted {{ color: var(--muted); font-size: .9rem; }}
 form {{ display: inline-block; margin: 1rem .5rem 0 0; }}
+form.name {{ display: block; }}
+label {{ display: block; margin-bottom: .5rem; }}
+input {{ font: inherit; padding: .5rem; border-radius: .5rem; border: 1px solid var(--muted);
+        background: transparent; color: var(--fg); width: 100%; box-sizing: border-box; }}
 button {{ font: inherit; padding: .5rem 1rem; border-radius: .5rem; border: 1px solid var(--muted);
          background: transparent; color: var(--fg); }}
 </style></head>
@@ -241,33 +405,64 @@ def page(title: str, body: str, status: int = 200) -> web.Response:
                         content_type="text/html", headers={"Cache-Control": "no-store"})
 
 
+def safe_next(target: str) -> str:
+    """Where /signin goes back to: this page's own paths only."""
+    return target if _NEXT.fullmatch(target or "") else "/"
+
+
 def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                  forget_person: Callable[[str], Awaitable[bool]] | None = None) -> web.Application:
     """The page behind https://who.<domain>, on the loopback for Caddy."""
 
-    def who(request: web.Request) -> tuple[str | None, str, str]:
-        user = request.headers.get(taps.user_header, "")
-        name = request.headers.get(taps.name_header, "") if taps.name_header else ""
-        ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        return user or None, name, ip
+    def ip_of(request: web.Request) -> str:
+        return request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
 
-    def buttons(key: str) -> str:
-        phones = sum(1 for k in taps.phones.values() if k == key)
+    def session(request: web.Request) -> dict | None:
+        s = taps.sessions.read(request.cookies.get(SESSION_COOKIE))
+        if s is not None and s["kind"] == "guest" and not taps.is_guest(s["key"]):
+            return None  # forgotten, or an account since
+        return s
+
+    def key_of(s: dict) -> str | None:
+        return s["key"] if s["kind"] == "guest" else taps.account_key(s.get("login", ""))
+
+    def with_cookie(resp: web.Response, value: str) -> web.Response:
+        resp.set_cookie(SESSION_COOKIE, value, max_age=int(SESSION_MAX_AGE_S), path="/", secure=True,
+                        httponly=True, samesite="Lax")
+        return resp
+
+    def go(target: str) -> web.Response:
+        return web.Response(status=302, headers={"Location": target, "Cache-Control": "no-store"})
+
+    def signin_link(target: str, text: str = "Sign in with your account") -> str:
+        return f'<a href="/signin?next={urllib.parse.quote(safe_next(target), safe="")}">{text}</a>'
+
+    def account_note() -> str:
+        where = (f' <a href="{html.escape(taps.account_url, quote=True)}">Change it there.</a>'
+                 if taps.account_url else "")
+        return f"<p>Your name comes from your account.{where}</p>"
+
+    def name_form(value: str = "", room: str = "", nonce: str = "", label: str = "Your name",
+                  button: str = "That's me") -> str:
+        hidden = (f'<input type="hidden" name="room" value="{html.escape(room, quote=True)}">'
+                  f'<input type="hidden" name="n" value="{html.escape(nonce, quote=True)}">' if room else "")
+        return (f'<form class="name" method="post" action="/name">{hidden}'
+                f'<label>{label} <input name="name" maxlength="40" required autocomplete="given-name" '
+                f'value="{html.escape(value, quote=True)}"></label><button>{button}</button></form>')
+
+    def buttons(key: str, guest: bool) -> str:
         out = []
-        if phones:
+        if guest:
+            out.append(name_form(taps.people.names.get(key, ""), label="Not quite right?",
+                                 button="Change my name"))
+        if sum(1 for k in taps.phones.values() if k == key):
             out.append('<form method="post" action="/forget-phone"><button>Forget my phone</button></form>')
         if forget_person is not None:
             out.append('<form method="post" action="/forget-me"><button>Forget me</button></form>')
         return "".join(out)
 
-    async def tap(request: web.Request) -> web.Response:
-        user, name, ip = who(request)
-        if user is None:
-            return page("Nabu", "<p>Sign in first.</p>", 403)
-        got = taps.tap(request.match_info["room"], request.query.get("n", ""), user, name, ip, rooms())
-        if got["key"] is None:
-            return page("Nabu", "<p>Nabu can't make a name from this login.</p>", 400)
-        hi = f"Hi {got['name']}!"
+    def tapped(got: dict, guest: bool) -> web.Response:
+        hi = f"Hi {got['name']}!" if got["name"] else "Hi!"
         if got["stale"]:
             body = "<p>That link has expired. Hold your phone to Nabu again.</p>"
         else:
@@ -279,45 +474,105 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                 body += (f"<p>For two minutes, Nabu learns {what} there, so it knows you next time. "
                          "Forget me removes them.</p>")
         body += ('<p class="muted">A friendly guess for Nabu, never a key: it never decides or unlocks '
-                 'anything because of it.</p>' + buttons(got["key"]))
+                 'anything because of it.</p>' + buttons(got["key"], guest))
         return page(hi, body)
 
-    async def index(request: web.Request) -> web.Response:
-        user, auth_name, _ip = who(request)
-        key = person_key(user or "")
+    async def signin(request: web.Request) -> web.Response:
+        # Behind the provider's login, the only place its headers are read.
+        user = request.headers.get(taps.user_header, "")
+        name = request.headers.get(taps.name_header, "") if taps.name_header else ""
+        current = taps.sessions.read(request.cookies.get(SESSION_COOKIE))
+        guest = current["key"] if current is not None and current["kind"] == "guest" else None
+        key = taps.signed_in(user, name, guest)
         if key is None:
             return page("Nabu", "<p>Sign in first.</p>", 403)
-        taps.refresh_name(key, auth_name, user or "")
-        name = taps.people.names.get(key)
-        body = "<p>Hold your phone to Nabu's head to say hello.</p>" + buttons(key)
-        return page(f"Hi {name}!" if name else "Hi!", body)
+        return with_cookie(go(safe_next(request.query.get("next", ""))),
+                           taps.sessions.make("account", key, login=person_key(user) or "", name=name))
+
+    async def tap(request: web.Request) -> web.Response:
+        room, nonce = request.match_info["room"], request.query.get("n", "")
+        s = session(request)
+        if s is None:
+            if taps.room(room, nonce, rooms()) is None:
+                return page("Nabu", "<p>That link has expired. Hold your phone to Nabu again.</p>")
+            here = f"/tap/{urllib.parse.quote(_key(room), safe='')}?n={nonce}"
+            return page("Hi! I'm Nabu.", f"<p>{signin_link(here)}, or tell me your name:</p>"
+                                         + name_form(room=room, nonce=nonce))
+        if not taps.sessions.fresh(s):
+            return go(f"/signin?next={urllib.parse.quote(safe_next(request.path_qs), safe='')}")
+        if s["kind"] == "account":
+            got = taps.tap(room, nonce, s.get("login", ""), s.get("name", ""), ip_of(request), rooms())
+            if got["key"] is None:
+                return page("Nabu", "<p>Nabu can't make a name from this login.</p>", 400)
+            return tapped(got, guest=False)
+        return tapped(taps.visit(room, nonce, s["key"], ip_of(request), rooms()), guest=True)
 
     def same_site(request: web.Request) -> bool:
-        # A form on this page, not one on another site posting with the
-        # login cookie.
+        # A form on this page, not one on another site posting with the cookie.
         origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
         return origin.rstrip("/") == taps.base_url or origin.startswith(taps.base_url + "/")
 
+    async def name(request: web.Request) -> web.Response:
+        if not same_site(request):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        form = await request.post()
+        wanted = display_name(str(form.get("name", "")), "")
+        if not wanted:
+            return page("Nabu", "<p>Nabu didn't catch a name there. Try again.</p>", 400)
+        s = session(request)
+        if s is not None and s["kind"] == "account":
+            return page("Nabu", account_note(), 403)
+        if s is not None:
+            taps.rename_guest(s["key"], wanted)
+            return page(f"Hi {wanted}!", "<p>Nabu will call you that from now on.</p>" + buttons(s["key"], True))
+        room, nonce = str(form.get("room", "")), str(form.get("n", ""))
+        if taps.room(room, nonce, rooms()) is None:
+            return page("Nabu", "<p>That link has expired. Hold your phone to Nabu again.</p>", 400)
+        key = taps.new_guest(wanted)
+        if key is None:
+            return page("Nabu", f"<p>Nabu can't add anyone new here. {signin_link('/')}.</p>", 400)
+        return with_cookie(tapped(taps.visit(room, nonce, key, ip_of(request), rooms()), guest=True),
+                           taps.sessions.make("guest", key))
+
+    async def index(request: web.Request) -> web.Response:
+        s = session(request)
+        if s is None:
+            return page("Hi! I'm Nabu.", "<p>Hold your phone to Nabu's head to say hello.</p>"
+                                         f"<p>{signin_link('/')}</p>")
+        key = key_of(s)
+        shown = taps.people.names.get(key or "") or display_name(s.get("name", ""), "")
+        body = "<p>Hold your phone to Nabu's head to say hello.</p>"
+        if s["kind"] == "account":
+            body += account_note()
+        return page(f"Hi {shown}!" if shown else "Hi!", body + buttons(key or "", s["kind"] == "guest"))
+
     async def forget_phone(request: web.Request) -> web.Response:
-        key = person_key(who(request)[0] or "")
+        s = session(request)
+        key = key_of(s) if s is not None else None
         if key is None or not same_site(request):
             return page("Nabu", "<p>Not from here.</p>", 403)
         n = taps.forget_phones(key)
         return page("Done", f"<p>Nabu forgot {n} phone{'s' if n != 1 else ''} of yours.</p>")
 
     async def forget_me(request: web.Request) -> web.Response:
-        key = person_key(who(request)[0] or "")
+        s = session(request)
+        key = key_of(s) if s is not None else None
         if key is None or not same_site(request) or forget_person is None:
             return page("Nabu", "<p>Not from here.</p>", 403)
         taps.forget_phones(key)
         if await forget_person(key):
-            return page("Done", "<p>Nabu forgot you: your phones, face and voice. Tap again to say hello.</p>")
+            resp = page("Done", "<p>Nabu forgot you: your phones, face and voice. Tap again to say hello.</p>")
+            if s["kind"] == "guest":
+                resp.del_cookie(SESSION_COOKIE, path="/")
+            return resp
         return page("Done", "<p>Nabu forgot your phones, face and voice. Your name is in the home's "
                             "settings, so it stays: ask whoever looks after them.</p>")
 
     app = web.Application()
     app.router.add_get("/", index)
+    app.router.add_get("/signin", signin)
     app.router.add_get("/tap/{room}", tap)
+    app.router.add_post("/name", name)
     app.router.add_post("/forget-phone", forget_phone)
     app.router.add_post("/forget-me", forget_me)
     return app

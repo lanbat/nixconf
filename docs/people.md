@@ -168,15 +168,24 @@ go to the router. Keep it a hint: a MAC address is easy to copy.
 
 With a Stack-chan and Authentik, there is nothing to list: hold your phone, unlocked, flat
 on top of the robot's head. The robot is an NFC tag holding a link to
-`https://who.<domain>`, and the phone opens it (NFC on; iPhones read tags too). The page
-asks Authentik's login, once per phone, and then:
+`https://who.<domain>`, and the phone opens it (NFC on; iPhones read tags too). The first
+time, the page asks who you are, either way:
+
+- **Sign in with your account** (Authentik's login): you are a person the assistant knows
+  by your Authentik username (the profile's person when it has that key, else added, with
+  your Authentik name). Your name follows Authentik's: rename yourself there, and the page
+  picks it up within a day (it checks an account with Authentik once a day, unseen while
+  you are still signed in there), renaming you in Home Assistant, the greeting and what
+  the assistant calls you. A person the profile lists keeps the profile's name.
+- **Or just type your name**, without an account: a guest. The link being fresh proves
+  you are at the robot. Your name is yours to change on the page (**Change my name**). If
+  you sign in later on the same phone, your account becomes that person, with everything
+  Nabu learned about you.
+
+The page remembers the phone in its own cookie, signed by the router, for a year; it never
+believes a name a browser sends it. Then, at every tap:
 
 - you are the likely speaker in that room for two minutes, as strongly as a card;
-- you are a person the assistant knows by your Authentik username (the profile's person
-  when it has that key, else added, with your Authentik name). Your name follows
-  Authentik's: rename yourself there, and the next tap or visit to the page renames you
-  here too (in Home Assistant, the greeting and what the assistant calls you). A person
-  the profile lists keeps the profile's name;
 - the server looks up the phone's Wi-Fi address for the address it came from, and
   `wifi-presence` counts you home whenever that phone is on the network (above). That
   needs the phone on the home Wi-Fi, in the server's subnet, over IPv4.
@@ -233,7 +242,8 @@ Nobody needs a phone, an app or an account to be known: just talk to Nabu.
 Bank cards and phones show a new random UID (four bytes starting `08`) on every tap, so
 they can't be used as cards. A card's UID is easy to copy: it personalises, it never allows
 anything. People met this way are kept in `/var/lib/assistant-router/people.json`, their
-login links in `people-aliases.json`, cards in `cards.json`.
+login links in `people-aliases.json`, how each was met (an account, a guest, or heard) in
+`people-kinds.json`, cards in `cards.json`.
 
 ## Voices
 
