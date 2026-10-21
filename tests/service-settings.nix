@@ -2042,6 +2042,13 @@ let
         && failedAssertions routerNoTap == [ ]
       )
     )
+
+    (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
+      (
+        lvaPi3Aec.systemd.settings.Manager.RuntimeWatchdogSec == "15s"
+        && lvaPi3Aec.nix.settings.fsync-store-paths
+      )
+    )
   ];
 
   partCases = map (c: c.value) (
