@@ -121,6 +121,129 @@ let
     '';
   };
 
+  # No light of the room is on.
+  allOff = lights: "{{ expand(${toJSON lights}) | selectattr('state', 'eq', 'on') | list | count == 0 }}";
+
+  notPaused = {
+    condition = "state";
+    entity_id = "input_boolean.followme_paused";
+    state = "off";
+  };
+
+  # Lights on when someone arrives in a dark room in the evening or at night.
+  # Triggered by the room becoming occupied (off to on), not by a person's sensor:
+  # a phone that drops out and returns does not "arrive" again, and a restart
+  # (unavailable to on) does not light the house.
+  lightsOn =
+    cfg: room: rc:
+    let
+      r = slug room;
+      daypart = "{{ states('sensor.followme_daypart') }}";
+      lights = rc.lights;
+    in
+    {
+      id = "followme_lights_on_${r}";
+      alias = "Follow-me: lights on in ${room}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.followme_${r}_occupied";
+          from = "off";
+          to = "on";
+          for.seconds = cfg.arriveSeconds;
+        }
+      ];
+      conditions = [
+        notPaused
+        {
+          condition = "state";
+          entity_id = "binary_sensor.followme_${r}_dark";
+          state = "on";
+        }
+        {
+          condition = "template";
+          value_template = "{{ states('sensor.followme_daypart') in ['evening', 'night'] }}";
+        }
+        {
+          condition = "template";
+          value_template = allOff lights;
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn on the ${room} lights (${daypart})";
+        steps = [
+          {
+            action = "input_boolean.turn_on";
+            target.entity_id = "input_boolean.followme_lit_${r}";
+          }
+          {
+            choose = [
+              {
+                conditions = [
+                  {
+                    condition = "state";
+                    entity_id = "sensor.followme_daypart";
+                    state = "night";
+                  }
+                ];
+                sequence = [
+                  {
+                    action = "light.turn_on";
+                    target.entity_id = lights;
+                    data = {
+                      brightness_pct = cfg.nightBrightness;
+                      color_temp_kelvin = 2400;
+                    };
+                  }
+                ];
+              }
+            ];
+            default = [
+              {
+                action = "light.turn_on";
+                target.entity_id = lights;
+                data.brightness_pct = cfg.eveningBrightness;
+              }
+            ];
+          }
+        ];
+      };
+    };
+
+  # Someone switched the room's lights off by hand: they are no longer
+  # follow-me's, so a later "empty room" does not touch them.
+  litClear =
+    room: rc:
+    let
+      r = slug room;
+    in
+    {
+      id = "followme_lit_clear_${r}";
+      alias = "Follow-me: ${room}'s lights are off";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = rc.lights;
+          to = "off";
+        }
+      ];
+      conditions = [
+        {
+          condition = "template";
+          value_template = allOff rc.lights;
+        }
+      ];
+      actions = [
+        {
+          action = "input_boolean.turn_off";
+          target.entity_id = "input_boolean.followme_lit_${r}";
+        }
+      ];
+    };
+
   mkFollowMe =
     { cfg, people }:
     let
@@ -169,7 +292,15 @@ let
         }
       ];
 
-      automation = [ ];
+      automation = lib.concatLists (
+        lib.mapAttrsToList (
+          r: rc:
+          lib.optionals (rc.lights != [ ]) [
+            (lightsOn cfg r rc)
+            (litClear r rc)
+          ]
+        ) rooms
+      );
     };
 in
 {

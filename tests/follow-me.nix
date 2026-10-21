@@ -105,6 +105,14 @@ let
       "alex"
       "sam"
     ];
+    # A room can be watched without having lights to switch.
+    rooms = (fm on).rooms // {
+      "Hall" = {
+        lights = [ ];
+        illuminance = null;
+        music = true;
+      };
+    };
   };
   gen = fmLib.mkFollowMe {
     cfg = genCfg;
@@ -142,6 +150,13 @@ let
     steps = [ { action = "light.turn_on"; } ];
   };
 
+  automation = id: lib.findFirst (a: (a.id or "") == id) null gen.automation;
+  automationLive = id: lib.findFirst (a: (a.id or "") == id) null genLive.automation;
+  json = builtins.toJSON;
+  lightsOn = automation "followme_lights_on_office";
+  lightsOnLive = automationLive "followme_lights_on_office";
+  litClear = automation "followme_lit_clear_office";
+
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
       inherit (gen) template;
@@ -149,7 +164,36 @@ let
     }
   );
 
-  haPython = pkgs.home-assistant.python.withPackages (ps: [ ps.homeassistant ]);
+  haPython = pkgs.home-assistant.python.withPackages (ps: [
+    ps.homeassistant
+    ps.colorlog # `hass --script check_config` imports it
+  ]);
+
+  # Home Assistant's own configuration check on what the generator makes, dry
+  # and live. check_config exits 0 even for a broken automation, so its output
+  # is what is read. (The NixOS module runs no such check at build time.)
+  haConfig =
+    g:
+    (pkgs.formats.yaml { }).generate "followme.yaml" {
+      sun = { };
+      inherit (g) input_boolean input_text template automation;
+    };
+  configCheck = pkgs.runCommand "follow-me-config-check" { } ''
+    export HOME=$TMPDIR
+    for yaml in ${haConfig gen} ${haConfig genLive}; do
+      d=$TMPDIR/$(basename $yaml)
+      mkdir -p $d
+      cp --no-preserve=mode $yaml $d/configuration.yaml
+      touch $d/secrets.yaml
+      ${haPython}/bin/python -m homeassistant --script check_config -c $d > $d.out 2>&1 || true
+      cat $d.out
+      if grep -E 'ERROR:homeassistant.components|Incorrect config|Invalid' $d.out; then
+        echo "check_config rejected $yaml" >&2
+        exit 1
+      fi
+    done
+    touch $out
+  '';
   templatesCheck = pkgs.runCommand "follow-me-templates-check" { } ''
     ${haPython}/bin/python ${./follow-me-templates.py} ${generated} | tee log
     ! grep -q '^FAIL' log
@@ -158,7 +202,7 @@ let
 
   expect = name: cond: if cond then "" else "FAIL: ${name}\n";
 in
-pkgs.runCommand "follow-me-check" { inherit templatesCheck; } ''
+pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
   errors="${
     expect "off by default" ((fm off).enable == false)
     + expect "off adds no failing assertion" (failures off == [ ])
@@ -245,6 +289,75 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck; } ''
     )
     + expect "a disabled module adds nothing to Home Assistant" (off.services.home-assistant.config == { })
     + expect "the template check ran" (templatesCheck != null)
+    + expect "lights on: a rule for a room with lights" (lightsOn != null)
+    + expect "lights on: none for a room with no lights" (automation "followme_lights_on_hall" == null)
+    + expect "lights on: triggered by the room becoming occupied, off to on, after arriveSeconds" (
+      let
+        t = lib.head lightsOn.triggers;
+      in
+      t.trigger == "state"
+      && t.entity_id == "binary_sensor.followme_office_occupied"
+      && t.from == "off"
+      && t.to == "on"
+      && t.for.seconds == 10
+    )
+    + expect "lights on: not while paused, only when dark, in the evening or at night, and when every light is off" (
+      let
+        c = json lightsOn.conditions;
+      in
+      lib.hasInfix "input_boolean.followme_paused" c
+      && lib.hasInfix "binary_sensor.followme_office_dark" c
+      && lib.hasInfix "sensor.followme_daypart" c
+      && lib.hasInfix "evening" c
+      && lib.hasInfix "night" c
+      && lib.hasInfix "light.office_lamp" c
+    )
+    + expect "lights on: never by day" (
+      let
+        daypartCondition = lib.findFirst (c: lib.hasInfix "sensor.followme_daypart" (json c)) null lightsOn.conditions;
+      in
+      daypartCondition != null && !(lib.hasInfix "day" (lib.replaceStrings [ "daypart" ] [ "" ] (json daypartCondition)))
+    )
+    + expect "lights on: night is dim and warm, evening is full" (
+      let
+        a = json lightsOnLive.actions;
+      in
+      lib.hasInfix "\"brightness_pct\":20" a
+      && lib.hasInfix "\"brightness_pct\":100" a
+      && lib.hasInfix "color_temp_kelvin" a
+    )
+    + expect "lights on: only the room's own lights are switched" (
+      let
+        switched = lib.filter (x: x ? action && x.action == "light.turn_on") (
+          lib.concatMap (x: x.choose or [ x ]) lightsOnLive.actions
+        );
+        inChoose = lib.concatMap (
+          x: lib.concatMap (c: c.sequence or [ ]) (x.choose or [ ]) ++ (x.default or [ ])
+        ) lightsOnLive.actions;
+        targets = map (x: x.target.entity_id) (
+          lib.filter (x: x.action or "" == "light.turn_on") inChoose
+        );
+      in
+      targets != [ ] && lib.all (t: t == [ "light.office_lamp" ]) targets
+    )
+    + expect "lights on: dry run logs and switches nothing" (
+      let
+        dry = automation "followme_lights_on_office";
+      in
+      lib.length dry.actions == 1 && (lib.head dry.actions).action == "logbook.log"
+      && lib.hasPrefix "would " (lib.head dry.actions).data.message
+    )
+    + expect "lights on: live run marks the room before it switches" (
+      (lib.head lightsOnLive.actions).action == "logbook.log"
+      && lib.hasInfix "input_boolean.followme_lit_office" (json (lib.elemAt lightsOnLive.actions 1))
+    )
+    + expect "manual off: the marker clears when the room's lights all go off" (
+      litClear != null
+      && (lib.head litClear.triggers).entity_id == [ "light.office_lamp" ]
+      && (lib.head litClear.triggers).to == "off"
+      && lib.hasInfix "input_boolean.turn_off" (json litClear.actions)
+      && lib.hasInfix "followme_lit_office" (json litClear.actions)
+    )
   }"
   if [ -n "$errors" ]; then
     printf '%s' "$errors" >&2
