@@ -263,6 +263,7 @@ Plugins add optional features to compatible roles. Built-in plugins:
 | `lanbatPlugins.tv` | `storage-pi` | Kodi + EmulationStation |
 | `lanbatPlugins.voice` | `storage-pi`, `voice-pi` | Wyoming satellite |
 | `lanbatPlugins.android` | `server` | Provision Android TV boxes over ADB |
+| `lanbatPlugins.follow-me` | `server` | Music that follows people, lights and music off in empty rooms (`lanbat.homeAssistant.followMe`) |
 | `lanbatPlugins.xiaomi-clock` | `server` | Clock sync for Xiaomi BLE thermometers |
 | `lanbatPlugins.dns` | `server`, `storage-pi`, `voice-pi` | CoreDNS LAN resolver: service, host and short names (`deployment.dns`) |
 
