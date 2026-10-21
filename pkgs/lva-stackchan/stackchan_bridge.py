@@ -1699,10 +1699,20 @@ class Bridge:
         try:
             if settle_s:
                 await asyncio.sleep(settle_s)
+            asked = time.monotonic()
             await self.send_device({"capture": True})
-            return await asyncio.wait_for(waiter, CAPTURE_TIMEOUT_S)
-        except (asyncio.TimeoutError, OSError, ConnectionError) as err:
-            log(f"face capture: {err}")
+            img = await asyncio.wait_for(waiter, CAPTURE_TIMEOUT_S)
+            if img:
+                log(f"face capture: {len(img) * 3 // 4 // 1024} KB in {(time.monotonic() - asked) * 1000:.0f} ms")
+            else:
+                log("face capture failed: the robot had no frame to send")
+            return img
+        except asyncio.TimeoutError:
+            # A timeout's own message is empty: say what it was.
+            log(f"face capture failed: no answer in {CAPTURE_TIMEOUT_S:.0f} s")
+            return None
+        except (OSError, ConnectionError) as err:
+            log(f"face capture failed: {type(err).__name__}: {err}")
             return None
         finally:
             if self.face_waiter is waiter:

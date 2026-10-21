@@ -98,6 +98,29 @@ HERE_POLL_S = 3.0
 ENROLL_BAD_NAME = "I didn't catch a good name for you."
 
 
+def face_check(hit: dict | None, error: FrigateError | None, names: dict[str, str], why: str,
+               now: float) -> dict:
+    """What a body's face probe came to, for the log and Home Assistant's "Last
+    face check": the person's name; "not anyone known" (a name in Frigate's
+    library that is nobody here); "nobody known" (a face, matched to no one);
+    "no face found" (Frigate answers 400 when it finds no face in the frame);
+    or "face library unavailable"."""
+    name = hit.get("name") if hit and hit.get("success") else None
+    confidence = hit.get("confidence") if hit else None
+    if error is not None:
+        result = "no face found" if error.status == 400 else "face library unavailable"
+    elif name in names:
+        result = names[name]
+    elif name:
+        result = "not anyone known"
+    else:
+        result = "nobody known"
+    return {"result": result, "person": name if name in names else None,
+            "confidence": round(confidence, 2) if type(confidence) is float else None,
+            "why": why if why in ("seen", "turn") else "turn",
+            "at": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat(timespec="seconds")}
+
+
 def _person_key(name: str) -> str | None:
     """A person key from a display name, or None when it has nothing to make one of.
 
@@ -808,10 +831,11 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 elif room and kind not in non_bodies and "face_probe" in data:
                     img = _b64(data.get("face_probe"))
                     if img and frigate is not None:
+                        error = None
                         try:
                             hit = await frigate.recognize(img)
-                        except FrigateError:
-                            hit = None
+                        except FrigateError as err:
+                            hit, error = None, err
                         person = hit.get("name") if hit and hit.get("success") else None
                         known = person in people.names if person else False
                         if known:
@@ -819,6 +843,10 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             # a face that came into view is someone here ("seen").
                             source = "seen" if data.get("why") == "seen" else "aimed"
                             people.observe(room, source, person, hit.get("confidence"), clock())
+                        check = face_check(hit, error, people.names, str(data.get("why") or "turn"), clock())
+                        bodies.note_face_check(room, check)
+                        LOG.info(json.dumps({"face_probe": room, **check,
+                                             **({"frigate": error.detail[:120]} if error else {})}))
                         await ws.send_json({"face_result": {
                             "person": people.names[person] if known else None,
                             "confidence": hit.get("confidence") if hit else None}})
