@@ -1743,6 +1743,12 @@ in
           login_attempts_threshold = 5;
         };
 
+        # The companion apps register their phone through this integration and
+        # refuse to continue without it ("The mobile app integration is required
+        # to use the app"). extraComponents only installs its dependencies; this
+        # line is what sets it up, since the configuration lists no default_config.
+        mobile_app = { };
+
         homeassistant = {
           name = "Home";
           latitude = config.lanbat.deployment.haLatitude;
