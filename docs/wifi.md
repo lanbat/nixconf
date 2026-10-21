@@ -9,9 +9,9 @@ the router's DHCP, as before; nothing is routed on the host.
 
 ## What it needs
 
-- **A wired host with power to spare.** The server is the one. A Pi 3 is too weak for
-  it (USB 2.0, 100 Mbit Ethernet, little power); a Pi with a dongle listens instead
-  (room presence).
+- **A wired host with power to spare.** The server is one, and a Pi 5 is another (USB 3,
+  gigabit Ethernet; see the power note below). A Pi 3 is too weak for it (USB 2.0, 100 Mbit
+  Ethernet, little power); a Pi 3 with a dongle listens instead (room presence).
 - **A dongle with an in-kernel driver that does access-point mode.** MediaTek MT7921AU
   (`mt7921u`, sold as "AX1800" Wi-Fi 6 adapters) works: on the server it served a test
   network at 130 Mbit/s and reported each client's signal. On a Raspberry Pi it needs
@@ -54,8 +54,26 @@ signal: Wi-Fi presence for that room ([people.md](people.md#phones-at-home)).
 
 ## Things to know
 
-- **A host behind an extra port** is on the LAN as if through a switch, keeping its
-  address; it is offline while this host restarts.
+- **Repeater or access point.** This is an access point on a cable, which is what a wired
+  host should be: a repeater joins the router over the air and halves the speed. The
+  chip can do both at once (`iw phy` lists `#{ managed } <= 2, #{ AP } <= 1` on one
+  channel), so a wireless repeater on a host with no cable is possible, but nothing here
+  sets one up.
+- **More than one network (SSID) per dongle: no.** The MT7921AU allows one access-point
+  interface (`#{ AP } <= 1`), and a second SSID on one radio needs a second. Another network
+  means another dongle, with its own interface and channel.
+- **VLANs.** The driver lists `AP/VLAN`, so hostapd's per-client VLANs should work with
+  one SSID: a passphrase file (`wpa_psk_file`) gives each passphrase its own `vlanid`, and
+  clients with different passphrases land on different VLANs of the bridge. Nothing here
+  does it yet, and it has not been tried on this chip. Two things are needed before it
+  is worth it: the bridge's uplink has to carry the tagged VLANs to somewhere that
+  understands them (a VLAN-aware switch or router; most home routers do not), and
+  the VLANs need their own addressing and firewall rules there. A single SSID that
+  puts different people on different networks is what this gives; different SSIDs for
+  different networks needs the second dongle above.
+- **On a Pi 5 the dongle needs a powered hub.** A Pi 5 on a 3 A supply shares 600 mA
+  among its USB ports, and the dongle shares them with a satellite's microphone and a USB
+  speaker. A self-powered hub reports `bMaxPower` 0 mA in `/sys/bus/usb/devices/*/`.
 - **Roaming** is the phone's choice. Phones and laptops move to the stronger access point
   when the signal drops; the Stack-chans pick the strongest when they connect and reconnect (firmware 1.10.1:
   a scan of every channel, sorted by signal); they don't roam while connected.
