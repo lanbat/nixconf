@@ -20,6 +20,8 @@ import aiohttp
 
 # A library name is a person key: letters, digits, underscore, hyphen.
 _NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+# A face image's file name, as Frigate lists it (akadmin_1792518459.451025.webp).
+_FILE = re.compile(r"[A-Za-z0-9_.-]{1,120}")
 
 
 class FrigateError(Exception):
@@ -123,3 +125,34 @@ class Frigate:
         name = safe_name(name)
         await self.create(name)
         return await self.register(name, image, filename)
+
+    async def image(self, name: str, file: str) -> bytes:
+        """One of a person's face images, as Frigate serves it."""
+        if not _FILE.fullmatch(file or "") or ".." in file:
+            raise FrigateError(f"bad face file {file!r}")
+        path = f"/clips/faces/{safe_name(name)}/{file}"
+        session = await self._ensure()
+        try:
+            async with session.get(self.base + path) as resp:
+                if resp.status >= 400:
+                    raise FrigateError(f"GET {path}", status=resp.status)
+                return await resp.read()
+        except aiohttp.ClientError as e:
+            raise FrigateError(f"GET {path}", detail=str(e)) from e
+
+    async def move(self, name: str, into: str) -> int:
+        """`name`'s face images become `into`'s (an admin linked the two): a
+        rename when `into` has no folder, else each copied over and then
+        dropped. How many moved."""
+        name, into = safe_name(name), safe_name(into)
+        faces = await self.list()
+        mine = faces.get(name) or []
+        if not mine or name == into:
+            return 0
+        if into not in faces:
+            await self.rename(name, into)
+            return len(mine)
+        for file in mine:
+            await self.register(into, await self.image(name, file), file)
+        await self.delete(name, mine)
+        return len(mine)

@@ -85,6 +85,12 @@ class PeopleStore:
         self._aliases[str(login)] = str(key)
         _persist(self.aliases_path, self._aliases)
 
+    def relink(self, key: str, into: str) -> None:
+        """Logins linked to `key` are `into`'s now (an admin linked the two)."""
+        if any(k == key for k in self._aliases.values()):
+            self._aliases = {login: (into if k == key else k) for login, k in self._aliases.items()}
+            _persist(self.aliases_path, self._aliases)
+
     def resolve(self, login: str) -> str | None:
         """The person a login is linked to, or None."""
         return self._aliases.get(str(login))

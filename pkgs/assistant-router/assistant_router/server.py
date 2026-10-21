@@ -322,6 +322,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             enrolling.pop(device, None)
             if key not in people.names:
                 remember(key, name)
+                if people_store is not None:
+                    people_store.set_kind(key, "heard")
             LOG.info(json.dumps({"voice": "enrolled", "person": key}))
         elif result.get("available") is False or not result:
             enrolling.pop(device, None)
@@ -407,6 +409,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         while key in people.names:  # another Jane: jane_2
             key, n = f"{base}_{n}", n + 1
         remember(key, name)
+        if people_store is not None:
+            # The name as speech-to-text spelled it: an admin may fix it (household.py).
+            people_store.set_kind(key, "heard")
         speakers[device] = (key, now)
         LOG.info(json.dumps({"met": key, "room": room}))
         await _bind(device, room, key, texts, now, new=True)

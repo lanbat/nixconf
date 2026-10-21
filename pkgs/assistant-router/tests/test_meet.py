@@ -68,6 +68,7 @@ async def test_an_unknown_voice_is_asked_once_and_becomes_a_person(aiohttp_clien
     said = (await post(c, turn("I'm Jane", [("What's the capital of the sea?", first)])))["message"]["content"]
     assert said == "Nice to meet you, Jane!"  # one sentence: the rest is learned quietly
     assert people.names["jane"] == "Jane" and store.has("jane")
+    assert store.kind("jane") == "heard"  # spelled as heard: on the admins' list to confirm
     assert frigate.enrolled[0][0] == "jane"
     assert {"nfc_read": READ_S} not in sock.sent  # a card only when asked for: phone taps keep working
     # The next sentence is an ordinary request; it also completes the voice.

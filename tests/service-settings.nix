@@ -1069,6 +1069,10 @@ let
         && lib.hasInfix "--tap-name-header X-Authentik-Name" exec
         && lib.hasInfix "--tap-session-key /var/lib/assistant-router/who-session.key" exec
         && lib.hasInfix "--tap-account-url https://auth.${domain}/if/user/#/settings" exec
+        # The admins' page: Authentik's groups, the repo's admin group by default.
+        && lib.hasInfix "--tap-groups-header X-Authentik-Groups" exec
+        && lib.hasInfix "--tap-admin-group 'authentik Admins'" exec
+        && !(lib.hasInfix "/admin" vhost)
         && lib.hasInfix "--phones-state /var/lib/assistant-router/phones.json" exec
         # wifi-presence runs for the learned phones, with none in the profile.
         && builtins.fromJSON routerServer.systemd.services.wifi-presence.environment.PHONES == { }

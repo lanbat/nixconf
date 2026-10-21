@@ -183,7 +183,8 @@ class Taps:
                  runtime: Callable[[str], bool] | None = None, store=None,
                  arp_path: str = "/proc/net/arp", user_header: str = "X-Authentik-Username",
                  name_header: str | None = "X-Authentik-Name", learns: tuple[str, ...] = (),
-                 sessions: Sessions | None = None, account_url: str | None = None) -> None:
+                 sessions: Sessions | None = None, account_url: str | None = None,
+                 groups_header: str | None = None, admins: tuple[str, ...] = ()) -> None:
         self.base_url = base_url.rstrip("/")
         self.people = people
         self.clock = clock
@@ -198,6 +199,8 @@ class Taps:
         self.learns = learns  # what a tap teaches the router meanwhile: "voice", "face" (the page says so)
         self.sessions = sessions or Sessions(session_secret(None))
         self.account_url = account_url  # where an account's name is changed (the provider's settings)
+        self.groups_header = groups_header  # the provider's groups, after its check ("a|b")
+        self.admins = tuple(admins)  # its groups whose members see /admin
         self._secret = secrets.token_bytes(16)  # links die with a restart; robots get new ones
         self.listeners: list[Callable[[dict[str, str]], Any]] = []
         self.forgetters: list[Callable[[str], Any]] = []
@@ -244,6 +247,15 @@ class Taps:
         self.phones[mac] = key
         self._save()
         return True
+
+    def rekey_phones(self, key: str, into: str) -> int:
+        """`key`'s phones are `into`'s (an admin linked the two)."""
+        moved = [m for m, k in self.phones.items() if k == key]
+        for m in moved:
+            self.phones[m] = into
+        if moved:
+            self._save()
+        return len(moved)
 
     def forget_phones(self, key: str) -> int:
         """`key`'s phones, by Wi-Fi address here and anywhere else told
@@ -385,6 +397,14 @@ h1 {{ font-size: 1.6rem; margin: 0 0 .5rem; }}
 p {{ margin: .5rem 0; }}
 a {{ color: var(--accent); }}
 .muted {{ color: var(--muted); font-size: .9rem; }}
+section.person {{ border-top: 1px solid var(--muted); padding: .75rem 0; }}
+section.person h2 {{ font-size: 1.15rem; margin: 0; }}
+.tag {{ font-size: .75rem; font-weight: normal; padding: .1rem .5rem; border-radius: 1rem; margin-left: .4rem;
+        vertical-align: middle; border: 1px solid var(--muted); }}
+.tag-account {{ background: #2f7d5a; border-color: #2f7d5a; color: #fff; }}
+.tag-guest {{ background: #3b6fb6; border-color: #3b6fb6; color: #fff; }}
+.tag-heard, .tag-not-recorded {{ background: #b8892c; border-color: #b8892c; color: #fff; }}
+select {{ font: inherit; padding: .4rem; border-radius: .5rem; background: transparent; color: var(--fg); }}
 form {{ display: inline-block; margin: 1rem .5rem 0 0; }}
 form.name {{ display: block; }}
 label {{ display: block; margin-bottom: .5rem; }}
@@ -411,8 +431,10 @@ def safe_next(target: str) -> str:
 
 
 def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
-                 forget_person: Callable[[str], Awaitable[bool]] | None = None) -> web.Application:
-    """The page behind https://who.<domain>, on the loopback for Caddy."""
+                 forget_person: Callable[[str], Awaitable[bool]] | None = None,
+                 household=None) -> web.Application:
+    """The page behind https://who.<domain>, on the loopback for Caddy; with
+    `household` (household.Household), "People Nabu knows" for admins."""
 
     def ip_of(request: web.Request) -> str:
         return request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -544,7 +566,98 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         body = "<p>Hold your phone to Nabu's head to say hello.</p>"
         if s["kind"] == "account":
             body += account_note()
+            if household is not None and taps.admins:
+                body += '<p><a href="/admin">People Nabu knows</a> <span class="muted">(the home\'s admins)</span></p>'
         return page(f"Hi {shown}!" if shown else "Hi!", body + buttons(key or "", s["kind"] == "guest"))
+
+    # ── People Nabu knows: the home's admins only ─────────────────────────────
+    # Behind the provider's login (never an open path), so its headers are its own.
+
+    def is_admin(request: web.Request) -> bool:
+        if household is None or not taps.groups_header or not taps.admins:
+            return False
+        if not request.headers.get(taps.user_header):
+            return False
+        groups = {g.strip() for g in request.headers.get(taps.groups_header, "").split("|")}
+        return any(a in groups for a in taps.admins)
+
+    def admins_only() -> web.Response:
+        return page("Nabu", "<p>This page is for the home's admins.</p>", 403)
+
+    def field(name: str, value: str) -> str:
+        return f'<input type="hidden" name="{name}" value="{html.escape(value, quote=True)}">'
+
+    async def admin(request: web.Request) -> web.Response:
+        if not is_admin(request):
+            return admins_only()
+        everyone = await household.everyone()
+        accounts = [p for p in everyone if p["label"] == "Account"]
+        rows = []
+        for p in everyone:
+            label, name = p["label"], html.escape(p["name"])
+            tag = f'<span class="tag tag-{label.lower().replace(" ", "-")}">{label}</span>'
+            where = " (the profile)" if p["profile"] else ""
+            row = (f'<section class="person"><h2>{name}{tag}</h2>'
+                   f'<p class="muted">{html.escape(", ".join(p["learned"]) or "nothing learned yet")}{where}</p>')
+            if p["editable"]:
+                row += (f'<form class="name" method="post" action="/admin/name">{field("key", p["key"])}'
+                        f'<label>Fix the name <input name="name" maxlength="40" required '
+                        f'value="{html.escape(p["name"], quote=True)}"></label><button>Save</button></form>')
+                others = [a for a in accounts if a["key"] != p["key"]]
+                if others:
+                    options = "".join(f'<option value="{html.escape(a["key"], quote=True)}">'
+                                      f'{html.escape(a["name"])}</option>' for a in others)
+                    row += (f'<form method="post" action="/admin/link">{field("key", p["key"])}'
+                            f'<select name="into" aria-label="Link to">{options}</select>'
+                            f'<button>Link to…</button></form>')
+                row += (f'<form method="post" action="/admin/forget">{field("key", p["key"])}'
+                        f'<button>Forget</button></form>')
+            rows.append(row + "</section>")
+        legend = ('<p class="muted"><b>Account</b>: signed in, or in the home\'s profile; the name comes from '
+                  'there. <b>Guest</b>: a name typed on this page, with no account. <b>Heard</b>: met by '
+                  'voice, the name as Nabu heard it: fix it if it is spelled wrong.</p>')
+        return page("People Nabu knows", legend + "".join(rows))
+
+    async def admin_name(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request):
+            return admins_only()
+        form = await request.post()
+        if not household.rename(str(form.get("key", "")), str(form.get("name", ""))):
+            return page("Nabu", "<p>Nabu can't change that name.</p>", 400)
+        return go("/admin")
+
+    async def admin_forget(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request):
+            return admins_only()
+        form = await request.post()
+        key = str(form.get("key", ""))
+        name = taps.people.names.get(key, key)
+        if not await household.forget(key):
+            return page("Nabu", "<p>Nabu can't forget them here.</p>", 400)
+        return page("Done", f"<p>Nabu forgot {html.escape(name)}.</p><p><a href=\"/admin\">Back</a></p>")
+
+    async def admin_link(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request):
+            return admins_only()
+        form = await request.post()
+        key, into = str(form.get("key", "")), str(form.get("into", ""))
+        names = taps.people.names
+        if key not in names or into not in names:
+            return page("Nabu", "<p>Nabu doesn't know them.</p>", 400)
+        if form.get("confirm") != "yes":
+            return page("Link them?", (
+                f"<p>This moves everything Nabu learned about <b>{html.escape(names[key])}</b> (voice, face "
+                f"pictures, phones, cards) to <b>{html.escape(names[into])}</b>, and "
+                f"{html.escape(names[key])} goes. It can't be split apart again.</p>"
+                f'<form method="post" action="/admin/link">{field("key", key)}{field("into", into)}'
+                f'{field("confirm", "yes")}<button>Yes, they are the same person</button></form>'
+                '<p><a href="/admin">No, go back</a></p>'))
+        moved = await household.link(key, into)
+        if moved is None:
+            return page("Nabu", "<p>Nabu can't link them.</p>", 400)
+        what = ", ".join(moved) or "nothing learned yet"
+        return page("Done", f"<p>{html.escape(names.get(into, into))} has it all now: {html.escape(what)}.</p>"
+                            '<p><a href="/admin">Back</a></p>')
 
     async def forget_phone(request: web.Request) -> web.Response:
         s = session(request)
@@ -575,4 +688,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/name", name)
     app.router.add_post("/forget-phone", forget_phone)
     app.router.add_post("/forget-me", forget_me)
+    app.router.add_get("/admin", admin)
+    app.router.add_post("/admin/name", admin_name)
+    app.router.add_post("/admin/forget", admin_forget)
+    app.router.add_post("/admin/link", admin_link)
     return app

@@ -15,6 +15,7 @@ from .body import Bodies
 from .cards import Cards
 from .frigate import Frigate
 from .greet import Greeter
+from .household import Household
 from .irks import Irks
 from .people import People
 from .voice import VoiceIdClient
@@ -55,9 +56,12 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                     runtime=people_store.has if people_store is not None else None, store=people_store,
                     user_header=a.tap_user_header, name_header=a.tap_name_header,
                     learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None),
-                    sessions=Sessions(session_secret(a.tap_session_key)), account_url=a.tap_account_url)
+                    sessions=Sessions(session_secret(a.tap_session_key)), account_url=a.tap_account_url,
+                    groups_header=a.tap_groups_header, admins=tuple(a.tap_admin_group or ()))
         if irks is not None:
             taps.forgetters.append(irks.forget)
+        household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
+                              irks=irks, forget=forget) if people_store is not None else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None))]
@@ -69,7 +73,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
-        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget)))
+        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
     mqtt = None
@@ -127,6 +131,10 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
                    "(made on first start); unset: new each start, so everyone signs in again")
     p.add_argument("--tap-account-url", help="where an account's name is changed (the provider's user "
                    "settings), linked from the page")
+    p.add_argument("--tap-groups-header", help="the signed-in user's groups, set by the forward-auth "
+                   "provider after its check (\"a|b\"); unset: no admin page")
+    p.add_argument("--tap-admin-group", action="append",
+                   help="a group whose members see /admin, People Nabu knows (household.py); repeatable")
     p.add_argument("--phones-state", help="JSON {mac: key} in the state dir: phones learned from taps (tap.py)")
     p.add_argument("--irks-state", help="JSON {key: [irk]} in the state dir: phones' Bluetooth keys, for the "
                    "room sensors (irks.py)")

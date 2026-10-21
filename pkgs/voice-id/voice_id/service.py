@@ -11,6 +11,7 @@ The router calls back here (loopback only):
     POST   /enrol   {"key": "alex", "texts": [...]}  -> {"enrolled": bool, "utterances": n, "needed": 3}
     POST   /learn   {"key": "alex", "text": "..."}   -> {"learned": bool}
     DELETE /people/<key>                              -> {"forgotten": bool}
+    POST   /people/<key>/merge {"into": "sam"}        -> {"merged": bool}
     POST   /embed   {"text": "...", "pcm": "<base64>"} -> {"reported": bool}
     GET    /status                                    -> {"available": bool, "people": [...]}
 
@@ -149,6 +150,18 @@ def make_api(voice: VoiceId) -> web.Application:
             return web.json_response({"error": "key"}, status=400)
         return web.json_response({"forgotten": voice.forget(key)})
 
+    async def merge(request: web.Request) -> web.Response:
+        key = key_of(request.match_info["key"])
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        into = key_of(body.get("into")) if isinstance(body, dict) else None
+        if key is None or into is None:
+            return web.json_response({"error": "key and into"}, status=400)
+        voice._pending.pop(key, None)
+        return web.json_response({"merged": voice.store.merge(key, into)})
+
     async def embed(request: web.Request) -> web.Response:
         body = await request.json()
         text, pcm = body.get("text"), body.get("pcm")
@@ -169,5 +182,6 @@ def make_api(voice: VoiceId) -> web.Application:
     app.router.add_post("/enrol", enrol)
     app.router.add_post("/learn", learn)
     app.router.add_delete("/people/{key}", forget)
+    app.router.add_post("/people/{key}/merge", merge)
     app.router.add_get("/status", status)
     return app

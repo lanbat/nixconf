@@ -102,7 +102,11 @@ async def test_the_api(tmp_path, aiohttp_client):
     assert (await (await c.get("/status")).json()) == {"available": True, "people": ["alex"]}
     assert (await (await c.post("/learn", json={"key": "alex", "text": "one two three"})).json()) == {"learned": True}
     assert (await c.post("/enrol", json={"key": "../etc", "texts": []})).status == 400
-    assert (await (await c.delete("/people/alex")).json()) == {"forgotten": True}
+    assert (await (await c.post("/people/alex/merge", json={"into": "sam"})).json()) == {"merged": True}
+    assert (await (await c.get("/status")).json())["people"] == ["sam"]
+    assert (await c.post("/people/sam/merge", json={"into": "../x"})).status == 400
+    assert (await c.post("/people/sam/merge", data="nope")).status == 400
+    assert (await (await c.delete("/people/sam")).json()) == {"forgotten": True}
 
 
 async def test_a_robots_ear_is_scored_and_reported_but_not_kept(tmp_path, aiohttp_server, aiohttp_client):

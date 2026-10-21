@@ -78,7 +78,14 @@ async def fake(aiohttp_server):
         state["calls"].append(("rename", old, await request.json()))
         return web.json_response({"success": True, "message": "ok"})
 
+    async def clip(request):
+        n, f = request.match_info["name"], request.match_info["file"]
+        if f not in state["faces"].get(n, []):
+            return web.Response(status=404)
+        return web.Response(body=f"image of {n}/{f}".encode())
+
     app = web.Application()
+    app.router.add_get("/clips/faces/{name}/{file}", clip)
     app.router.add_get("/api/faces", get_faces)
     app.router.add_post("/api/faces/{name}/create", create)
     app.router.add_post("/api/faces/{name}/register", register)
@@ -170,3 +177,28 @@ async def test_a_4xx_raises_with_the_status(fake):
     with pytest.raises(FrigateError) as e:
         await client.register("kiril", b"img")
     assert e.value.status == 400
+
+
+async def test_moving_faces_renames_into_someone_with_none(fake):
+    client, state = fake
+    state["faces"] = {"guest_kid": ["guest_kid_1.webp", "guest_kid_2.webp"]}
+    assert await client.move("guest_kid", "maria") == 2
+    assert state["calls"] == [("rename", "guest_kid", {"new_name": "maria"})]
+
+
+async def test_moving_faces_copies_into_someone_with_some_then_drops_them(fake):
+    client, state = fake
+    state["faces"] = {"guest_kid": ["k1.webp"], "maria": ["m1.webp"]}
+    assert await client.move("guest_kid", "maria") == 1
+    assert state["upload"] == ("file", "k1.webp", b"image of guest_kid/k1.webp")
+    assert state["calls"] == [("register", "maria"), ("delete", "guest_kid", {"ids": ["k1.webp"]})]
+
+
+async def test_moving_nothing_or_to_themselves_does_nothing(fake):
+    client, state = fake
+    state["faces"] = {"maria": ["m1.webp"]}
+    assert await client.move("guest_kid", "maria") == 0
+    assert await client.move("maria", "maria") == 0
+    assert state["calls"] == []
+    with pytest.raises(FrigateError):
+        await client.image("maria", "../secret")
