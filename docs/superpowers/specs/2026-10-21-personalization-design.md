@@ -106,6 +106,32 @@ My calls (marked, to be checked):
 - **Dry run first, as follow-me.** The "everything turns off" part rides on follow-me's
   existing dry-run setting and switches.
 
+More of my calls, after a builder's read of this document:
+
+- **Which items count as a reminder.** Open items of the reminders list that are
+  due now or overdue, oldest first, then those due later today. An item with no due
+  time is a to-do, not a reminder.
+- **Tap to complete.** Reminders only. To-dos are shown, not completed from the
+  screen: a stray tap should not tick off someone's shopping.
+- **"Next up" on the dashboard.** Today and tomorrow's events (three at most) come
+  through the same path as the lists (`calendar.get_events`, published as plain
+  entities), for the person's calendars, or the household's on the household view. The
+  device's native calendar page stays as it is, for the full view.
+- **The personal view drops the "Who's where" block.** Others' locations are glance
+  chips, which already default to the other people's "where" sensors. The room's device
+  cards stay, below Home. Glance chips stay on the device's native glance strip as
+  today (`home_glance`) and appear in the dashboard's Home section too.
+- **The household view** gets the shared calendar's next events and the weather, and
+  keeps the room and home status; the personal sections are not on it.
+- **Credentials.** The bridge uses the satellite user's existing token for every read
+  and tap. The first step of the plan checks that `todo.get_items`, `todo.update_item`
+  and `calendar.get_events` work for that non-administrator user. If one doesn't, the
+  fallback is to grant that user that one capability, not to give the bridge an
+  administrator token.
+- **Lists are provisioned.** Where the profile names a person's to-do and reminders
+  lists, `home-assistant-post-setup` creates them when they don't exist (unless the
+  profile points at lists that already exist, see the store below).
+
 ## Goals
 
 - Each recognised person sees, without a tap, what needs doing, what is next, their
