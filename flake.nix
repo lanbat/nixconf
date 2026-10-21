@@ -180,6 +180,7 @@
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };
         lva-snapcast-duck = import ./tests/lva-snapcast-duck.nix { inherit pkgs; };
         mic-watchdog = import ./tests/mic-watchdog.nix { inherit pkgs; };
+        snapclient-watchdog = import ./tests/snapclient-watchdog.nix { inherit pkgs; };
         doa-order = import ./tests/doa-order.nix { inherit pkgs; };
         plugins = import ./tests/plugins.nix { inherit lib pkgs; };
         endpoints-table = import ./tests/endpoints-table.nix { inherit lib pkgs; };

@@ -40,6 +40,12 @@
 # reads PipeWire's log and, at 30 failures in a minute, turns the card's profile
 # off and on, which reopens it cleanly, and restarts LVA, whose recording the
 # profile change moves off the echo-cancelled microphone.
+#
+# The card can also stall without any error: it stays open and PipeWire hands
+# out digital silence. The watchdog listens to the capture node every 30 s;
+# three silent checks in a row reopen the card, three more enumerate the USB
+# device again, and after that it says in the journal that only unplugging the
+# microphone will help.
 {
   config,
   lib,
@@ -160,8 +166,11 @@ in
       wantedBy = [ "multi-user.target" ];
       environment = {
         MIC_USB_ID = cfg.microphone.usbId;
+        # The capture node it listens to for a silent stall (see the top).
+        MIC_NODE = captureNode;
         PIPEWIRE_RUNTIME_DIR = "/run/pipewire";
         PW_DUMP = "${config.services.pipewire.package}/bin/pw-dump";
+        PW_RECORD = "${config.services.pipewire.package}/bin/pw-record";
         WPCTL = "${config.services.pipewire.wireplumber.package}/bin/wpctl";
         JOURNALCTL = "${config.systemd.package}/bin/journalctl";
         SYSTEMCTL = "${config.systemd.package}/bin/systemctl";

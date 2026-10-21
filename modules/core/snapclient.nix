@@ -31,9 +31,14 @@
 # snapclient 0.35 can hang when its connection drops (a snapserver restart,
 # or the server's firewall reloading during a deploy): it logs "Reconnecting",
 # stops its PipeWire player and then never connects again, while systemd sees
-# a healthy process, and it ignores SIGTERM. snapclient-watchdog checks every
-# minute and restarts it after two checks in a row without a connection to
-# snapserver; the stop timeout is short so the hung process is killed quickly.
+# a healthy process, and it ignores SIGTERM. Sometimes the socket stays open
+# too: on the Pi 5 the server dropped the client and the process sat for eight
+# days with 690 kB unread and no traffic either way. snapclient-watchdog
+# (pkgs/snapclient-watchdog) checks every minute and restarts it after two
+# checks in a row in which it has no connection to snapserver, the connection
+# carries nothing one way for 30 s (a working client exchanges time-sync
+# messages about every second), or the socket's receive queue is stuck; the
+# stop timeout is short so the hung process is killed quickly.
 {
   config,
   pkgs,
@@ -62,6 +67,7 @@ let
     config.lanbat.voiceSatellite.enable && aec.enable && aec.includeMusic
   ) " --soundcard ${aec.pulseSinkName}";
   satellite = config.lanbat.voiceSatellite;
+  snapclientWatchdog = pkgs.callPackage ../../pkgs/snapclient-watchdog { };
 in
 {
   options.lanbat.snapclient.enable = lib.mkOption {
@@ -117,24 +123,15 @@ in
 
     systemd.services.snapclient-watchdog = {
       description = "Restart snapclient when it has lost snapserver";
-      serviceConfig.Type = "oneshot";
-      path = [
-        pkgs.iproute2
-        pkgs.systemd
-      ];
-      script = ''
-        state=/run/snapclient-watchdog
-        pid=$(systemctl show -p MainPID --value snapclient)
-        if [ "$pid" = 0 ] || ss -Htnp state established "( dport = :1704 )" | grep -q "pid=$pid,"; then
-          rm -f "$state"
-        elif [ -e "$state" ]; then
-          echo "snapclient has had no connection to snapserver for two checks; restarting it"
-          rm -f "$state"
-          systemctl restart snapclient
-        else
-          touch "$state"
-        fi
-      '';
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = lib.getExe snapclientWatchdog;
+      };
+      environment = {
+        SS = "${pkgs.iproute2}/bin/ss";
+        SYSTEMCTL = "${config.systemd.package}/bin/systemctl";
+        STATE = "/run/snapclient-watchdog";
+      };
     };
 
     systemd.timers.snapclient-watchdog = {
