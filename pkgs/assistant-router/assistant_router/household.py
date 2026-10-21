@@ -34,7 +34,7 @@ ORDER = {"Account": 0, "Guest": 1, "Not recorded": 2, "Heard": 3}
 
 class Household:
     def __init__(self, people, store, taps=None, voice=None, frigate=None, cards=None, irks=None,
-                 forget: Callable[[str], Awaitable[bool]] | None = None) -> None:
+                 forget: Callable[[str], Awaitable[bool]] | None = None, sightings=None) -> None:
         self.people = people
         self.store = store  # people_store.PeopleStore
         self.taps = taps
@@ -42,7 +42,8 @@ class Household:
         self.frigate = frigate
         self.cards = cards
         self.irks = irks
-        self._forget = forget  # server.forget_person, bound to the stores
+        self.sightings = sightings  # sightings.Sightings: searched on /admin/sightings
+        self._forget = forget  # server.forget_person, bound to the stores (sightings too)
 
     def label(self, key: str) -> str:
         if self.store is None or not self.store.has(key):
@@ -122,6 +123,8 @@ class Household:
             moved.append("Bluetooth")
         if self.cards is not None and self.cards.rekey(key, into):
             moved.append("card")
+        if self.sightings is not None and self.sightings.rekey(key, into):
+            moved.append("sightings")
         self.store.relink(key, into)
         self.store.remove(key)
         LOG.info(json.dumps({"linked": key, "into": into, "moved": moved, "by": "admin"}))

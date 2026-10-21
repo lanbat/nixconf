@@ -10,10 +10,13 @@
 # logic are pure and unit-tested in pkgs/frigate-person-mapper; this module is
 # the wiring.
 #
-# It names people from lanbat.deployment.people: Frigate's face-library entry
-# must match a person's key, and the mapper filters Frigate's matches to those
-# keys. The cameras it watches are settings.cameras, a map of room -> Frigate
-# camera name; only a face seen on a room's camera counts for that room.
+# It names whoever Frigate's face library names: an entry's name is a person
+# key, the profile's (lanbat.deployment.people) or one the assistant router
+# added at runtime (a login, a guest, someone met by voice); the router drops
+# keys it doesn't know. The cameras it watches are settings.cameras, a map of
+# room -> Frigate camera name; only a face seen on a room's camera counts for
+# that room. A "room" may be a place with no robot, the drive outside: "Where
+# is" then says so while the face is there.
 #
 # Always-on: it is in the voice path (the assistant needs to know who is in the
 # room). It runs only when Frigate, the broker and the router are all present and
@@ -42,11 +45,6 @@ let
   hasFrigate = config.lanbat.hasService "frigate";
   enabled = hasMqtt && hasRouter && hasFrigate && cfg.cameras != { };
 
-  # Who it may name: lanbat.deployment.people, keys and names only. The same
-  # file the assistant router reads, so the two never disagree about a person.
-  peopleFile = pkgs.writeText "person-mapper-people.json" (
-    builtins.toJSON (lib.mapAttrs (_: p: p.name) (config.lanbat.deployment.people or { }))
-  );
   # The cameras it watches, room -> Frigate camera name.
   camerasFile = pkgs.writeText "person-mapper-cameras.json" (builtins.toJSON cfg.cameras);
 
@@ -117,7 +115,6 @@ in
             "MQTT_USER=${name}"
             "MQTT_PASSWORD_FILE=/run/person-mapper/mqtt.pass"
             "ROUTER_URL=ws://127.0.0.1:8770/v1/body"
-            "PEOPLE_FILE=${peopleFile}"
             "CAMERAS_FILE=${camerasFile}"
           ];
           Restart = "always";

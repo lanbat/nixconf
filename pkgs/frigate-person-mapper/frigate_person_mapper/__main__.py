@@ -8,8 +8,12 @@ modules and is unit-tested; this is the only I/O.
 
 Config from the environment (services/person-mapper.nix):
   MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASSWORD_FILE,
-  ROUTER_URL, and the person/camera maps as JSON files (PEOPLE_FILE /
-  CAMERAS_FILE) or, for ad-hoc runs and tests, inline (PEOPLE_JSON / CAMERAS_JSON).
+  ROUTER_URL, and as JSON files (PEOPLE_FILE / CAMERAS_FILE) or, for ad-hoc
+  runs and tests, inline (PEOPLE_JSON / CAMERAS_JSON):
+  - the cameras, room -> Frigate camera name, as the module's
+    settings.cameras says;
+  - the people it may name, {key: name}; none: anyone the face library
+    names (the router drops keys it doesn't know).
 """
 from __future__ import annotations
 
@@ -82,6 +86,11 @@ def _json_from_env(file_env: str, inline_env: str, default):
     return _json_env(inline_env, default)
 
 
+def cameras_by_name(rooms: dict) -> dict[str, str]:
+    """The configured room -> camera map, as camera -> room (PersonState's)."""
+    return {str(cam): str(room) for room, cam in rooms.items() if isinstance(cam, str) and cam}
+
+
 def _log(msg: str) -> None:
     print(f"frigate-person-mapper: {msg}", file=sys.stderr, flush=True)
 
@@ -94,8 +103,8 @@ class Mapper:
         self.mqtt_password = self._read_password(_env("MQTT_PASSWORD_FILE"))
         self.router_url = _env("ROUTER_URL", "ws://127.0.0.1:8770/v1/body")
         self.people = _json_from_env("PEOPLE_FILE", "PEOPLE_JSON", {}) or {}
-        self.cameras = _json_from_env("CAMERAS_FILE", "CAMERAS_JSON", {}) or {}
-        self.state = PersonState(set(self.people), self.cameras)
+        self.cameras = cameras_by_name(_json_from_env("CAMERAS_FILE", "CAMERAS_JSON", {}) or {})
+        self.state = PersonState(set(self.people) or None, self.cameras)
         self.rooms = list(self.state.rooms)
         self.frigate_up = True
         self._loop = None
@@ -188,7 +197,7 @@ class Mapper:
         if ws is None:
             return
         try:
-            await ws.send(json.dumps(router.faces(snap.faces)))
+            await ws.send(json.dumps(router.faces(snap.faces, snap.events)))
         except Exception:
             pass  # the room's socket task reconnects
 
@@ -211,7 +220,7 @@ class Mapper:
                     self._room_sockets[room] = ws
                     await ws.send(json.dumps(router.hello(room)))
                     snap = self.state.snapshot(room)
-                    await ws.send(json.dumps(router.faces(snap.faces)))
+                    await ws.send(json.dumps(router.faces(snap.faces, snap.events)))
                     _log(f"body socket for {room} at {self.router_url}")
                     async for _ in ws:
                         pass  # face-source gets no messages; this keeps it open

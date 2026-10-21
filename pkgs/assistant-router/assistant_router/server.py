@@ -31,6 +31,7 @@ from .irks import Irks
 from .people import VOICE_UNKNOWN, People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
+from .sightings import Sightings
 from .state import State
 from .tap import LINK_PERIOD_S, Taps
 
@@ -132,11 +133,14 @@ def _person_key(name: str) -> str | None:
 
 
 async def forget_person(key: str, people_store: PeopleStore | None, voice: VoiceIdClient | None,
-                        frigate: Frigate | None, cards: Cards | None = None) -> bool:
-    """Forget `key`'s voice, face and cards; and them, when they were added at
-    runtime (True). One the profile declares stays (False)."""
+                        frigate: Frigate | None, cards: Cards | None = None,
+                        sightings: Sightings | None = None) -> bool:
+    """Forget `key`'s voice, face, cards and sightings; and them, when they
+    were added at runtime (True). One the profile declares stays (False)."""
     if cards is not None:
         cards.forget(key)
+    if sightings is not None:
+        sightings.forget(key)
     if voice is not None:
         await voice.forget(key)
     if frigate is not None:
@@ -215,7 +219,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              people_store: PeopleStore | None = None, frigate: Frigate | None = None,
              capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
              voice: VoiceIdClient | None = None, cards: Cards | None = None,
-             forget_phones: Callable[[str], int] | None = None) -> web.Application:
+             forget_phones: Callable[[str], int] | None = None,
+             sightings: Sightings | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -361,7 +366,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         speakers.pop(device, None)
         if forget_phones is not None:
             forget_phones(key)
-        if await forget_person(key, people_store, voice, frigate, cards):
+        if await forget_person(key, people_store, voice, frigate, cards, sightings):
             return finish(device, f"Okay, {name}, I've forgotten you: your face and your voice.", tool_results)
         return finish(device, f"Okay, {name}, I've forgotten your recordings. "
                               "Your name is in the house settings, so it stays.", tool_results)
@@ -669,7 +674,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
                   cards: Cards | None = None, taps: Taps | None = None,
-                  irks: Irks | None = None) -> web.Application:
+                  irks: Irks | None = None, sightings: Sightings | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -695,7 +700,30 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     its room ({"here": [...]}) when it connects and on each change."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
+    on_camera: dict[str, set[str]] = {}  # place key -> who its cameras see now (sightings when they appear)
     tasks: set[asyncio.Task] = set()
+
+    def sighted(room: str, check: dict, img: bytes) -> None:
+        """A body's frame with a face in it is a sighting, named or not; the
+        frame itself is kept (sightings.py) and Home Assistant told."""
+        if sightings is None or check["result"] in ("no face found", "face library unavailable"):
+            return
+        source = "robot" if bodies.is_robot(room) else "screen"
+        sightings.record(room, check["person"], source, check["confidence"], jpeg=img)
+        bodies.announce(room, {"sighting": {"person": people.names.get(check["person"] or "", None),
+                                            "source": source, "confidence": check["confidence"]}})
+
+    def camera_sightings(room: str, faces: list) -> None:
+        """A Frigate camera's face that wasn't there before is a sighting."""
+        here = {f.get("person"): f for f in faces[:8]
+                if isinstance(f, dict) and f.get("person") in people.names}
+        before = on_camera.get(room.strip().casefold(), set())
+        on_camera[room.strip().casefold()] = set(here)
+        if sightings is None:
+            return
+        for person in sorted(set(here) - before):
+            face = here[person]
+            sightings.record(room, person, "camera", face.get("confidence"), event=face.get("event"))
     house: set[web.WebSocketResponse] = set()  # house sensors (and Wi-Fi room sensors), told the learned phones
 
     def spawn(coro) -> None:
@@ -850,6 +878,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             people.observe(room, source, person, hit.get("confidence"), clock())
                         check = face_check(hit, error, people.names, str(data.get("why") or "turn"), clock())
                         bodies.note_face_check(room, check)
+                        sighted(room, check, img)
                         LOG.info(json.dumps({"face_probe": room, **check,
                                              **({"frigate": error.detail[:120]} if error else {})}))
                         await ws.send_json({"face_result": {
@@ -864,6 +893,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             people.observe_phone(room, seen.get("person"), seen["rssi"], clock(), via=via)
                 elif room and kind == "face-source" and isinstance(data.get("faces"), list):
                     observe_faces(room, data["faces"], clock())
+                    camera_sightings(room, data["faces"])
                 elif room and kind == "house-sensor" and isinstance(data.get("home"), list):
                     people.observe_home([h.get("person") for h in data["home"][:64] if isinstance(h, dict)],
                                         clock())

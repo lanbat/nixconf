@@ -5,7 +5,7 @@ morning, Alex!"), from these signals:
 
 | Signal | Where | Status |
 |---|---|---|
-| **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room to the router | planned |
+| **Face, cameras** | Frigate names faces on the cameras and the **person mapper** relays each room (or a place outside) to the router | live, for the cameras in `settings.cameras` |
 | **Face, robot** | A robot turns to the voice and captures the speaker's face; the router names it against Frigate ([stackchan.md](stackchan.md)) | live |
 | **Phone** | A voice Pi sees a person's phone over Bluetooth (`pkgs/room-presence`) | live |
 | **Phone, Wi-Fi** | A host serving Wi-Fi measures the phones among its access point's clients (`pkgs/room-presence`, [wifi.md](wifi.md)) | live |
@@ -66,6 +66,19 @@ those matches, keeps who is in which room (its `settings.cameras` maps room → 
 camera) and tells the router over the same body socket the robots use. Enrolling a person
 means adding photos to their entry in Frigate's face library; the person mapper only
 *names* the faces Frigate reports, it never stores a face itself.
+
+A "room" can be a place with no robot, such as a camera outside:
+
+```nix
+lanbat.services.person-mapper.settings.cameras = { "Driveway" = "c1"; };
+```
+
+"Where is" then says Driveway while the face is there. The library is the same one the
+robots' frames are checked against, so a person is one entry inside and out: their frames
+from a tap or "remember me" help the camera, and faces assigned to them in Frigate's
+**Train** tab (from the camera's own detections) help the robots. Any name in the library
+counts, not only the profile's people: the router knows the people it added (accounts,
+guests, people met by voice) and ignores names it doesn't.
 
 ## Faces on the robot
 
@@ -289,6 +302,24 @@ For guests and names heard, an admin can:
 
 Nobody else sees the list: the page is behind the login, and checks the groups the
 provider passes on.
+
+## Sightings
+
+Every face a camera sees becomes a **sighting**: who (or nobody known), where, when, by
+what and how sure. That covers a robot's or an Echo Show's frame with a face in it, and a
+face a Frigate camera names as it comes into view (through the person mapper). The admins
+search them from **People Nabu knows → Sightings**, by person, place and the last days,
+with a picture:
+
+- **indoors:** the frame that was checked, kept `pictureDays` (7) on the encrypted
+  workload layer. While the layer is locked, the sighting is kept without its picture;
+- **outside:** Frigate's own thumbnail of the event, as long as Frigate keeps it.
+
+The sightings themselves (no pictures) are kept `days` (30) in the router's state. Each
+also appears in Home Assistant's logbook, as the robot's or screen's **Sighting** event.
+"Forget me" and an admin's "Forget" delete a person's sightings and pictures, and "Link
+to…" moves them. Settings: `lanbat.services.assistant-router.settings.sightings = { days =
+30; pictureDays = 7; }`.
 
 ## Voices
 

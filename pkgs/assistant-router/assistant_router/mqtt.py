@@ -185,6 +185,9 @@ def robot_discovery(room: str, fw: str | None = None, robot: bool = True) -> lis
                event_types=["waiting", "learned", "forgotten"], icon="mdi:card-account-details"),
         entity("event", "recognized", "Recognized", state_topic=f"{base}/event/recognized",
                event_types=["recognized"], icon="mdi:account-check"),
+        # A face its camera saw (sightings.py), named or not, for the logbook.
+        entity("event", "sighting", "Sighting", state_topic=f"{base}/event/sighting", event_types=["seen"],
+               icon="mdi:account-eye"),
         entity("event", "servo_fault", "Servo fault", state_topic=f"{base}/event/servo_fault",
                event_types=["fault"], icon="mdi:alert", entity_category="diagnostic"),
         # More to tell it.
@@ -219,7 +222,7 @@ def robot_discovery(room: str, fw: str | None = None, robot: bool = True) -> lis
     ]
     if not robot:
         # Who is around, and its greeting.
-        keep = {"someone", "speaker", "nearby", "here", "recognized", "face_check"} | \
+        keep = {"someone", "speaker", "nearby", "here", "recognized", "face_check", "sighting"} | \
             {f"seen_{src}" for src, _, _ in SOURCES}
         return [(topic, config) for topic, config in out if topic.split("/")[3] in keep]
     # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
@@ -351,6 +354,10 @@ def _event_payload(event: dict) -> tuple[str, dict] | None:
     if "recognized" in event:
         return "recognized", {"event_type": "recognized", "person": event["recognized"],
                               "how": event.get("how") or []}
+    if isinstance(event.get("sighting"), dict):
+        s = event["sighting"]
+        return "sighting", {"event_type": "seen", "person": s.get("person") or "nobody known",
+                            "source": s.get("source"), "confidence": s.get("confidence")}
     return None
 
 

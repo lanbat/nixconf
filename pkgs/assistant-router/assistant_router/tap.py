@@ -616,7 +616,63 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         legend = ('<p class="muted"><b>Account</b>: signed in, or in the home\'s profile; the name comes from '
                   'there. <b>Guest</b>: a name typed on this page, with no account. <b>Heard</b>: met by '
                   'voice, the name as Nabu heard it: fix it if it is spelled wrong.</p>')
+        if household.sightings is not None:
+            legend += '<p><a href="/admin/sightings">Sightings</a>: who was seen where, and when.</p>'
         return page("People Nabu knows", legend + "".join(rows))
+
+    async def admin_sightings(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.sightings is None:
+            return admins_only()
+        names = taps.people.names
+        person = request.query.get("person")
+        place = request.query.get("place") or None
+        try:
+            days = max(0.0, min(float(request.query.get("days") or 7), 365.0))
+        except ValueError:
+            days = 7.0
+        found = household.sightings.search(person=person if person in names or person == "" else None,
+                                           place=place, days=days or None)
+        def option(value: str, label: str, chosen) -> str:
+            sel = " selected" if chosen == value else ""
+            return f'<option value="{html.escape(value, quote=True)}"{sel}>{html.escape(label)}</option>'
+        people_opts = option("_any", "Anyone", person if person is not None else "_any") + option("", "Nobody known", person) \
+            + "".join(option(k, n, person) for k, n in sorted(names.items(), key=lambda kv: kv[1].casefold()))
+        place_opts = option("", "Anywhere", place or "") + "".join(option(p, p, place) for p in household.sightings.places())
+        form = (f'<form method="get" action="/admin/sightings"><select name="person" aria-label="Who">{people_opts}'
+                f'</select> <select name="place" aria-label="Where">{place_opts}</select> '
+                f'<label>Last <input name="days" value="{days:g}" inputmode="numeric" style="width:4rem"> days</label>'
+                '<button>Search</button></form>')
+        rows = []
+        for s in found:
+            who = html.escape(names.get(s["person"] or "", "nobody known") if s["person"] else "nobody known")
+            sure = f", {s['confidence']:.2f}" if s["confidence"] is not None else ""
+            img = (f'<img src="/admin/sightings/{s["id"]}/picture" alt="" loading="lazy" '
+                   'style="width:4rem;height:4rem;object-fit:cover;border-radius:.5rem;float:left;margin-right:.75rem">'
+                   if s["picture"] or s["event"] else "")
+            rows.append(f'<section class="person">{img}<h2>{who}</h2><p class="muted">{html.escape(s["place"])}, '
+                        f'{html.escape(s["when"])} ({html.escape(s["source"])}{sure})</p>'
+                        '<div style="clear:both"></div></section>')
+        body = form + ("".join(rows) if rows else "<p>Nobody seen, for that.</p>")
+        return page("Sightings", body + '<p><a href="/admin">Back</a></p>')
+
+    async def admin_picture(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.sightings is None:
+            return admins_only()
+        try:
+            sighting = int(request.match_info["id"])
+        except ValueError:
+            return web.Response(status=404)
+        image = household.sightings.picture(sighting)
+        event = household.sightings.event(sighting) if image is None else None
+        if image is None and event and household.frigate is not None:
+            try:
+                image = await household.frigate.thumbnail(event)
+            except Exception:  # pylint: disable=broad-except
+                image = None
+        if image is None:
+            return web.Response(status=404)
+        return web.Response(body=image, content_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=3600"})
 
     async def admin_name(request: web.Request) -> web.Response:
         if not is_admin(request) or not same_site(request):
@@ -692,4 +748,6 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/admin/name", admin_name)
     app.router.add_post("/admin/forget", admin_forget)
     app.router.add_post("/admin/link", admin_link)
+    app.router.add_get("/admin/sightings", admin_sightings)
+    app.router.add_get("/admin/sightings/{id}/picture", admin_picture)
     return app

@@ -1159,3 +1159,79 @@ async def test_a_persons_card_tapped_on_a_robot_names_them_there(aiohttp_client)
         await asyncio.sleep(0.01)
     assert people.assess("Kitchen", 100.0).speaker == "kiril"
     await robot.close()
+
+
+async def test_face_probes_and_cameras_are_kept_as_sightings(aiohttp_client, tmp_path):
+    import asyncio, base64
+    from assistant_router.frigate import FrigateError
+    from assistant_router.sightings import Sightings
+    (tmp_path / "pictures").mkdir()
+    sightings = Sightings(str(tmp_path / "s.db"), str(tmp_path / "pictures"))
+    people = People({"kiril": "Kiril"})
+    bodies = Bodies("You are Nabu.")
+    bodies.events = asyncio.Queue()
+    frigate = FakeRecognizer({"success": True, "name": "kiril", "confidence": 0.88})
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, people=people, frigate=frigate,
+                                           sightings=sightings))
+    robot = await c.ws_connect("/v1/body")
+    await robot.send_json({"hello": {"room": "Bedroom 1", "kind": "stackchan", "proto": 1}})
+    await robot.receive_json()  # body_hello
+
+    async def probe():
+        await robot.send_json({"face_probe": base64.b64encode(b"\xff\xd8kiril").decode(), "why": "seen"})
+        for _ in range(50):
+            if "face_result" in await robot.receive_json():
+                return
+
+    await probe()
+    found = sightings.search()
+    assert [(f["place"], f["person"], f["source"], f["picture"]) for f in found] == [
+        ("Bedroom 1", "kiril", "robot", True)]
+    assert sightings.picture(found[0]["id"]) == b"\xff\xd8kiril"
+    room, event = await asyncio.wait_for(bodies.events.get(), 1)
+    assert room == "Bedroom 1" and event == {"sighting": {"person": "Kiril", "source": "robot", "confidence": 0.88}}
+    # A frame with no face in it is no sighting.
+    frigate.error = FrigateError("POST /api/faces/recognize", status=400)
+    await probe()
+    assert len(sightings.search()) == 1
+
+    # The driveway's camera, through the person mapper: once as Kiril appears.
+    cam = await c.ws_connect("/v1/body")
+    await cam.send_json({"hello": {"room": "Driveway", "kind": "face-source", "proto": 1}})
+    seen = {"faces": [{"person": "kiril", "confidence": 0.7, "event": "1792518459.451025-ab12cd"},
+                      {"person": "ghost", "confidence": 0.9}]}
+    for _ in range(3):
+        await cam.send_json(seen)
+    for _ in range(50):
+        if any(f["place"] == "Driveway" for f in sightings.search()):
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.05)
+    driveway = [f for f in sightings.search() if f["place"] == "Driveway"]
+    assert [(f["person"], f["source"], f["event"]) for f in driveway] == [
+        ("kiril", "camera", "1792518459.451025-ab12cd")]
+    await cam.send_json({"faces": []})
+    await cam.send_json(seen)  # back again: a new sighting
+    for _ in range(50):
+        if len([f for f in sightings.search() if f["place"] == "Driveway"]) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert len([f for f in sightings.search() if f["place"] == "Driveway"]) == 2
+    await cam.close()
+    await robot.close()
+
+
+async def test_a_camera_outside_is_a_place_where_someone_is(aiohttp_client):
+    import asyncio
+    people = People({"kiril": "Kiril"})
+    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0, people=people))
+    cam = await c.ws_connect("/v1/body")
+    await cam.send_json({"hello": {"room": "Driveway", "kind": "face-source", "proto": 1}})
+    await cam.send_json({"faces": [{"person": "kiril", "confidence": 0.8}]})
+    for _ in range(50):
+        if people.where("kiril", 100.0)[0] == "Driveway":
+            break
+        await asyncio.sleep(0.01)
+    room, sure, by = people.where("kiril", 100.0)
+    assert room == "Driveway" and sure > 0.5 and by
+    await cam.close()

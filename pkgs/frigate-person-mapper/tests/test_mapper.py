@@ -255,3 +255,28 @@ def test_faces_message_uses_the_router_schema():
         ]
     }
     assert router.faces(()) == {"faces": []}
+
+
+def test_without_a_registry_anyone_the_library_names_is_named():
+    state = PersonState(None, {"c1": "Driveway"})
+    state.on_face_update("c1", "e1", "akadmin", 0.82)
+    state.on_face_update("c1", "e2", "unknown", 0.9)  # Frigate's word for nobody
+    state.on_face_update("c1", "e3", "../x", 0.9)  # not a person key
+    snap = state.snapshot("Driveway")
+    assert snap.faces == (("akadmin", 0.82),) and snap.unknown == 2
+    assert snap.events == {"akadmin": "e1"}
+
+
+def test_each_face_carries_the_event_of_its_best_sighting():
+    state = make_state()
+    state.on_face_update("cam-living", "e1", "alex", 0.7)
+    state.on_face_update("cam-living-2", "e2", "alex", 0.9)
+    snap = state.snapshot("living")
+    assert snap.events == {"alex": "e2"}
+    assert router.faces(snap.faces, snap.events) == {"faces": [{"person": "alex", "confidence": 0.9, "event": "e2"}]}
+
+
+def test_the_cameras_are_configured_room_to_camera():
+    from frigate_person_mapper.__main__ import cameras_by_name
+    assert cameras_by_name({"Driveway": "c1", "Living Room": "front", "Bad": ""}) == {
+        "c1": "Driveway", "front": "Living Room"}

@@ -1110,6 +1110,33 @@ let
       )
     )
 
+    (expect
+      "assistant-router: sightings in its state, their pictures on the workload layer, for a dynamic user"
+      (
+        let
+          unit = routerServer.systemd.services.assistant-router.serviceConfig;
+          group = "assistant-router-sightings";
+        in
+        lib.hasInfix "--sightings-db /var/lib/assistant-router/sightings.db" unit.ExecStart
+        && lib.hasInfix "--sightings-pictures /mnt/workload/assistant-router" unit.ExecStart
+        && lib.hasInfix "--sightings-days 30" unit.ExecStart
+        && lib.hasInfix "--sightings-picture-days 7" unit.ExecStart
+        # A static group owns the directory, made when the layer is unlocked; the
+        # dynamic user joins it, and may write there once it exists.
+        &&
+          routerServer.lanbat.services.assistant-router.workloadDirs."assistant-router" == {
+            user = "root";
+            inherit group;
+            mode = "2770";
+          }
+        && routerServer.users.groups ? ${group}
+        && unit.SupplementaryGroups == [ group ]
+        && lib.elem "-/mnt/workload/assistant-router" unit.ReadWritePaths
+        && routerServer.systemd.services.assistant-router-unlocked.wantedBy == [ "workload-online.target" ]
+        && failedAssertions routerServer == [ ]
+      )
+    )
+
     # Telegraf 1.38 won't start with an empty input list ("unsupported config
     # format: prometheus"): a Pi without CoreDNS has no prometheus input at all.
     (expect "telegraf: CoreDNS metrics only where CoreDNS runs" (
@@ -1967,7 +1994,8 @@ let
         && lib.elem "multi-user.target" unit.wantedBy
         && lib.elem "MQTT_PASSWORD_FILE=/run/person-mapper/mqtt.pass" env
         && lib.elem "ROUTER_URL=ws://127.0.0.1:8770/v1/body" env
-        && lib.any (lib.hasPrefix "PEOPLE_FILE=/nix/store/") env
+        # Anyone the face library names: the router knows its runtime people.
+        && !(lib.any (lib.hasPrefix "PEOPLE_FILE=") env)
         && lib.any (lib.hasPrefix "CAMERAS_FILE=/nix/store/") env
         && failedAssertions personMapperOn == [ ]
       )

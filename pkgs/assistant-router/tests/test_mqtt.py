@@ -393,3 +393,15 @@ async def test_a_screen_is_published_without_its_light_and_ignores_robot_command
     bodies.connect("Kitchen", socket, "screen", ["caption", "here"])
     await ha.handle("lanbat/stackchan/kitchen/cmd/caption", "The washer is done", broker.publish)
     assert socket.sent == [{"act": {"caption": "The washer is done"}}]
+
+
+def test_a_sighting_is_an_event_in_the_logbook():
+    from assistant_router.mqtt import _event_payload
+    assert _event_payload({"sighting": {"person": "Kiril", "source": "robot", "confidence": 0.82}}) == (
+        "sighting", {"event_type": "seen", "person": "Kiril", "source": "robot", "confidence": 0.82})
+    assert _event_payload({"sighting": {"person": None, "source": "screen", "confidence": None}})[1]["person"] \
+        == "nobody known"
+    configs = dict(robot_discovery("Living room"))
+    assert configs["homeassistant/event/lanbat_stackchan_living_room/sighting/config"]["event_types"] == ["seen"]
+    assert "homeassistant/event/lanbat_room_kitchen/sighting/config" in dict(
+        robot_discovery("Kitchen", None, robot=False))
