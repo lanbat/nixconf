@@ -20,7 +20,14 @@ used.
   the journal write to it all the time.
 - **A 5 V / 2.5 A power supply** with a short, thick cable. A weak one makes the Pi log
   `Undervoltage detected!` and crash at random; `cat /sys/class/hwmon/hwmon*/in0_lcrit_alarm`
-  reads 1 while the supply is too weak.
+  reads 1 while the supply is too weak. The USB ports draw from the same supply (1.2 A for
+  all four), so give a USB hub a power supply of its own. A crash shows up as a short boot in
+  `journalctl --list-boots`: the hardware watchdog restarts a Pi that has stopped within
+  15 s. `journalctl -k -g Undervoltage` lists the warnings that reached the card, and one
+  just before a crash points at the supply. A crash in the middle of a deploy can leave
+  empty files in the Nix store, though not since `hosts/pi3/hardware.nix` flushes each
+  path before registering it. `sudo nix-store --verify --check-contents` finds them. It
+  reads the whole store for several minutes, so run it on a good supply.
 - **A USB microphone.** The PlayStation Eye (USB 1415:2000) is the default; its speech is
   quiet, so the deploy entry sets `lanbat.voiceSatellite.microphone.volumeMultiplier`.
 - **A speaker**: the 3.5 mm jack, a USB speaker or a Bluetooth speaker (section 5).

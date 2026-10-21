@@ -14,6 +14,8 @@
 #
 # 1 GB of RAM: compressed swap in RAM keeps a build or a nix evaluation from
 # being killed. The journal is persistent but capped, so a crash leaves a log.
+# A Pi 3 on a supply that sags crashes: the watchdog brings it back, and Nix
+# flushes every store path to the card, so a crash mid-deploy damages none.
 {
   config,
   lib,
@@ -52,6 +54,12 @@
     MaxRetentionSec=1week
     SyncIntervalSec=10s
   '';
+
+  # A Pi 3 that crashed on a sagging supply stayed down until it was
+  # power-cycled (2026-10-21). systemd pets the SoC's watchdog (bcm2835-wdt),
+  # which resets the board when nothing has for 15 s, about the longest its
+  # counter runs. A kernel panic stops the petting too.
+  systemd.settings.Manager.RuntimeWatchdogSec = "15s";
 
   # The image's console loglevel of 7 floods the serial line and the journal.
   boot.consoleLogLevel = lib.mkForce 4;
@@ -100,6 +108,11 @@
   nix.settings = {
     max-jobs = 1;
     cores = 1;
+    # A crash during a deploy left four files empty on the card, written but
+    # not yet flushed, in paths Nix had already registered (found 2026-10-21).
+    # A registered path is never copied again. Flushed before it is
+    # registered, a path the crash interrupts is simply copied on the next try.
+    fsync-store-paths = true;
   };
   systemd.services.nix-daemon.serviceConfig = {
     MemoryHigh = "400M";
