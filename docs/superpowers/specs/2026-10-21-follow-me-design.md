@@ -38,8 +38,9 @@ dark room should light up when someone walks in. Today the house senses where pe
 
 Per room, per person tracked. Defaults are the author's choice; every number is a setting.
 
-1. **Lights on arrival.** A tracked person's room becomes R and stays R for 10 s; R has
-   lights configured, they are all off, it is dark in R and the time is in the evening or
+1. **Lights on arrival.** R becomes occupied (see Occupied) and stays so for 10 s, going
+   from empty to occupied: a person re-appearing in a room they never really left, or a
+   restart, is not an arrival. R has lights configured, they are all off, it is dark in R and the time is in the evening or
    night window. Dark means the room's illuminance sensor reads under 30 lx, or, with no
    sensor, the sun is below -1 degree. Evening (17:00 to 22:30): lights on, 100 %. Night
    (22:30 to 06:30): 20 %, warm. Daytime: nothing.

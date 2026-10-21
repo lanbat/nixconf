@@ -463,6 +463,9 @@ lists some; someone not listed (a guest) neither moves music nor keeps a room oc
 | **Music follows** | a person's last room changes and holds 20 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per minute per person at most. |
 | **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
 
+The first time a person is placed in a room after a fresh install, the music does not follow:
+follow-me has no earlier room to take it from. From then on it is remembered, across restarts.
+
 "Empty" is judged from the sensor with care, because one person's sensor goes room, `home`,
 room within a minute or two as their phone drops out of Bluetooth. A person the house still
 hears but cannot place keeps their last room occupied for 20 minutes

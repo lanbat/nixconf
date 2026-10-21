@@ -101,6 +101,18 @@ async def t_occupied_any_tracked_person() -> None:
     assert ok and got == "False", (got, ok)
 
 
+async def t_occupied_stays_while_one_of_two_leaves() -> None:
+    base = {LAST["alex"]: "Office", LAST["sam"]: "Office"}
+    both = {**base, WHERE["alex"]: "Office", WHERE["sam"]: "Office"}
+    alex_left = {**base, WHERE["alex"]: "Kitchen", WHERE["sam"]: "Office"}
+    alex_gap = {**base, WHERE["alex"]: "home", WHERE["sam"]: "Office"}
+    for name, states in (("both there", both), ("one left", alex_left), ("one in a gap", alex_gap)):
+        got, ok = await render("followme Office occupied", states)
+        assert ok and got == "True", f"{name}: the room is still in use, got {got!r}"
+    got, _ = await render("followme Office occupied", {**base, WHERE["alex"]: "Kitchen", WHERE["sam"]: "Kitchen"})
+    assert got == "False", "both gone: empty"
+
+
 async def t_occupied_home_gap_keeps_last_room() -> None:
     states = {WHERE["alex"]: "home", LAST["alex"]: "Office", WHERE["sam"]: "away", LAST["sam"]: ""}
     got, ok = await render("followme Office occupied", states)
