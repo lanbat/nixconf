@@ -503,8 +503,13 @@ async def test_a_frame_with_no_face_is_said_so_and_recorded(aiohttp_client, capl
                 break
             await asyncio.sleep(0.01)
     assert result == {"face_result": {"person": None, "confidence": None}}
-    assert bodies.face_check("Kitchen") == {"result": "no face found", "person": None, "confidence": None,
-                                            "why": "seen", "at": "1970-01-01T00:00:01+00:00"}
+    check = bodies.face_check("Kitchen")
+    assert {k: v for k, v in check.items() if k != "at"} == {"result": "no face found", "person": None,
+                                                              "confidence": None, "why": "seen"}
+    # When, by the wall clock (the router's own clock is monotonic: no date).
+    import datetime
+    at = datetime.datetime.fromisoformat(check["at"])
+    assert abs((datetime.datetime.now(datetime.timezone.utc) - at).total_seconds()) < 60
     logged = [json.loads(r.getMessage()) for r in caplog.records if '"face_probe"' in r.getMessage()]
     assert logged and logged[-1]["face_probe"] == "Kitchen" and logged[-1]["result"] == "no face found"
     assert "No face was detected." in logged[-1]["frigate"]

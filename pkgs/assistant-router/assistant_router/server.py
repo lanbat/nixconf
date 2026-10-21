@@ -101,6 +101,8 @@ ENROLL_BAD_NAME = "I didn't catch a good name for you."
 
 def face_check(hit: dict | None, error: FrigateError | None, names: dict[str, str], why: str,
                now: float) -> dict:
+    # `now` is the wall clock (time.time()), not the router's monotonic one:
+    # "at" is a date for people to read.
     """What a body's face probe came to, for the log and Home Assistant's "Last
     face check": the person's name; "not anyone known" (a name in Frigate's
     library that is nobody here); "nobody known" (a face, matched to no one);
@@ -876,7 +878,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             # a face that came into view is someone here ("seen").
                             source = "seen" if data.get("why") == "seen" else "aimed"
                             people.observe(room, source, person, hit.get("confidence"), clock())
-                        check = face_check(hit, error, people.names, str(data.get("why") or "turn"), clock())
+                        check = face_check(hit, error, people.names, str(data.get("why") or "turn"), time.time())
                         bodies.note_face_check(room, check)
                         sighted(room, check, img)
                         LOG.info(json.dumps({"face_probe": room, **check,

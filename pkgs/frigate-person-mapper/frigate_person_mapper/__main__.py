@@ -54,6 +54,11 @@ SUBSCRIBE = [
 ]
 
 
+def subscriptions() -> list[tuple[str, int]]:
+    """SUBSCRIBE as paho takes a list of them: (topic, QoS) pairs."""
+    return [(topic, 0) for topic in SUBSCRIBE]
+
+
 def _env(name: str, default=None):
     value = os.environ.get(name)
     return value if value not in (None, "") else default
@@ -137,7 +142,7 @@ class Mapper:
 
     def _on_connect(self, _client, _userdata, _flags, _reason_code) -> None:
         _log(f"mqtt connected to {self.mqtt_host}:{self.mqtt_port}")
-        _client.subscribe(SUBSCRIBE)
+        _client.subscribe(subscriptions())
         for room in self.rooms:
             for topic, cfg in ha.discovery_configs(room):
                 _client.publish(topic, json.dumps(cfg), qos=1, retain=True)
