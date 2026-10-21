@@ -1570,6 +1570,26 @@ let
       && !(haYamlDashboard base)
     ))
 
+    # Two satellites in one room (the server's and a Pi's in the Office) each
+    # have a Music Assistant player there; "the room's player" alone chose the
+    # same one for both, so a volume command to the Pi changed the server's.
+    (expect "voice: play and volume prefer the player of the satellite that heard the request" (
+      let
+        vars = id: lib.foldl' (acc: s: acc // (s.variables or { })) { } (automationById base id).action;
+        volume = vars "lanbat_voice_volume";
+        play = vars "lanbat_voice_play";
+        hosts = builtins.fromJSON volume.satellite_hosts;
+      in
+      hosts."Pi 3 Satellite" == "pi3"
+      && hosts."Server Satellite" == "server"
+      && volume.satellite_hosts == play.satellite_hosts
+      && lib.hasInfix "device_attr(d, 'name')" volume.own_host
+      && lib.hasInfix "own_host in [device_attr(p, 'name_by_user'), device_attr(p, 'name')]" volume.player
+      && lib.hasInfix "own_host in [device_attr(p, 'name_by_user'), device_attr(p, 'name')]" play.player
+      # Kodi still wins the volume while it has something on.
+      && lib.hasInfix "integration_entities('kodi')" volume.player
+    ))
+
     (expect "home assistant: dashboards generated from the registries, rooms from deviceAreas" (
       lib.hasInfix "export DEVICE_AREAS=" (postSetup base)
       && lib.hasInfix "livingroom_lamp" (postSetup base)
