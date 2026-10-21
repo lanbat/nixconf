@@ -132,6 +132,18 @@ More of my calls, after a builder's read of this document:
   lists, `home-assistant-post-setup` creates them when they don't exist (unless the
   profile points at lists that already exist, see the store below).
 
+Defaults taken when the user approved the design without answering two questions
+(change either by saying so):
+
+- **Store.** New Home Assistant `todo` lists per person, as above. Nothing is read
+  from Nextcloud or elsewhere; a profile may name an existing `todo.*` entity instead.
+- **Lights in an empty room.** Following "everything should turn off": a room with a
+  presence sensor that has been empty and idle for 10 minutes turns off its lights,
+  including ones switched on by hand. This is a follow-me setting (default off in the
+  module, on in the deployment), under follow-me's dry run first, its pause and guests
+  switches, and its rule that unknown presence is never "empty". TVs and video are
+  never touched, and neither are the Echo Show's and Stack-chan's own lights.
+
 ## Goals
 
 - Each recognised person sees, without a tap, what needs doing, what is next, their
