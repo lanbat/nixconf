@@ -1233,9 +1233,35 @@ class Glance(unittest.TestCase):
             await bridge.on_line(json.dumps({"face_image": "AAAA"}).encode())
             await bridge.capture_task
 
-        asyncio.run(go())
+        import stackchan_bridge
+        logged, real = [], stackchan_bridge.log
+        stackchan_bridge.log = logged.append
+        try:
+            asyncio.run(go())
+        finally:
+            stackchan_bridge.log = real
         self.assertEqual(sent, [{"capture": True}])
         self.assertEqual(bridge.router_ws.sent, [{"face_probe": "AAAA", "why": "seen"}])
+        self.assertTrue(any(line.startswith("face capture: 0 KB in ") and line.endswith(" ms") for line in logged),
+                        logged)
+
+    def test_a_capture_with_no_answer_says_so(self):
+        import stackchan_bridge
+        bridge = Bridge(Config(), device="/nonexistent", lva_url="")
+
+        async def send_device(line):
+            pass
+
+        bridge.send_device = send_device
+        logged, real, timeout = [], stackchan_bridge.log, stackchan_bridge.CAPTURE_TIMEOUT_S
+        stackchan_bridge.log, stackchan_bridge.CAPTURE_TIMEOUT_S = logged.append, 0.05
+        try:
+            img = asyncio.run(bridge.face_capture())
+        finally:
+            stackchan_bridge.log, stackchan_bridge.CAPTURE_TIMEOUT_S = real, timeout
+        self.assertIsNone(img)
+        self.assertEqual(logged, ["face capture failed: no answer in 0 s"])
+        self.assertIsNone(bridge.face_waiter)  # the next capture may go
 
 
 class Phones(unittest.TestCase):

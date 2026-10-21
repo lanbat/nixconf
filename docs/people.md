@@ -394,6 +394,14 @@ listen on Wi-Fi) and **Tapped (phone or card)**. Each names who that source sees
 room now, with its confidences as attributes. They hold the same people and names as the
 "Probably" sensors, nothing more.
 
+**Last face check** (on each robot, and on a screen's presence device) is what the face
+library said to the body's last frame: the person's name, "nobody known" (a face, matched
+to no one), "not anyone known" (a library name that is nobody here), "no face found", or
+"face library unavailable", with the confidence, why the frame was sent ("seen" or after a
+"turn") and when, as attributes. The router also logs every check as one JSON line
+(`face_probe`). Frigate's own pages don't list these: it shows only what its cameras
+detect, and a frame checked through its API is answered and not kept.
+
 ## Never authority
 
 Recognition is never used to unlock, disarm, open or allow anything, and never picks the

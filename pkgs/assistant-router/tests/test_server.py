@@ -413,13 +413,38 @@ async def test_a_robot_is_not_told_who_is_here(aiohttp_client):
 
 
 class FakeRecognizer:
-    def __init__(self, hit=None):
+    def __init__(self, hit=None, error=None):
         self.hit = hit
+        self.error = error
         self.calls = []
 
     async def recognize(self, image, filename="probe.jpg"):
         self.calls.append(image)
+        if self.error is not None:
+            raise self.error
         return self.hit or {"success": False, "name": None, "confidence": None}
+
+
+def test_what_a_face_probe_came_to():
+    from assistant_router.frigate import FrigateError
+    from assistant_router.server import face_check
+    names = {"kiril": "Kiril"}
+    hit = {"success": True, "name": "kiril", "confidence": 0.9134}
+    assert face_check(hit, None, names, "seen", 100.0) == {
+        "result": "Kiril", "person": "kiril", "confidence": 0.91, "why": "seen",
+        "at": "1970-01-01T00:01:40+00:00"}
+    # A name in Frigate's library that is nobody the router knows.
+    stranger = face_check({"success": True, "name": "carol", "confidence": 0.8}, None, names, "turn", 1.0)
+    assert (stranger["result"], stranger["person"]) == ("not anyone known", None)
+    # A face Frigate matched to no one ("unknown").
+    assert face_check({"success": False, "name": None, "confidence": None}, None, names, "turn", 1.0)["result"] \
+        == "nobody known"
+    # Frigate answers 400 when it finds no face in the frame; anything else is the library failing.
+    assert face_check(None, FrigateError("POST /api/faces/recognize", status=400), names, "turn", 1.0)["result"] \
+        == "no face found"
+    assert face_check(None, FrigateError("POST /api/faces/recognize"), names, "turn", 1.0)["result"] \
+        == "face library unavailable"
+    assert face_check(None, None, names, "anything", 1.0)["why"] == "turn"
 
 
 async def test_body_hello_reports_whether_faces_are_recognised(aiohttp_client):
@@ -436,8 +461,8 @@ async def test_a_face_probe_is_recognised_and_answered(aiohttp_client):
     hit = {"success": True, "name": "kiril", "confidence": 0.91}
     people = People({"kiril": "Kiril"})
     frigate = FakeRecognizer(hit)
-    c = await aiohttp_client(make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0,
-                                           people=people, frigate=frigate))
+    bodies = Bodies("You are Nabu.")
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 100.0, people=people, frigate=frigate))
     ws = await c.ws_connect("/v1/body")
     await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
     await ws.receive_json()  # body_hello
@@ -453,6 +478,36 @@ async def test_a_face_probe_is_recognised_and_answered(aiohttp_client):
     assert frigate.calls == [b"\xff\xd8face"]
     # The recognised speaker is remembered for the room.
     assert "talking to Kiril" in people.line("Kitchen", now=100.0)
+    # And the check, for Home Assistant's "Last face check".
+    assert bodies.face_check("Kitchen")["result"] == "Kiril"
+    await ws.close()
+
+
+async def test_a_frame_with_no_face_is_said_so_and_recorded(aiohttp_client, caplog):
+    import asyncio, base64, logging
+    from assistant_router.frigate import FrigateError
+    frigate = FakeRecognizer(error=FrigateError("POST /api/faces/recognize", status=400,
+                                                detail="{'success': False, 'message': 'No face was detected.'}"))
+    bodies = Bodies("You are Nabu.")
+    c = await aiohttp_client(make_body_app(bodies, clock=lambda: 1.0, people=People({"kiril": "Kiril"}),
+                                           frigate=frigate))
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "stackchan", "proto": 1}})
+    await ws.receive_json()  # body_hello
+    with caplog.at_level(logging.INFO, logger="assistant-router"):
+        await ws.send_json({"face_probe": base64.b64encode(b"\xff\xd8wall").decode(), "why": "seen"})
+        result = None
+        for _ in range(50):
+            result = await ws.receive_json()
+            if "face_result" in result:
+                break
+            await asyncio.sleep(0.01)
+    assert result == {"face_result": {"person": None, "confidence": None}}
+    assert bodies.face_check("Kitchen") == {"result": "no face found", "person": None, "confidence": None,
+                                            "why": "seen", "at": "1970-01-01T00:00:01+00:00"}
+    logged = [json.loads(r.getMessage()) for r in caplog.records if '"face_probe"' in r.getMessage()]
+    assert logged and logged[-1]["face_probe"] == "Kitchen" and logged[-1]["result"] == "no face found"
+    assert "No face was detected." in logged[-1]["frigate"]
     await ws.close()
 
 

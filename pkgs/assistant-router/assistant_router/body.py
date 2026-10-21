@@ -178,6 +178,7 @@ class Bodies:
         self._states: dict[str, BodyState] = {}
         self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
         self._names: dict[str, str] = {}  # room key -> the room as the body named it
+        self._face_checks: dict[str, dict[str, Any]] = {}  # room key -> its last face check
         self.events: asyncio.Queue | None = None  # (room, event) for Home Assistant, when it listens
 
     def connect(self, room: str, socket: Any, kind: str = "stackchan", can: Any = None) -> None:
@@ -254,6 +255,15 @@ class Bodies:
             self.events.put_nowait((self._names.get(_key(room), room), event))
         except asyncio.QueueFull:
             pass
+
+    def note_face_check(self, room: str, check: dict[str, Any]) -> None:
+        """The answer to the body's last face probe (server.face_check), for
+        Home Assistant's "Last face check"."""
+        if self.has(room):
+            self._face_checks[_key(room)] = dict(check)
+
+    def face_check(self, room: str) -> dict[str, Any] | None:
+        return self._face_checks.get(_key(room))
 
     def disconnect(self, room: str, socket: Any) -> None:
         if self._sockets.get(_key(room)) is socket:
