@@ -382,6 +382,7 @@ let
               interface = "wlan1";
               ssid = "Example";
               countryCode = "GB";
+              security = "wpa2-wpa3";
             };
           }
         ];
@@ -1101,6 +1102,9 @@ let
           && net.ssid == "Example"
           && net.settings.bridge == "br0"
           && net.authentication.wpaPasswordFile == routerServer.lanbat.secrets.wifi-access-point.path
+          # The default stays plain WPA2.
+          && net.authentication.mode == "wpa2-sha1"
+          && net.authentication.saePasswords == [ ]
         )
         && routerNoTap.networking.interfaces ? eno1
         && !routerNoTap.services.hostapd.enable
@@ -1174,6 +1178,18 @@ let
       # Serving Wi-Fi: the access point's clients, the profile's phones, iw
       # and its netlink socket.
       && env.AP_INTERFACE == "wlan1"
+      # Offered as the router offers it: WPA2 and WPA3 together, on one password.
+      && (
+        let
+          net = presencePi.services.hostapd.radios.wlan1.networks.wlan1;
+        in
+        net.authentication.mode == "wpa3-sae-transition"
+        && net.settings.wpa_key_mgmt == "WPA-PSK SAE"
+        && net.authentication.wpaPasswordFile == presencePi.lanbat.secrets.wifi-access-point.path
+        &&
+          map (e: e.passwordFile) net.authentication.saePasswords
+          == [ presencePi.lanbat.secrets.wifi-access-point.path ]
+      )
       && builtins.fromJSON env.WIFI_PHONES == { alex = [ "3A-1F-00-AA-BB-01" ]; }
       && lib.any (p: lib.hasInfix "-iw-" "${p}") unit.path
       && lib.elem "AF_NETLINK" unit.serviceConfig.RestrictAddressFamilies
