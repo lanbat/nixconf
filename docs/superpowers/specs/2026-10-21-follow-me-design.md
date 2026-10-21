@@ -24,8 +24,8 @@ dark room should light up when someone walks in. Today the house senses where pe
   The voice code already finds a room's player with `integration_entities('music_assistant')`
   and `area_entities(area)` (`services/home-assistant.nix`); follow-me reuses that lookup.
   Music Assistant is 2.7.11. Whether Home Assistant's integration for it offers a
-  queue-move action (`music_assistant.transfer_queue`) on this version is unchecked; the
-  spike in the plan confirms it.
+  queue-move action (`music_assistant.transfer_queue`) on this version was checked by the
+  spike (see Spike results).
 - **Lights.** Zigbee lights in the Living Room (spots, shelf, poster) and Bedroom 1,
   some bulbs with no area. The Stack-chan and Echo Show `light.*` entities are their
   screens and LEDs: follow-me never touches them.
@@ -51,13 +51,41 @@ Per room, per person tracked. Defaults are the author's choice; every number is 
    With someone else still in A, nothing moves: A keeps playing. A 60 s cooldown per
    person stops it from bouncing between two adjacent rooms.
 4. **Music pauses when empty.** A room with a covered presence sensor has had no tracked
-   person for 15 minutes: its Music Assistant players are paused, not stopped, so
+   person (see "Occupied" below) for 15 minutes: its Music Assistant players are paused, not stopped, so
    "resume" works. TVs (Kodi, Android TV video) are never paused by follow-me.
 5. **Dry run first.** With `dryRun = true` (the default when enabled), every decision is
    written to the logbook as "Follow-me would ..." and nothing is switched.
 6. **Switches.** A global "Follow-me" switch and a "Guests here" switch (suspends 2 and 4,
    since guests carry no tracked phone) in Home Assistant. Unknown or unavailable
    presence is never read as "empty": the automations then do nothing.
+
+### Occupied
+
+A room is occupied when a tracked person's where sensor equals its name, or when that
+sensor says `home` (a person the house hears but cannot place) and the room is the last
+covered room the person was in, for up to 20 minutes after the sensor changed to `home`.
+`away` and a different room free it at once. `unknown` and `unavailable` make it
+`unavailable`, which no rule treats as empty. This exists because of the spike below: one
+person's sensor goes room, `home`, room within a minute or two.
+
+## Spike results (2026-10-21)
+
+- **Queue move.** `music_assistant.transfer_queue` exists in Home Assistant 2026.3.4
+  (target: the destination player; fields `source_player`, `auto_play`). Music Assistant
+  2.7.11's `transfer_queue` copies the queue, shuffle and repeat, resumes at the source's
+  elapsed time, and **clears the source queue, which stops the source player**. With
+  `auto_play` omitted it plays only if the source was playing. A destination that is
+  grouped is ungrouped first, with a 3 s wait. So follow-me needs no separate stop, and
+  allows a few seconds of gap.
+- **Where states.** The recorder holds exactly `Office`, `Bedroom 1`, `Kitchen`, `home`,
+  `away`, `unknown`, `unavailable` for `sensor.lanbat_people_where_akadmin`. Rooms hold
+  for 90 s to a few minutes, then fall to `home` while the person may still be there;
+  people reach the next room through a `home` gap of 30 to 60 s.
+- **Restarts.** Every deploy or router restart shows `unavailable`, `unknown`, `away`,
+  `home` within about 3 s. `away` is therefore not trusted alone: the timers (minutes) ride
+  over it, and `unknown`/`unavailable` do nothing.
+- **Not measured.** The audible hand-over (gap length on a Snapdroid client) and walking
+  timings: both are in the dry-run walkthrough (plan, Task 8).
 
 ## Goals
 
