@@ -254,6 +254,27 @@ async def test_each_recognition_source_is_a_sensor():
     assert voice["name"] == "Heard by voice" and voice["state_topic"].endswith("/evidence")
 
 
+async def test_the_last_face_check_is_a_sensor():
+    bodies, _, ha, _, _ = setup()
+    broker = Broker()
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/stackchan/living_room/face_check") is None  # none yet: nothing to say
+    check = {"result": "Kiril", "person": "kiril", "confidence": 0.91, "why": "seen",
+             "at": "1970-01-01T00:01:40+00:00"}
+    bodies.note_face_check("Living room", check)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/stackchan/living_room/face_check") == check
+    config = dict(robot_discovery("Living room"))["homeassistant/sensor/lanbat_stackchan_living_room/face_check/config"]
+    assert config["name"] == "Last face check" and config["value_template"] == "{{ value_json.result }}"
+    assert config["json_attributes_topic"].endswith("/face_check")
+    # A screen's camera probes too: its presence device has the sensor.
+    assert "homeassistant/sensor/lanbat_room_kitchen/face_check/config" in dict(
+        robot_discovery("Kitchen", None, robot=False))
+    # A room with no body keeps nothing.
+    bodies.note_face_check("Attic", check)
+    assert bodies.face_check("Attic") is None
+
+
 async def test_who_is_here_and_where_everyone_is():
     _, people, ha, _, clock = setup()
     people.observe("Living room", "tap", "kiril", 1.0, clock[0])

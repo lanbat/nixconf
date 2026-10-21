@@ -261,7 +261,8 @@ Assistant, found by MQTT discovery; nothing to set up there. Turn it off with
   machine) that shows while nothing else is on its LEDs.
 - **Who:** "Probably speaking" (who spoke to it last, with how sure and how it knew, for
   five minutes), "Probably nearby" and "Probably here" (everyone in its room, with how
-  sure and by what) per robot; "Probably home" and a "Where is <name>" per person on a
+  sure and by what) per robot, and "Last face check" (what the face library said to its
+  last frame); "Probably home" and a "Where is <name>" per person on a
   People device ([people.md](people.md#in-home-assistant)). They are guesses, named as
   such: use them to personalise, never to unlock, disarm or allow anything
   ([people.md](people.md#never-authority)).

@@ -10,7 +10,8 @@ publishes them, with one broker login on the server:
   controls: gestures, sleep and wake, mood, the screen's brightness, a caption,
   and its LEDs as a notification light;
 - in each robot's room, "probably" who spoke last, who is nearby and who is
-  here, labelled as guesses (never for anything that needs to be sure);
+  here, labelled as guesses (never for anything that needs to be sure), and
+  what the face library said to the body's last face probe;
 - for a body that isn't a robot (a screen, body.py's "can"), a "<room>
   presence" device with only those guesses, someone in front of it and its
   "recognized" event: no robot controls;
@@ -129,6 +130,12 @@ def robot_discovery(room: str, fw: str | None = None, robot: bool = True) -> lis
         entity("sensor", "here", "Probably here", state_topic=f"{base}/here",
                value_template="{{ value_json.names }}", json_attributes_topic=f"{base}/here",
                json_attributes_template="{{ value_json.people | tojson }}", icon="mdi:account-multiple-check"),
+        # What the face library said to its camera's last frame (server.face_check).
+        entity("sensor", "face_check", "Last face check", state_topic=f"{base}/face_check",
+               value_template="{{ value_json.result }}", json_attributes_topic=f"{base}/face_check",
+               json_attributes_template="{{ {'confidence': value_json.confidence, 'why': value_json.why, "
+                                        "'at': value_json.at} | tojson }}",
+               icon="mdi:face-recognition"),
         # What each recognition source says, behind the guesses above.
         *[entity("sensor", f"seen_{source}", name, state_topic=f"{base}/evidence",
                  value_template="{{ value_json." + source + ".names }}",
@@ -212,7 +219,8 @@ def robot_discovery(room: str, fw: str | None = None, robot: bool = True) -> lis
     ]
     if not robot:
         # Who is around, and its greeting.
-        keep = {"someone", "speaker", "nearby", "here", "recognized"} | {f"seen_{src}" for src, _, _ in SOURCES}
+        keep = {"someone", "speaker", "nearby", "here", "recognized", "face_check"} | \
+            {f"seen_{src}" for src, _, _ in SOURCES}
         return [(topic, config) for topic, config in out if topic.split("/")[3] in keep]
     # Home Assistant's tag scanner: a tapped tag's UID fires tag_scanned.
     out.append((f"{DISCOVERY}/tag/{uid}/nfc/config", {"topic": f"{base}/tag", "device": device}))
@@ -458,6 +466,9 @@ class HomeAssistant:
             await self._send(publish, f"{_base(room)}/identity", identity(self.people, room, now))
             await self._send(publish, f"{_base(room)}/evidence", evidence(self.people, room, now))
             await self._send(publish, f"{_base(room)}/here", here(self.people, room, now))
+            check = self.bodies.face_check(room)
+            if check is not None:
+                await self._send(publish, f"{_base(room)}/face_check", check)
             if not robot:
                 continue
             if room not in self._leds:
