@@ -23,8 +23,9 @@ dark room should light up when someone walks in. Today the house senses where pe
   (`box_r_4k_plus`), Kitchen (`echo_show_8`). `media_player.snapweb_client` has no area.
   The voice code already finds a room's player with `integration_entities('music_assistant')`
   and `area_entities(area)` (`services/home-assistant.nix`); follow-me reuses that lookup.
-  Music Assistant is 2.7.11; Home Assistant's integration for it has a queue-move action
-  (`music_assistant.transfer_queue`) is to be confirmed by the spike in the plan.
+  Music Assistant is 2.7.11. Whether Home Assistant's integration for it offers a
+  queue-move action (`music_assistant.transfer_queue`) on this version is unchecked; the
+  spike in the plan confirms it.
 - **Lights.** Zigbee lights in the Living Room (spots, shelf, poster) and Bedroom 1,
   some bulbs with no area. The Stack-chan and Echo Show `light.*` entities are their
   screens and LEDs: follow-me never touches them.
