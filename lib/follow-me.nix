@@ -130,6 +130,12 @@ let
     state = "off";
   };
 
+  notGuests = {
+    condition = "state";
+    entity_id = "input_boolean.followme_guests";
+    state = "off";
+  };
+
   # Lights on when someone arrives in a dark room in the evening or at night.
   # Triggered by the room becoming occupied (off to on), not by a person's sensor:
   # a phone that drops out and returns does not "arrive" again, and a restart
@@ -244,6 +250,52 @@ let
       ];
     };
 
+  # Lights off once the room has been empty for a while, but only the lights
+  # follow-me itself turned on (its marker), never ones someone switched on, and
+  # not while guests (who carry no tracked phone) may be there.
+  lightsOff =
+    cfg: room: rc:
+    let
+      r = slug room;
+    in
+    {
+      id = "followme_lights_off_${r}";
+      alias = "Follow-me: lights off in ${room}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.followme_${r}_occupied";
+          from = "on";
+          to = "off";
+          for.minutes = cfg.lightsOffMinutes;
+        }
+      ];
+      conditions = [
+        notPaused
+        notGuests
+        {
+          condition = "state";
+          entity_id = "input_boolean.followme_lit_${r}";
+          state = "on";
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn off the ${room} lights (nobody there)";
+        steps = [
+          {
+            action = "light.turn_off";
+            target.entity_id = rc.lights;
+          }
+          {
+            action = "input_boolean.turn_off";
+            target.entity_id = "input_boolean.followme_lit_${r}";
+          }
+        ];
+      };
+    };
+
   mkFollowMe =
     { cfg, people }:
     let
@@ -297,6 +349,7 @@ let
           r: rc:
           lib.optionals (rc.lights != [ ]) [
             (lightsOn cfg r rc)
+            (lightsOff cfg r rc)
             (litClear r rc)
           ]
         ) rooms

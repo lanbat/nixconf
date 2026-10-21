@@ -156,6 +156,8 @@ let
   lightsOn = automation "followme_lights_on_office";
   lightsOnLive = automationLive "followme_lights_on_office";
   litClear = automation "followme_lit_clear_office";
+  lightsOff = automation "followme_lights_off_office";
+  lightsOffLive = automationLive "followme_lights_off_office";
 
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
@@ -350,6 +352,42 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
     + expect "lights on: live run marks the room before it switches" (
       (lib.head lightsOnLive.actions).action == "logbook.log"
       && lib.hasInfix "input_boolean.followme_lit_office" (json (lib.elemAt lightsOnLive.actions 1))
+    )
+    + expect "lights off: a rule for a room with lights, none for one without" (
+      lightsOff != null && automation "followme_lights_off_hall" == null
+    )
+    + expect "lights off: triggered by the room going from occupied to empty for lightsOffMinutes" (
+      let
+        t = lib.head lightsOff.triggers;
+      in
+      t.entity_id == "binary_sensor.followme_office_occupied"
+      && t.from == "on"
+      && t.to == "off"
+      && t.for.minutes == 5
+    )
+    + expect "lights off: never from unavailable (a router restart is not an empty room)" (
+      (lib.head lightsOff.triggers).from == "on"
+    )
+    + expect "lights off: only lights follow-me turned on, not while paused, not with guests" (
+      let
+        c = json lightsOff.conditions;
+      in
+      lib.hasInfix "input_boolean.followme_lit_office" c
+      && lib.hasInfix "input_boolean.followme_paused" c
+      && lib.hasInfix "input_boolean.followme_guests" c
+    )
+    + expect "lights off: live run turns off the room's lights, then clears the marker" (
+      let
+        a = json lightsOffLive.actions;
+      in
+      lib.hasInfix "light.turn_off" a
+      && lib.hasInfix "light.office_lamp" a
+      && lib.hasInfix "input_boolean.turn_off" a
+      && lib.hasInfix "followme_lit_office" a
+      && !(lib.hasInfix "light.turn_on" a)
+    )
+    + expect "lights off: dry run only logs" (
+      lib.length lightsOff.actions == 1 && lib.hasPrefix "would " (lib.head lightsOff.actions).data.message
     )
     + expect "manual off: the marker clears when the room's lights all go off" (
       litClear != null
