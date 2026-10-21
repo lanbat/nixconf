@@ -283,3 +283,30 @@ def test_someone_still_in_front_is_looked_at_again_when_the_router_loses_them():
     # The router restarted: nobody is placed, but the person never left.
     b.router({"here": []}, 110.0)
     assert ("image", "probe") in b.tick(110.0)
+
+
+def test_what_it_decided_is_kept_for_the_log():
+    b = brain()
+    b.state("person", True, 1.0)
+    b.router({"face_result": {"person": "Kiril Example", "confidence": 0.94}}, 2.0)
+    b.router({"here": [{"person": "kiril", "name": "Kiril Example", "confidence": 0.9}]}, 3.0)
+    b.router({"here": [{"person": "kiril", "name": "Kiril Example", "confidence": 0.95}]}, 4.0)  # same: not again
+    b.router({"here": [{"person": "kiril", "name": "Kiril Example"}, {"person": "maria", "name": "Maria"}]}, 5.0)
+    notes = b.take_notes()
+    assert {"present": True, "person": True, "screen": None, "dimmed": False} in notes
+    assert {"face_result": "Kiril Example", "confidence": 0.94} in notes
+    assert [n["here"] for n in notes if "here" in n] == [["kiril"], ["kiril", "maria"]]
+    views = [(n["view"], n["for_"]) for n in notes if "view" in n]
+    assert views == [("lanbat-screen-kitchen/kiril", "kiril"), ("lanbat-screen-kitchen", "household")]
+    assert b.take_notes() == []
+
+
+def test_the_screen_going_off_and_on_is_kept_for_the_log():
+    b = brain(screen_off_after=60.0)
+    b.state("screen", True, 0.0)
+    b.tick(0.0)
+    b.tick(61.0)
+    b.state("person", True, 70.0)
+    b.tick(71.0)
+    notes = [n for n in b.take_notes() if "screen" in n and "why" in n]
+    assert [n["screen"] for n in notes] == ["off", "on"]

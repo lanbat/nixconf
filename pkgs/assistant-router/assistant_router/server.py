@@ -927,6 +927,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 continue
             if await bodies.send(room, {"here": found}):
                 told_here[room.casefold()] = keys
+                LOG.info(json.dumps({"here": room, "people": [[h["person"], h["confidence"]] for h in found]}))
 
     async def here_loop() -> None:
         while True:

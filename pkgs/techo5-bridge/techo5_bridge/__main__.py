@@ -56,6 +56,8 @@ class Echo:
 
     # ── outputs ─────────────────────────────────────────────────────────────
     async def carry(self, outs: list) -> None:
+        for note in self.brain.take_notes():  # what it decided, and why
+            LOG.info(json.dumps({"device": self.name, **{k.rstrip("_"): v for k, v in note.items()}}))
         for out in outs:
             try:
                 await self._carry(out)

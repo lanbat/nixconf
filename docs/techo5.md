@@ -61,6 +61,21 @@ The cost: the device's SSH is on, root, keys only, the bridge's and the admin's.
 `installCa = false` to leave the device alone (and `insecureTls = true` to have it skip
 the checks, which doesn't cover drawn dashboards).
 
+## What the logs say
+
+When the screen doesn't do what you expect, `journalctl -u techo5-bridge` and
+`journalctl -u assistant-router` say what each side decided:
+
+- **Router:** `{"here": "Kitchen", "people": [["akadmin", 0.94]]}` is who it told the room's body is
+  there, whenever that changes. `{"face_probe": "Kitchen", ...}` is each look at a face.
+  `{"greet": "no", ..., "why": ...}` is why someone placed in a room wasn't greeted: they were
+  already there at the last look (a greeting is for arriving, after `ARRIVAL_S` of absence), they
+  were greeted lately (not twice in 30 minutes), or the body was asleep, in night mode or busy.
+- **Bridge:** `present` (the camera's person and presence, and whether the screen was on),
+  `face_result` (what the router named), `here` (who the router said is in the room), `view` (the
+  dashboard chosen, and for whom: a person's own, or the household's) and `screen` (on or off, and
+  why). The household's view is shown for nobody, someone it can't name, or two or more people.
+
 ## Limits
 
 - Its Wi-Fi radio can't sense phones: the device is only a Wi-Fi client and runs no code

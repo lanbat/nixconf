@@ -146,6 +146,20 @@ class Brain:
         self._ca = "no"                   # this connection: "no", "running", "done"; or the retry time
         self._asked: dict[str, tuple[Any, float]] = {}  # object_id -> (value sent, when)
         self._reported = float("-inf")
+        # What it decided and why, for the log (__main__ drains it): who the
+        # router said is here, which screen that gave, when the screen woke or
+        # slept. Never part of the outputs.
+        self.notes: list[dict] = []
+        self._noted_here: list[str] | None = None
+        self._noted_view: str | None = None
+
+    def note(self, **what: Any) -> None:
+        self.notes.append(what)
+        del self.notes[:-50]  # nothing reads them for a while: keep the last few
+
+    def take_notes(self) -> list[dict]:
+        notes, self.notes = self.notes, []
+        return notes
 
     # ── the device ──────────────────────────────────────────────────────────
     def connected(self, now: float) -> list:
@@ -213,6 +227,7 @@ class Brain:
         if present != self.present:
             self.present = present
             self._present_at = now if present else None
+            self.note(present=present, person=person, screen=self.echo.get("screen"), dimmed=self._dimmed)
             if not present:
                 self._named = False
                 self._code_shown = False
@@ -248,9 +263,14 @@ class Brain:
         if "irks" in msg:
             self.recogniser.from_router(msg["irks"])
         if isinstance(msg.get("face_result"), dict):
+            self.note(face_result=msg["face_result"].get("person"), confidence=msg["face_result"].get("confidence"))
             out += self._face_result(msg["face_result"], now)
         if isinstance(msg.get("here"), list):
             self.here = [h for h in msg["here"] if isinstance(h, dict) and isinstance(h.get("person"), str)]
+            keys = [h["person"] for h in self.here]
+            if keys != self._noted_here:
+                self._noted_here = keys
+                self.note(here=keys)
             if not self.here and self._person and self._named:
                 # The router lost them (it restarted, or its evidence ran out)
                 # while someone is still in front: ask again who it is.
@@ -331,6 +351,10 @@ class Brain:
         out: list = []
         if self.cfg.dashboard:
             path = f"{self.cfg.dashboard}/{p.view}" if p.view else self.cfg.dashboard
+            if path != self._noted_view:
+                self._noted_view = path
+                who, _ = self.profile()
+                self.note(view=path, for_=who or "household")
             out += self._call("dashboard_path", {"path": path})
         out += self._call("home_glance", {"entities": ", ".join(p.glance)})
         out += self._call("calendar_sources", {"calendars": ", ".join(p.calendars)})
@@ -353,6 +377,7 @@ class Brain:
             self._unused_since = None
             if self._dimmed:
                 self._dimmed = False
+                self.note(screen="on", why="someone is here or it is in use")
                 return [("set", "screen", True), ("router", {"state": self._state(now)})]
             return []
         if self._unused_since is None:
@@ -360,6 +385,7 @@ class Brain:
         if not self._dimmed and self.echo.get("screen") is True \
                 and now - self._unused_since >= self.cfg.screen_off_after:
             self._dimmed = True
+            self.note(screen="off", why=f"empty and unused for {int(now - self._unused_since)} s")
             return [("set", "screen", False), ("router", {"state": self._state(now)})]
         return []
 
