@@ -29,6 +29,15 @@ let
 
   time = types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";
   seconds = types.ints.positive;
+
+  followMeLib = import ../../lib/follow-me.nix { inherit lib; };
+  generated = followMeLib.mkFollowMe {
+    inherit cfg;
+    people = map (key: {
+      inherit key;
+      slug = followMeLib.slug key;
+    }) cfg.people;
+  };
 in
 {
   options.lanbat.homeAssistant.followMe = {
@@ -170,7 +179,26 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # Home Assistant's own configuration: the helpers the rules keep their state
+    # in, the sensors they read, and the rules. `sun` is not set up elsewhere.
+    services.home-assistant.config = {
+      sun = { };
+      inherit (generated)
+        input_boolean
+        input_text
+        template
+        automation
+        ;
+    };
+
     assertions =
+      [
+        {
+          assertion = cfg.morningTo <= cfg.eveningFrom && cfg.eveningFrom <= cfg.nightFrom;
+          message = "follow-me: morningTo (${cfg.morningTo}) must come before eveningFrom (${cfg.eveningFrom}), which must come before nightFrom (${cfg.nightFrom})";
+        }
+      ]
+      ++
       lib.mapAttrsToList (room: _: {
         assertion = lib.elem room presenceRooms;
         message = "follow-me: room \"${room}\" has no presence sensor; rooms are the keys of lanbat.deployment.voiceRooms and the rooms of techo5Devices (${lib.concatStringsSep ", " presenceRooms})";

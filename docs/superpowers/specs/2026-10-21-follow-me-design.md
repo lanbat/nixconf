@@ -55,7 +55,7 @@ Per room, per person tracked. Defaults are the author's choice; every number is 
    "resume" works. TVs (Kodi, Android TV video) are never paused by follow-me.
 5. **Dry run first.** With `dryRun = true` (the default when enabled), every decision is
    written to the logbook as "Follow-me would ..." and nothing is switched.
-6. **Switches.** A global "Follow-me" switch and a "Guests here" switch (suspends 2 and 4,
+6. **Switches.** A global "Pause follow-me" switch (a pause, so that the restored default is running) and a "Guests here" switch (suspends 2 and 4,
    since guests carry no tracked phone) in Home Assistant. Unknown or unavailable
    presence is never read as "empty": the automations then do nothing.
 

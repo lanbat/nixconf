@@ -7,6 +7,8 @@
 { lib, pkgs }:
 
 let
+  fmLib = import ../lib/follow-me.nix { inherit lib; };
+
   eval =
     followMe: deployment:
     (lib.evalModules {
@@ -48,10 +50,12 @@ let
   on = eval {
     enable = true;
     rooms = {
-      "Office".lights = [ "light.office_lamp" ];
+      "Office" = {
+        lights = [ "light.office_lamp" ];
+        illuminance = "sensor.office_lux";
+      };
       "Kitchen" = {
         lights = [ "light.kitchen_strip" ];
-        illuminance = "sensor.kitchen_lux";
         music = false;
       };
     };
@@ -76,9 +80,85 @@ let
     } { })).rooms true
   );
 
+  # Evenings, nights and the order they must come in.
+  badClock = eval {
+    enable = true;
+    eveningFrom = "23:00";
+    nightFrom = "22:30";
+    rooms."Office".lights = [ "light.office_lamp" ];
+  } { };
+
+  # What the generator makes for two rooms (one with a light-level sensor, one
+  # without) and two people.
+  people = [
+    {
+      key = "alex";
+      slug = "alex";
+    }
+    {
+      key = "sam";
+      slug = "sam";
+    }
+  ];
+  genCfg = (fm on) // {
+    people = [
+      "alex"
+      "sam"
+    ];
+  };
+  gen = fmLib.mkFollowMe {
+    cfg = genCfg;
+    inherit people;
+  };
+  genLive = fmLib.mkFollowMe {
+    cfg = genCfg // {
+      dryRun = false;
+    };
+    inherit people;
+  };
+  templateEntities = lib.concatMap (
+    b: (b.binary_sensor or [ ]) ++ (b.sensor or [ ])
+  ) gen.template;
+  entityNames = map (e: e.name) templateEntities;
+
+  inLive = eval {
+    enable = true;
+    rooms."Office".lights = [ "light.office_lamp" ];
+  } { };
+  hacfg = inLive.services.home-assistant.config;
+
+  actDry = fmLib.act {
+    cfg = {
+      dryRun = true;
+    };
+    message = "turn on the lights";
+    steps = [ { action = "light.turn_on"; } ];
+  };
+  actLive = fmLib.act {
+    cfg = {
+      dryRun = false;
+    };
+    message = "turn on the lights";
+    steps = [ { action = "light.turn_on"; } ];
+  };
+
+  generated = pkgs.writeText "follow-me-generated.json" (
+    builtins.toJSON {
+      inherit (gen) template;
+      inherit (genCfg) unlocatedMinutes darkLux sunBelow;
+    }
+  );
+
+  haPython = pkgs.home-assistant.python.withPackages (ps: [ ps.homeassistant ]);
+  templatesCheck = pkgs.runCommand "follow-me-templates-check" { } ''
+    ${haPython}/bin/python ${./follow-me-templates.py} ${generated} | tee log
+    ! grep -q '^FAIL' log
+    touch $out
+  '';
+
   expect = name: cond: if cond then "" else "FAIL: ${name}\n";
 in
-pkgs.runCommand "follow-me-check" { } ''
+pkgs.runCommand "follow-me-check" { inherit templatesCheck; } ''
   errors="${
     expect "off by default" ((fm off).enable == false)
     + expect "off adds no failing assertion" (failures off == [ ])
@@ -108,8 +188,10 @@ pkgs.runCommand "follow-me-check" { } ''
       && c.nightBrightness == 20
     )
     + expect "a valid configuration raises no assertion" (failures on == [ ])
-    + expect "a room's music setting defaults to on" ((fm on).rooms."Office".music == true)
-    + expect "a room's illuminance sensor is optional" ((fm on).rooms."Office".illuminance == null)
+    + expect "a room's music setting defaults to on" (
+      (fm on).rooms."Office".music == true && (fm on).rooms."Kitchen".music == false
+    )
+    + expect "a room's illuminance sensor is optional" ((fm on).rooms."Kitchen".illuminance == null)
     + expect "a Voice room and a TECHO5 room are both rooms a sensor can report" (failures on == [ ])
     + expect "a room with no presence sensor is rejected" (lib.length (failures noSensor) == 1)
     + expect "the message names follow-me and the room" (
@@ -122,6 +204,47 @@ pkgs.runCommand "follow-me-check" { } ''
       lib.any (m: lib.hasInfix "nobody" m) (messages unknownPerson)
     )
     + expect "a lights entry that is not a light entity is rejected" (!notALight.success)
+    + expect "evening after night is rejected" (lib.length (failures badClock) == 1)
+    + expect "the generator makes the global switches" (
+      gen.input_boolean ? followme_paused && gen.input_boolean ? followme_guests
+    )
+    + expect "the generator makes a lit marker per room" (
+      gen.input_boolean ? followme_lit_office && gen.input_boolean ? followme_lit_kitchen
+    )
+    + expect "a room name with a space and a digit makes a clean slug" (
+      fmLib.slug "Bedroom 1" == "bedroom_1" && fmLib.slug "Living  Room!" == "living_room"
+    )
+    + expect "the generator makes a last-room helper per tracked person" (
+      gen.input_text ? followme_lastroom_alex && gen.input_text ? followme_lastroom_sam
+    )
+    + expect "the generator makes occupied and dark sensors per room and one daypart" (
+      lib.all (n: lib.elem n entityNames) [
+        "followme Office occupied"
+        "followme Kitchen occupied"
+        "followme Office dark"
+        "followme Kitchen dark"
+        "followme daypart"
+      ]
+    )
+    + expect "every generated sensor has a unique id" (
+      lib.all (e: e ? unique_id) templateEntities
+    )
+    + expect "act in a dry run is one log step that says it would" (
+      lib.length actDry == 1
+      && (lib.head actDry).action == "logbook.log"
+      && lib.hasPrefix "would " (lib.head actDry).data.message
+    )
+    + expect "act live is the log step, then the steps" (
+      lib.length actLive == 2
+      && (lib.head actLive).action == "logbook.log"
+      && !(lib.hasPrefix "would " (lib.head actLive).data.message)
+      && (lib.elemAt actLive 1).action == "light.turn_on"
+    )
+    + expect "the module hands the helpers, sensors and the sun to Home Assistant" (
+      hacfg ? template && hacfg ? input_boolean && hacfg ? input_text && hacfg ? sun
+    )
+    + expect "a disabled module adds nothing to Home Assistant" (off.services.home-assistant.config == { })
+    + expect "the template check ran" (templatesCheck != null)
   }"
   if [ -n "$errors" ]; then
     printf '%s' "$errors" >&2
