@@ -248,3 +248,12 @@ waits up to a minute for Jackett's first `ServerConfig.json`:
 - If Jackett's state is lost, restore `/var/lib/jackett` from the backup, or add the
   indexers again, then `sudo systemctl restart podman-qbittorrent`: the new API key is
   written on that start, with nothing to edit.
+
+## Presence goes away (follow-me)
+
+Follow-me (`docs/people.md#acting-on-where-people-are`) reads the assistant router's "Where
+is" sensors. When the router, MQTT or Home Assistant restarts, or every sensor is
+`unknown`/`unavailable`, the rooms' occupied sensors turn `unavailable`, not "empty", and no rule
+acts: nothing switches off and no light comes on at startup. A phone that drops out of Bluetooth
+for minutes keeps its last room occupied for `unlocatedMinutes` (20). The **Pause follow-me**
+switch in Home Assistant stops every action at once.

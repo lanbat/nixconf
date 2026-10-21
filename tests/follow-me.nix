@@ -74,10 +74,14 @@ let
 
   # A lock is not a light: the type refuses it, so forcing the value throws.
   notALight = builtins.tryEval (
-    builtins.deepSeq (fm (eval {
-      enable = true;
-      rooms."Office".lights = [ "lock.front_door" ];
-    } { })).rooms true
+    builtins.deepSeq
+      (fm (
+        eval {
+          enable = true;
+          rooms."Office".lights = [ "lock.front_door" ];
+        } { }
+      )).rooms
+      true
   );
 
   # Evenings, nights and the order they must come in.
@@ -129,9 +133,7 @@ let
     };
     inherit people;
   };
-  templateEntities = lib.concatMap (
-    b: (b.binary_sensor or [ ]) ++ (b.sensor or [ ])
-  ) gen.template;
+  templateEntities = lib.concatMap (b: (b.binary_sensor or [ ]) ++ (b.sensor or [ ])) gen.template;
   entityNames = map (e: e.name) templateEntities;
 
   inLive = eval {
@@ -172,7 +174,12 @@ let
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
       inherit (gen) template automation;
-      inherit (genCfg) unlocatedMinutes darkLux sunBelow followCooldownSeconds;
+      inherit (genCfg)
+        unlocatedMinutes
+        darkLux
+        sunBelow
+        followCooldownSeconds
+        ;
     }
   );
 
@@ -188,7 +195,12 @@ let
     g:
     (pkgs.formats.yaml { }).generate "followme.yaml" {
       sun = { };
-      inherit (g) input_boolean input_text template automation;
+      inherit (g)
+        input_boolean
+        input_text
+        template
+        automation
+        ;
     };
   configCheck = pkgs.runCommand "follow-me-config-check" { } ''
     export HOME=$TMPDIR
@@ -282,9 +294,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
         "followme daypart"
       ]
     )
-    + expect "every generated sensor has a unique id" (
-      lib.all (e: e ? unique_id) templateEntities
-    )
+    + expect "every generated sensor has a unique id" (lib.all (e: e ? unique_id) templateEntities)
     + expect "act in a dry run is one log step that says it would" (
       lib.length actDry == 1
       && (lib.head actDry).action == "logbook.log"
@@ -299,7 +309,9 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
     + expect "the module hands the helpers, sensors and the sun to Home Assistant" (
       hacfg ? template && hacfg ? input_boolean && hacfg ? input_text && hacfg ? sun
     )
-    + expect "a disabled module adds nothing to Home Assistant" (off.services.home-assistant.config == { })
+    + expect "a disabled module adds nothing to Home Assistant" (
+      off.services.home-assistant.config == { }
+    )
     + expect "the template check ran" (templatesCheck != null)
     + expect "lights on: a rule for a room with lights" (lightsOn != null)
     + expect "lights on: none for a room with no lights" (automation "followme_lights_on_hall" == null)
@@ -313,22 +325,28 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && t.to == "on"
       && t.for.seconds == 10
     )
-    + expect "lights on: not while paused, only when dark, in the evening or at night, and when every light is off" (
-      let
-        c = json lightsOn.conditions;
-      in
-      lib.hasInfix "input_boolean.followme_paused" c
-      && lib.hasInfix "binary_sensor.followme_office_dark" c
-      && lib.hasInfix "sensor.followme_daypart" c
-      && lib.hasInfix "evening" c
-      && lib.hasInfix "night" c
-      && lib.hasInfix "light.office_lamp" c
-    )
+    +
+      expect
+        "lights on: not while paused, only when dark, in the evening or at night, and when every light is off"
+        (
+          let
+            c = json lightsOn.conditions;
+          in
+          lib.hasInfix "input_boolean.followme_paused" c
+          && lib.hasInfix "binary_sensor.followme_office_dark" c
+          && lib.hasInfix "sensor.followme_daypart" c
+          && lib.hasInfix "evening" c
+          && lib.hasInfix "night" c
+          && lib.hasInfix "light.office_lamp" c
+        )
     + expect "lights on: never by day" (
       let
-        daypartCondition = lib.findFirst (c: lib.hasInfix "sensor.followme_daypart" (json c)) null lightsOn.conditions;
+        daypartCondition = lib.findFirst (
+          c: lib.hasInfix "sensor.followme_daypart" (json c)
+        ) null lightsOn.conditions;
       in
-      daypartCondition != null && !(lib.hasInfix "day" (lib.replaceStrings [ "daypart" ] [ "" ] (json daypartCondition)))
+      daypartCondition != null
+      && !(lib.hasInfix "day" (lib.replaceStrings [ "daypart" ] [ "" ] (json daypartCondition)))
     )
     + expect "lights on: night is dim and warm, evening is full" (
       let
@@ -346,9 +364,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
         inChoose = lib.concatMap (
           x: lib.concatMap (c: c.sequence or [ ]) (x.choose or [ ]) ++ (x.default or [ ])
         ) lightsOnLive.actions;
-        targets = map (x: x.target.entity_id) (
-          lib.filter (x: x.action or "" == "light.turn_on") inChoose
-        );
+        targets = map (x: x.target.entity_id) (lib.filter (x: x.action or "" == "light.turn_on") inChoose);
       in
       targets != [ ] && lib.all (t: t == [ "light.office_lamp" ]) targets
     )
@@ -356,7 +372,8 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       let
         dry = automation "followme_lights_on_office";
       in
-      lib.length dry.actions == 1 && (lib.head dry.actions).action == "logbook.log"
+      lib.length dry.actions == 1
+      && (lib.head dry.actions).action == "logbook.log"
       && lib.hasPrefix "would " (lib.head dry.actions).data.message
     )
     + expect "lights on: live run marks the room before it switches" (
@@ -397,15 +414,18 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && !(lib.hasInfix "light.turn_on" a)
     )
     + expect "lights off: dry run only logs" (
-      lib.length lightsOff.actions == 1 && lib.hasPrefix "would " (lib.head lightsOff.actions).data.message
+      lib.length lightsOff.actions == 1
+      && lib.hasPrefix "would " (lib.head lightsOff.actions).data.message
     )
-    + expect "last room: written whenever a tracked person's sensor names a covered room, dry run or not" (
-      lastRoom != null
-      && (lib.head lastRoom.triggers).entity_id == "sensor.lanbat_people_where_alex"
-      && lib.hasInfix "input_text.set_value" (json lastRoom.actions)
-      && lib.hasInfix "input_text.followme_lastroom_alex" (json lastRoom.actions)
-      && !(lib.hasInfix "logbook" (json lastRoom.actions))
-    )
+    +
+      expect "last room: written whenever a tracked person's sensor names a covered room, dry run or not"
+        (
+          lastRoom != null
+          && (lib.head lastRoom.triggers).entity_id == "sensor.lanbat_people_where_alex"
+          && lib.hasInfix "input_text.set_value" (json lastRoom.actions)
+          && lib.hasInfix "input_text.followme_lastroom_alex" (json lastRoom.actions)
+          && !(lib.hasInfix "logbook" (json lastRoom.actions))
+        )
     + expect "last room: only rooms, never home, away, unknown or unavailable (a phone gap keeps it)" (
       let
         to = (lib.head lastRoom.triggers).to;
@@ -430,21 +450,25 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       let
         c = json musicFollow.conditions;
       in
-      lib.hasInfix "Office" c && lib.hasInfix "Bedroom 1" c && lib.hasInfix "Hall" c
+      lib.hasInfix "Office" c
+      && lib.hasInfix "Bedroom 1" c
+      && lib.hasInfix "Hall" c
       && !(lib.hasInfix "Kitchen" c)
     )
-    + expect "music: not while paused, source playing, source room left empty, destination free, cooldown" (
-      let
-        c = json musicFollow.conditions;
-        v = json musicFollow.variables;
-      in
-      lib.hasInfix "input_boolean.followme_paused" c
-      && lib.hasInfix "playing" c
-      && lib.hasInfix "_occupied" c
-      && lib.hasInfix "last_triggered" c
-      && lib.hasInfix "60" c
-      && lib.hasInfix "dst_free" v
-    )
+    +
+      expect "music: not while paused, source playing, source room left empty, destination free, cooldown"
+        (
+          let
+            c = json musicFollow.conditions;
+            v = json musicFollow.variables;
+          in
+          lib.hasInfix "input_boolean.followme_paused" c
+          && lib.hasInfix "playing" c
+          && lib.hasInfix "_occupied" c
+          && lib.hasInfix "last_triggered" c
+          && lib.hasInfix "60" c
+          && lib.hasInfix "dst_free" v
+        )
     + expect "music: only Music Assistant players (no TV, no Kodi)" (
       let
         v = json musicFollow.variables;
@@ -464,7 +488,8 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && !(lib.hasInfix "media_pause" a)
     )
     + expect "music: dry run only logs" (
-      lib.length musicFollow.actions == 1 && lib.hasPrefix "would " (lib.head musicFollow.actions).data.message
+      lib.length musicFollow.actions == 1
+      && lib.hasPrefix "would " (lib.head musicFollow.actions).data.message
     )
     + expect "music: no rule when fewer than two rooms have music" (
       let
@@ -515,7 +540,8 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && !(lib.hasInfix "androidtv" v)
     )
     + expect "pause: dry run only logs" (
-      lib.length musicPause.actions == 1 && lib.hasPrefix "would " (lib.head musicPause.actions).data.message
+      lib.length musicPause.actions == 1
+      && lib.hasPrefix "would " (lib.head musicPause.actions).data.message
     )
     + expect "manual off: the marker clears when the room's lights all go off" (
       litClear != null

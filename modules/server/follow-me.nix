@@ -191,21 +191,19 @@ in
         ;
     };
 
-    assertions =
-      [
-        {
-          assertion = cfg.morningTo <= cfg.eveningFrom && cfg.eveningFrom <= cfg.nightFrom;
-          message = "follow-me: morningTo (${cfg.morningTo}) must come before eveningFrom (${cfg.eveningFrom}), which must come before nightFrom (${cfg.nightFrom})";
-        }
-      ]
-      ++
-      lib.mapAttrsToList (room: _: {
-        assertion = lib.elem room presenceRooms;
-        message = "follow-me: room \"${room}\" has no presence sensor; rooms are the keys of lanbat.deployment.voiceRooms and the rooms of techo5Devices (${lib.concatStringsSep ", " presenceRooms})";
-      }) cfg.rooms
-      ++ map (person: {
-        assertion = deployment.people ? ${person};
-        message = "follow-me: person \"${person}\" is not in lanbat.deployment.people";
-      }) cfg.people;
+    assertions = [
+      {
+        assertion = cfg.morningTo <= cfg.eveningFrom && cfg.eveningFrom <= cfg.nightFrom;
+        message = "follow-me: morningTo (${cfg.morningTo}) must come before eveningFrom (${cfg.eveningFrom}), which must come before nightFrom (${cfg.nightFrom})";
+      }
+    ]
+    ++ lib.mapAttrsToList (room: _: {
+      assertion = lib.elem room presenceRooms;
+      message = "follow-me: room \"${room}\" has no presence sensor; rooms are the keys of lanbat.deployment.voiceRooms and the rooms of techo5Devices (${lib.concatStringsSep ", " presenceRooms})";
+    }) cfg.rooms
+    ++ map (person: {
+      assertion = deployment.people ? ${person};
+      message = "follow-me: person \"${person}\" is not in lanbat.deployment.people";
+    }) cfg.people;
   };
 }

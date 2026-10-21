@@ -63,32 +63,33 @@ let
       }) people
     );
 
-  occupied =
-    cfg: people: room: {
-      name = "followme ${room} occupied";
-      unique_id = "followme_${slug room}_occupied";
-      state = ''
-        {% set room = ${toJSON room} %}
-        {% set ns = namespace(on=false) %}
-        {% for p in ${trackers people} %}
-          {% set w = states(p.w) %}
-          {% if w == room %}
-            {% set ns.on = true %}
-          {% elif w == 'home' and states(p.l) == room
-                  and (now() - states[p.w].last_changed).total_seconds() < ${toString (cfg.unlocatedMinutes * 60)} %}
-            {% set ns.on = true %}
-          {% endif %}
-        {% endfor %}
-        {{ ns.on }}
-      '';
-      availability = ''
-        {% set ns = namespace(known=false) %}
-        {% for p in ${trackers people} %}
-          {% if states(p.w) not in ['unknown', 'unavailable'] %}{% set ns.known = true %}{% endif %}
-        {% endfor %}
-        {{ ns.known }}
-      '';
-    };
+  occupied = cfg: people: room: {
+    name = "followme ${room} occupied";
+    unique_id = "followme_${slug room}_occupied";
+    state = ''
+      {% set room = ${toJSON room} %}
+      {% set ns = namespace(on=false) %}
+      {% for p in ${trackers people} %}
+        {% set w = states(p.w) %}
+        {% if w == room %}
+          {% set ns.on = true %}
+        {% elif w == 'home' and states(p.l) == room
+                and (now() - states[p.w].last_changed).total_seconds() < ${
+                  toString (cfg.unlocatedMinutes * 60)
+                } %}
+          {% set ns.on = true %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.on }}
+    '';
+    availability = ''
+      {% set ns = namespace(known=false) %}
+      {% for p in ${trackers people} %}
+        {% if states(p.w) not in ['unknown', 'unavailable'] %}{% set ns.known = true %}{% endif %}
+      {% endfor %}
+      {{ ns.known }}
+    '';
+  };
 
   # Dark by the room's light-level sensor, or by the sun when it has none or the
   # sensor is not answering.
@@ -122,7 +123,8 @@ let
   };
 
   # No light of the room is on.
-  allOff = lights: "{{ expand(${toJSON lights}) | selectattr('state', 'eq', 'on') | list | count == 0 }}";
+  allOff =
+    lights: "{{ expand(${toJSON lights}) | selectattr('state', 'eq', 'on') | list | count == 0 }}";
 
   notPaused = {
     condition = "state";
@@ -329,7 +331,9 @@ let
     cfg: person:
     let
       rooms = lib.attrNames (lib.filterAttrs (_: rc: rc.music) cfg.rooms);
-      players = room: "integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${room}))";
+      players =
+        room:
+        "integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${room}))";
     in
     {
       id = "followme_music_follow_${person.slug}";
