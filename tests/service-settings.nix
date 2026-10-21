@@ -899,6 +899,8 @@ let
         && lib.hasSuffix "/bin/wpctl" watchdog.environment.WPCTL
         && lib.hasSuffix "/bin/journalctl" watchdog.environment.JOURNALCTL
         && lib.hasSuffix "/bin/mic-watchdog" watchdog.serviceConfig.ExecStart
+        && watchdog.environment.MIC_NODE == "lanbat_ps_eye_capture"
+        && lib.hasSuffix "/bin/pw-record" watchdog.environment.PW_RECORD
         && lib.elem "multi-user.target" watchdog.wantedBy
       )
     )

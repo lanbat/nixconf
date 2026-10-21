@@ -417,7 +417,11 @@ in
         PlayStation Eye behind a USB speaker) can fall into a loop of failed
         reads for hours, and the wake word goes unheard; 30 failures within a
         minute turn its card off and on again and restart the voice assistant,
-        at most every five minutes (pkgs/mic-watchdog).
+        at most every five minutes. It also catches a microphone that goes
+        silent without an error (only zero samples, checked every 30 s):
+        three checks reopen the card, three more enumerate the USB device
+        again, and then it logs that the microphone needs unplugging
+        (pkgs/mic-watchdog).
       '';
     };
 

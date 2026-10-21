@@ -268,6 +268,18 @@ most every five minutes. Look for it with `journalctl -u lanbat-mic-watchdog`, a
 failures with `journalctl -t pipewire | grep snd_pcm_mmap_commit`. Turn it off with
 `lanbat.voiceSatellite.microphone.watchdog = false`.
 
+The microphone can also stall without an error: its card stays open and PipeWire hands out
+digital silence, so the wake word is never heard and nothing is logged. On the Pi 5 (2026-10-21)
+ALSA's `hw_ptr` in `/proc/asound/card3/pcm0c/sub0/status` sat at 0, a direct `arecord` failed
+with an I/O error, and the kernel kept logging `current rate N is different from the runtime
+rate 16000` with a garbage N. So every 30 seconds the watchdog also reads two seconds from the
+capture node `lanbat_ps_eye_capture`; a window of nothing but zero samples is a silent check.
+Three in a row reopen the card as above, three more make the kernel enumerate the USB device
+again (the `authorized` switch in sysfs, a software unplug and replug), and after that the
+journal says every half hour that the microphone has to be unplugged and plugged in again,
+or its hub power-cycled. That stall survived both software steps, so expect the last message
+to be the one that matters; the first two cost a few seconds of the satellite and are harmless.
+
 `voice-satellite-diagnostics` (run with `sudo`) checks the satellite in one go: its services,
 Home Assistant's connection, Snapcast, the audio devices and streams, three seconds of
 microphone level, CPU, memory, temperature, undervoltage and recent errors. On the Pi 3,
