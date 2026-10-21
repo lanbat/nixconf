@@ -112,6 +112,11 @@ let
         illuminance = null;
         music = true;
       };
+      "Bedroom 1" = {
+        lights = [ "light.bedroom_1_left" ];
+        illuminance = null;
+        music = true;
+      };
     };
   };
   gen = fmLib.mkFollowMe {
@@ -156,13 +161,16 @@ let
   lightsOn = automation "followme_lights_on_office";
   lightsOnLive = automationLive "followme_lights_on_office";
   litClear = automation "followme_lit_clear_office";
+  lastRoom = automation "followme_lastroom_alex";
+  musicFollow = automation "followme_music_follow_alex";
+  musicFollowLive = automationLive "followme_music_follow_alex";
   lightsOff = automation "followme_lights_off_office";
   lightsOffLive = automationLive "followme_lights_off_office";
 
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
-      inherit (gen) template;
-      inherit (genCfg) unlocatedMinutes darkLux sunBelow;
+      inherit (gen) template automation;
+      inherit (genCfg) unlocatedMinutes darkLux sunBelow followCooldownSeconds;
     }
   );
 
@@ -388,6 +396,90 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
     )
     + expect "lights off: dry run only logs" (
       lib.length lightsOff.actions == 1 && lib.hasPrefix "would " (lib.head lightsOff.actions).data.message
+    )
+    + expect "last room: written whenever a tracked person's sensor names a covered room, dry run or not" (
+      lastRoom != null
+      && (lib.head lastRoom.triggers).entity_id == "sensor.lanbat_people_where_alex"
+      && lib.hasInfix "input_text.set_value" (json lastRoom.actions)
+      && lib.hasInfix "input_text.followme_lastroom_alex" (json lastRoom.actions)
+      && !(lib.hasInfix "logbook" (json lastRoom.actions))
+    )
+    + expect "last room: only rooms, never home, away, unknown or unavailable (a phone gap keeps it)" (
+      let
+        to = (lib.head lastRoom.triggers).to;
+      in
+      lib.sort (a: b: a < b) to == [
+        "Bedroom 1"
+        "Hall"
+        "Kitchen"
+        "Office"
+      ]
+    )
+    + expect "music: one rule per tracked person" (
+      musicFollow != null && automation "followme_music_follow_sam" != null
+    )
+    + expect "music: triggered by the person's last room changing, held for followSeconds" (
+      let
+        t = lib.head musicFollow.triggers;
+      in
+      t.entity_id == "input_text.followme_lastroom_alex" && t.for.seconds == 20
+    )
+    + expect "music: only between rooms that have music on" (
+      let
+        c = json musicFollow.conditions;
+      in
+      lib.hasInfix "Office" c && lib.hasInfix "Bedroom 1" c && lib.hasInfix "Hall" c
+      && !(lib.hasInfix "Kitchen" c)
+    )
+    + expect "music: not while paused, source playing, source room left empty, destination free, cooldown" (
+      let
+        c = json musicFollow.conditions;
+        v = json musicFollow.variables;
+      in
+      lib.hasInfix "input_boolean.followme_paused" c
+      && lib.hasInfix "playing" c
+      && lib.hasInfix "_occupied" c
+      && lib.hasInfix "last_triggered" c
+      && lib.hasInfix "60" c
+      && lib.hasInfix "dst_free" v
+    )
+    + expect "music: only Music Assistant players (no TV, no Kodi)" (
+      let
+        v = json musicFollow.variables;
+      in
+      lib.hasInfix "integration_entities('music_assistant')" v
+      && !(lib.hasInfix "kodi" v)
+      && !(lib.hasInfix "androidtv" v)
+    )
+    + expect "music: live run moves the queue to the free player, and does not stop anything itself" (
+      let
+        a = json musicFollowLive.actions;
+      in
+      lib.hasInfix "music_assistant.transfer_queue" a
+      && lib.hasInfix "source_player" a
+      && lib.hasInfix "auto_play" a
+      && !(lib.hasInfix "media_stop" a)
+      && !(lib.hasInfix "media_pause" a)
+    )
+    + expect "music: dry run only logs" (
+      lib.length musicFollow.actions == 1 && lib.hasPrefix "would " (lib.head musicFollow.actions).data.message
+    )
+    + expect "music: no rule when fewer than two rooms have music" (
+      let
+        one = fmLib.mkFollowMe {
+          cfg = genCfg // {
+            rooms = {
+              "Office" = {
+                lights = [ ];
+                illuminance = null;
+                music = true;
+              };
+            };
+          };
+          inherit people;
+        };
+      in
+      !(lib.any (a: lib.hasPrefix "followme_music_follow" (a.id or "")) one.automation)
     )
     + expect "manual off: the marker clears when the room's lights all go off" (
       litClear != null

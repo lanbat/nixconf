@@ -16,6 +16,7 @@ import json
 import sys
 import tempfile
 import traceback
+from types import SimpleNamespace
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
@@ -132,6 +133,45 @@ async def t_occupied_unavailable_not_off() -> None:
     got, ok = await render("followme Office occupied",
                            {WHERE["alex"]: "unavailable", LAST["alex"]: "", WHERE["sam"]: "Kitchen", LAST["sam"]: ""})
     assert ok and got == "False", "one sensor still reporting is enough to know"
+
+
+def automation(auto_id: str) -> dict:
+    return next(a for a in GEN["automation"] if a.get("id") == auto_id)
+
+
+async def eval_template(text: str, variables: dict, now: dt.datetime | None = None) -> str:
+    with tempfile.TemporaryDirectory() as cfg:
+        hass = HomeAssistant(cfg)
+        hass.config.time_zone = "UTC"
+        real_now = dt_util.now
+        if now is not None:
+            dt_util.now = lambda time_zone=None: now
+        try:
+            return Template(text, hass).async_render(variables, parse_result=False).strip()
+        finally:
+            dt_util.now = real_now
+            await hass.async_stop(force=True)
+
+
+async def t_music_room_slug_matches_the_nix_slug() -> None:
+    expr = automation("followme_music_follow_alex")["variables"]["src_slug"]
+    for room, want in (("Bedroom 1", "bedroom_1"), ("Office", "office"), ("Living  Room!", "living_room")):
+        got = await eval_template(expr, {"src": room})
+        assert got == want, f"{room!r}: {got!r}, wanted {want!r}"
+
+
+async def t_music_cooldown() -> None:
+    cond = next(c for c in automation("followme_music_follow_alex")["conditions"]
+                if "last_triggered" in json.dumps(c))
+    text = cond["value_template"]
+    cooldown = GEN["followCooldownSeconds"]
+    now = at("20:00")
+    never = SimpleNamespace(attributes={"last_triggered": None})
+    recent = SimpleNamespace(attributes={"last_triggered": now - dt.timedelta(seconds=cooldown - 5)})
+    old = SimpleNamespace(attributes={"last_triggered": now - dt.timedelta(seconds=cooldown + 5)})
+    for name, this, want in (("never", never, "True"), ("recent", recent, "False"), ("old", old, "True")):
+        got = await eval_template(text, {"this": this}, now)
+        assert got == want, f"{name}: {got!r}, wanted {want!r}"
 
 
 async def t_ignores_untracked_people() -> None:

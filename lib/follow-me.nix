@@ -296,6 +296,98 @@ let
       };
     };
 
+  # Keeps input_text.followme_lastroom_<person> at the last covered room the
+  # person was in. Bookkeeping, so it runs in a dry run too. Never `home`, `away`,
+  # `unknown` or `unavailable`: a phone that drops out leaves it where it was.
+  lastRoom = cfg: person: {
+    id = "followme_lastroom_${person.slug}";
+    alias = "Follow-me: where ${person.key} was last";
+    mode = "queued";
+    triggers = [
+      {
+        trigger = "state";
+        entity_id = whereSensor person;
+        to = lib.attrNames cfg.rooms;
+      }
+    ];
+    actions = [
+      {
+        action = "input_text.set_value";
+        target.entity_id = lastRoomHelper person;
+        data.value = "{{ trigger.to_state.state }}";
+      }
+    ];
+  };
+
+  # The music follows a person who has changed room and stayed: the person's
+  # last room changing (so a phone flicker, room to home to room, changes
+  # nothing) holds for followSeconds, and `from_state` is the room they left.
+  # Only when they were the only one there and music is playing in it, and the
+  # new room has a free Music Assistant player. Music Assistant's transfer moves
+  # the queue and stops the source player, so nothing else is switched.
+  musicFollow =
+    cfg: person:
+    let
+      rooms = lib.attrNames (lib.filterAttrs (_: rc: rc.music) cfg.rooms);
+      players = room: "integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${room}))";
+    in
+    {
+      id = "followme_music_follow_${person.slug}";
+      alias = "Follow-me: music follows ${person.key}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = lastRoomHelper person;
+          for.seconds = cfg.followSeconds;
+        }
+      ];
+      variables = {
+        src = "{{ trigger.from_state.state }}";
+        dst = "{{ trigger.to_state.state }}";
+        src_slug = "{{ src | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
+        src_players = "{{ ${players "src"} | list }}";
+        dst_free = "{{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}";
+      };
+      conditions = [
+        notPaused
+        {
+          condition = "template";
+          value_template = "{{ src != dst and src in ${toJSON rooms} and dst in ${toJSON rooms} }}";
+        }
+        {
+          condition = "template";
+          value_template = "{{ src_players | select('is_state', 'playing') | list | count > 0 }}";
+        }
+        {
+          condition = "template";
+          value_template = "{{ is_state('binary_sensor.followme_' ~ src_slug ~ '_occupied', 'off') }}";
+        }
+        {
+          condition = "template";
+          value_template = "{{ dst_free | count > 0 }}";
+        }
+        {
+          condition = "template";
+          value_template = "{{ this.attributes.last_triggered is none or (now() - this.attributes.last_triggered).total_seconds() > ${toString cfg.followCooldownSeconds} }}";
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "move the music from {{ src }} to {{ dst }}";
+        steps = [
+          {
+            action = "music_assistant.transfer_queue";
+            target.entity_id = "{{ dst_free | first }}";
+            data = {
+              source_player = "{{ src_players | select('is_state', 'playing') | first }}";
+              auto_play = true;
+            };
+          }
+        ];
+      };
+    };
+
   mkFollowMe =
     { cfg, people }:
     let
@@ -344,16 +436,21 @@ let
         }
       ];
 
-      automation = lib.concatLists (
-        lib.mapAttrsToList (
-          r: rc:
-          lib.optionals (rc.lights != [ ]) [
-            (lightsOn cfg r rc)
-            (lightsOff cfg r rc)
-            (litClear r rc)
-          ]
-        ) rooms
-      );
+      automation =
+        lib.concatLists (
+          lib.mapAttrsToList (
+            r: rc:
+            lib.optionals (rc.lights != [ ]) [
+              (lightsOn cfg r rc)
+              (lightsOff cfg r rc)
+              (litClear r rc)
+            ]
+          ) rooms
+        )
+        ++ map (lastRoom cfg) people
+        ++ lib.optionals (lib.length (lib.filter (rc: rc.music) (lib.attrValues rooms)) >= 2) (
+          map (musicFollow cfg) people
+        );
     };
 in
 {
