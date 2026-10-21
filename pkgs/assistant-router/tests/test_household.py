@@ -168,3 +168,44 @@ async def test_only_admins_from_this_page(aiohttp_client, home):
     # No admin groups configured: no page.
     taps.admins = ()
     assert (await c.get("/admin", headers=ADMIN)).status == 403
+
+
+async def test_the_admins_search_sightings(aiohttp_client, home, tmp_path):
+    from assistant_router.sightings import Sightings
+    household, people, store, taps, voice, faces, *_ = home
+    (tmp_path / "pics").mkdir()
+    household.sightings = Sightings(str(tmp_path / "s.db"), str(tmp_path / "pics"))
+    inside = household.sightings.record("Bedroom 1", "akadmin", "robot", 0.82, jpeg=b"\xff\xd8inside")
+    outside = household.sightings.record("Driveway", "akadmin", "camera", 0.7, event="1792518459.451025-ab12cd")
+    household.sightings.record("Kitchen", None, "screen", None)
+
+    async def thumbnail(event):
+        return b"\xff\xd8thumb of " + event.encode()
+
+    faces.thumbnail = thumbnail
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], household=household))
+    text = await (await c.get("/admin", headers=ADMIN)).text()
+    assert 'href="/admin/sightings"' in text
+    text = await (await c.get("/admin/sightings?days=30", headers=ADMIN)).text()
+    assert "Driveway" in text and "Bedroom 1" in text and "nobody known" in text and "(robot, 0.82)" in text
+    text = await (await c.get("/admin/sightings?person=akadmin&place=Driveway", headers=ADMIN)).text()
+    assert "Driveway" in text and "Bedroom 1, " not in text and "nobody known</h2>" not in text
+    text = await (await c.get("/admin/sightings?person=", headers=ADMIN)).text()
+    assert "Kitchen" in text and "Driveway, " not in text
+    r = await c.get(f"/admin/sightings/{inside}/picture", headers=ADMIN)
+    assert r.status == 200 and await r.read() == b"\xff\xd8inside" and r.headers["Content-Type"] == "image/jpeg"
+    r = await c.get(f"/admin/sightings/{outside}/picture", headers=ADMIN)
+    assert await r.read() == b"\xff\xd8thumb of 1792518459.451025-ab12cd"
+    assert (await c.get("/admin/sightings/999/picture", headers=ADMIN)).status == 404
+    member = {**ADMIN, "X-Authentik-Groups": "family"}
+    assert (await c.get("/admin/sightings", headers=member)).status == 403
+    assert (await c.get(f"/admin/sightings/{inside}/picture", headers=member)).status == 403
+
+
+async def test_linking_moves_sightings_too(home, tmp_path):
+    from assistant_router.sightings import Sightings
+    household = home[0]
+    household.sightings = Sightings(str(tmp_path / "s.db"))
+    household.sightings.record("Kitchen", "jaine", "robot", 0.8)
+    moved = await household.link("jaine", "akadmin")
+    assert "sightings" in moved and household.sightings.search()[0]["person"] == "akadmin"

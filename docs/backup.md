@@ -39,6 +39,7 @@
 | Data | Reason |
 |---|---|
 | Voiceprints (`/mnt/workload/voice-id/`) | Biometric data kept to a minimum: re-enrolling ("remember me") takes a minute. The directory carries a `CACHEDIR.TAG`, so a backup with `--exclude-caches` skips it too |
+| Sightings' pictures (`/mnt/workload/assistant-router/`) | Faces from the robots' and screens' cameras, kept a week at most for the admins' search; nothing needs them back |
 
 ### Regenerable (do not need to back up)
 

@@ -150,7 +150,9 @@ are overlaid by bind mounts from `/mnt/workload/`.
 ├── vaultwarden/       Vaultwarden SQLite DB + attachments (BACK THIS UP)
 ├── syncthing/         Syncthing config + SQLite index (BACK THIS UP)
 │                      (actual synced files are on Pi/b/users/<user>/sync)
-└── samba/             Samba configuration and state
+├── samba/             Samba configuration and state
+└── assistant-router/  Indoor sightings' frames, a week at most (the router is
+                       always-on: without the layer it keeps sightings, no pictures)
 
 /var/cache/
 ├── jellyfin/          Jellyfin transcodes + metadata cache (safe to delete)
@@ -164,7 +166,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Caddy | server-local | — | — |
 | Authentik | server-local | always-on PostgreSQL | — |
 | Home Assistant | server-local | always-on PostgreSQL | — |
-| Assistant router | server-local (request log) | — | — |
+| Assistant router | server-local (request log) | server-local SQLite (sightings) | workload (sightings' pictures) |
 | Nextcloud | server-local | workload PostgreSQL | Pi/b (external storage) |
 | Immich | server-local | workload PostgreSQL | Pi/a/photos |
 | Jellyfin | server-local | server-local | Pi/a/media + Pi/b/media |

@@ -22,6 +22,8 @@ import aiohttp
 _NAME = re.compile(r"^[A-Za-z0-9_-]+$")
 # A face image's file name, as Frigate lists it (akadmin_1792518459.451025.webp).
 _FILE = re.compile(r"[A-Za-z0-9_.-]{1,120}")
+# An event's id (1792518459.451025-ab12cd).
+_EVENT = re.compile(r"[0-9]{6,14}\.[0-9]{1,8}-[a-z0-9]{1,16}")
 
 
 class FrigateError(Exception):
@@ -131,6 +133,20 @@ class Frigate:
         if not _FILE.fullmatch(file or "") or ".." in file:
             raise FrigateError(f"bad face file {file!r}")
         path = f"/clips/faces/{safe_name(name)}/{file}"
+        session = await self._ensure()
+        try:
+            async with session.get(self.base + path) as resp:
+                if resp.status >= 400:
+                    raise FrigateError(f"GET {path}", status=resp.status)
+                return await resp.read()
+        except aiohttp.ClientError as e:
+            raise FrigateError(f"GET {path}", detail=str(e)) from e
+
+    async def thumbnail(self, event: str) -> bytes:
+        """A tracked object's thumbnail, as Frigate keeps it for the event."""
+        if not _EVENT.fullmatch(event or ""):
+            raise FrigateError(f"bad event {event!r}")
+        path = f"/api/events/{event}/thumbnail.jpg"
         session = await self._ensure()
         try:
             async with session.get(self.base + path) as resp:

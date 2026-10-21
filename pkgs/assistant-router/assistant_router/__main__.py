@@ -16,6 +16,7 @@ from .cards import Cards
 from .frigate import Frigate
 from .greet import Greeter
 from .household import Household
+from .sightings import Sightings
 from .irks import Irks
 from .people import People
 from .voice import VoiceIdClient
@@ -40,8 +41,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     frigate = Frigate(a.frigate_url) if a.frigate_url else None
     voice = VoiceIdClient(a.voice_id_url) if a.voice_id_url else None
     taps = None
+    household = None
     cards = Cards(a.cards_state)
     irks = Irks(a.irks_state) if a.irks_state else None
+    sightings = Sightings(a.sightings_db, a.sightings_pictures, days=a.sightings_days,
+                          picture_days=a.sightings_picture_days) if a.sightings_db else None
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -50,7 +54,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 people.add(key, name)
 
         async def forget(key: str) -> bool:
-            return await forget_person(key, people_store, voice, frigate, cards)
+            return await forget_person(key, people_store, voice, frigate, cards, sightings)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     runtime=people_store.has if people_store is not None else None, store=people_store,
@@ -61,15 +65,16 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         if irks is not None:
             taps.forgetters.append(irks.forget)
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
-                              irks=irks, forget=forget) if people_store is not None else None
+                              irks=irks, forget=forget, sightings=sightings) if people_store is not None else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
-                                      forget_phones=taps.forget_phones if taps is not None else None))]
+                                      forget_phones=taps.forget_phones if taps is not None else None,
+                                      sightings=sightings))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
-                                                   cards=cards, taps=taps, irks=irks)))
+                                                   cards=cards, taps=taps, irks=irks, sightings=sightings)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
@@ -138,6 +143,11 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--phones-state", help="JSON {mac: key} in the state dir: phones learned from taps (tap.py)")
     p.add_argument("--irks-state", help="JSON {key: [irk]} in the state dir: phones' Bluetooth keys, for the "
                    "room sensors (irks.py)")
+    p.add_argument("--sightings-db", help="SQLite in the state dir: who was seen where (sightings.py); unset: none")
+    p.add_argument("--sightings-pictures", help="where an indoor sighting's frame is kept: a directory on the "
+                   "encrypted workload layer; while it is absent, none are kept")
+    p.add_argument("--sightings-days", type=float, default=30.0, help="how long sightings are kept")
+    p.add_argument("--sightings-picture-days", type=float, default=7.0, help="how long their pictures are kept")
     p.add_argument("--mqtt-host", help="the MQTT broker: publish the robots and who is around to Home Assistant (mqtt.py)")
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-user")

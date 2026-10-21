@@ -78,6 +78,9 @@ async def fake(aiohttp_server):
         state["calls"].append(("rename", old, await request.json()))
         return web.json_response({"success": True, "message": "ok"})
 
+    async def thumb(request):
+        return web.Response(body=b"thumb " + request.match_info["event"].encode())
+
     async def clip(request):
         n, f = request.match_info["name"], request.match_info["file"]
         if f not in state["faces"].get(n, []):
@@ -86,6 +89,7 @@ async def fake(aiohttp_server):
 
     app = web.Application()
     app.router.add_get("/clips/faces/{name}/{file}", clip)
+    app.router.add_get("/api/events/{event}/thumbnail.jpg", thumb)
     app.router.add_get("/api/faces", get_faces)
     app.router.add_post("/api/faces/{name}/create", create)
     app.router.add_post("/api/faces/{name}/register", register)
@@ -202,3 +206,11 @@ async def test_moving_nothing_or_to_themselves_does_nothing(fake):
     assert state["calls"] == []
     with pytest.raises(FrigateError):
         await client.image("maria", "../secret")
+
+
+
+async def test_an_events_thumbnail(fake):
+    client, _ = fake
+    assert await client.thumbnail("1792518459.451025-ab12cd") == b"thumb 1792518459.451025-ab12cd"
+    with pytest.raises(FrigateError):
+        await client.thumbnail("../../api/config")

@@ -149,6 +149,33 @@ let
       user's groups (Authentik does). Empty: no such page.
     '';
   };
+  routerSettings.options.sightings = {
+    days = mkOption {
+      type = types.ints.positive;
+      default = 30;
+      description = ''
+        How long sightings are kept: who a robot's, a screen's or a Frigate
+        camera's frame showed, where and when (pkgs/assistant-router
+        sightings.py), for the admins' search on the who page and Home
+        Assistant's logbook.
+      '';
+    };
+    pictureDays = mkOption {
+      type = types.ints.positive;
+      default = 7;
+      description = ''
+        How long an indoor sighting keeps its frame: on the encrypted
+        workload layer, and not kept at all while the layer is locked. A
+        Frigate camera's sighting shows Frigate's own thumbnail instead,
+        kept as long as Frigate keeps it.
+      '';
+    };
+  };
+  # Indoor sightings' frames: personal data, so on the encrypted layer. The
+  # router runs as a dynamic user, so a static group owns the directory and
+  # the router joins it.
+  sightingsDir = "/mnt/workload/assistant-router";
+  sightingsGroup = "assistant-router-sightings";
   provider = config.lanbat.authProvider;
   tapping = cfg.tap && provider != null && provider.userHeader != null;
   # Mosquitto beside it, and Home Assistant wanted: the MQTT publisher.
@@ -204,7 +231,15 @@ in
         };
         extraPorts = [ bodyPort ];
         readsSecrets = lib.optional mqttHere "mosquitto-assistant-router-pass";
+        # Always-on, and fine without it while the layer is locked: the
+        # sightings are kept then, with no pictures.
+        workloadDirs."assistant-router" = {
+          user = "root";
+          group = sightingsGroup;
+          mode = "2770";
+        };
       };
+      users.groups.${sightingsGroup} = { };
       # The page a phone held to a robot opens. Declared with the router, and
       # given a host name only with tapping: whether a provider runs here is
       # known from the services themselves. Open to anyone, accounts or not:
@@ -250,6 +285,10 @@ in
               "--people-file ${peopleFile}"
               "--cards-state /var/lib/assistant-router/cards.json"
               "--people-state /var/lib/assistant-router/people.json"
+              "--sightings-db /var/lib/assistant-router/sightings.db"
+              "--sightings-pictures ${sightingsDir}"
+              "--sightings-days ${toString cfg.sightings.days}"
+              "--sightings-picture-days ${toString cfg.sightings.pictureDays}"
             ]
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
             ++ lib.optionals (!cfg.offerToMeet) [ "--no-offer-to-meet" ]
@@ -296,12 +335,27 @@ in
           );
           DynamicUser = true;
           StateDirectory = "assistant-router";
+          # The sightings' pictures, once the workload layer is open ("-":
+          # absent while it is locked, which is no reason not to start).
+          SupplementaryGroups = [ sightingsGroup ];
+          ReadWritePaths = [ "-${sightingsDir}" ];
           Restart = "always";
           RestartSec = 2;
           IPAddressDeny = "any";
           IPAddressAllow = [ "localhost" ] ++ bodyAddresses;
           # The broker password, root-owned, for a dynamic user.
           LoadCredential = lib.optional mqttHere "mosquitto-assistant-router-pass:${config.lanbat.secrets.mosquitto-assistant-router-pass.path}";
+        };
+      };
+      # The pictures' directory appears when the workload layer is unlocked; a
+      # restart lets the router write there (ReadWritePaths is fixed at start).
+      systemd.services.assistant-router-unlocked = {
+        description = "Let the assistant router keep sightings' pictures once the workload layer is online";
+        wantedBy = [ "workload-online.target" ];
+        after = [ "workload-init.service" ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${config.systemd.package}/bin/systemctl try-restart assistant-router.service";
         };
       };
     })
