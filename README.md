@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![IRC: #lanbat on Libera.Chat](https://img.shields.io/badge/IRC-%23lanbat%20on%20Libera.Chat-2f4bff.svg)](https://web.libera.chat/#lanbat)
 
-**[Take the interactive tour →](https://lanbat.github.io/nixconf/)** · part of [LAN BAT](https://lanbat.github.io/), open home infrastructure
+**[Feature list](docs/features.md)** · **[Take the interactive tour →](https://lanbat.github.io/nixconf/)** · part of [LAN BAT](https://lanbat.github.io/), open home infrastructure
 
 **A complete, production-grade homelab written in Nix** — two machines, one identity
 provider, 20+ self-hosted services, and zero Kubernetes.
@@ -66,6 +66,7 @@ You can also poke at any deployment straight from the flake: `nix run .#validate
 - [Backup strategy](docs/backup.md)
 
 **How it works**
+- [Feature list](docs/features.md): what a site can run
 - [Architecture](docs/architecture.md)
 - [Authentication & access control](docs/auth.md): users, groups and per-service entitlements
 - [Secure layers design](docs/secure-layers.md)
@@ -113,7 +114,7 @@ modules/                  core, wiring, and one directory per role: server/, sto
 hosts/server/             hardware.nix, disk.nix (disko layout)
 hosts/pi3/, hosts/pi5/    hardware.nix, one per Raspberry Pi model
 tests/                    assertion tests and VM tests
-docs/                     architecture, extensibility, plugins, migration
+docs/                     feature list, architecture, extensibility, plugins, migration
 ```
 
 ## Before you start
