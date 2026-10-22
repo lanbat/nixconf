@@ -467,11 +467,24 @@ let
         address = "192.0.2.60";
         room = "Kitchen";
         playerName = "Kitchen Show";
-        profiles.alex.glance = [ "sensor.washer_status" ];
+        profiles.alex = { };
+        profiles.sam.todo = "todo.sam_chores";
         household.calendars = [ "calendar.family" ];
       };
     }
   ];
+
+  techo5BadTodo = serverWith [
+    {
+      lanbat.deployment.techo5Devices.kitchen = {
+        address = "192.0.2.60";
+        room = "Kitchen";
+        playerName = "Kitchen Show";
+        profiles.alex.todo = "sensor.x";
+      };
+    }
+  ];
+
   # The router configured on a server that lists its services without it.
   routerUnlisted =
     (lanbatLib.mkProfile "example" (
@@ -2060,6 +2073,63 @@ let
         && failedAssertions routerNoTap == [ ]
       )
     )
+
+    (expect "techo5-bridge: per-person to-do and reminder lists in the profile" (
+      let
+        cfg = builtins.fromJSON (
+          builtins.unsafeDiscardStringContext (
+            builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
+          )
+        );
+        kitchen = lib.findFirst (d: d.name == "kitchen") null cfg.devices;
+      in
+      kitchen.profiles.alex.todo == "todo.alex_todo"
+      && kitchen.profiles.alex.reminders == "todo.alex_reminders"
+      && kitchen.profiles.sam.todo == "todo.sam_chores"
+      && kitchen.profiles.sam.reminders == "todo.sam_reminders"
+      && kitchen.household.todo == ""
+      && kitchen.household.reminders == ""
+    ))
+
+    (expect "techo5-bridge: a profile's todo must name a todo list" (
+      !(builtins.tryEval (builtins.deepSeq techo5BadTodo.lanbat.deployment.techo5Devices.kitchen true))
+      .success
+    ))
+
+    (expect "techo5: completing a reminder from the screen uses the MQTT sensors and todo.update_item" (
+      let
+        script = (haConfig routerNoTap).script.lanbat_complete_reminder or null;
+        json = builtins.toJSON script;
+      in
+      script != null
+      && script.mode == "single"
+      && lib.hasInfix "todo.update_item" json
+      && lib.hasInfix ''"status":"completed"'' json
+      && lib.hasInfix "state_attr(sensor, 'uid')" json
+      && lib.hasInfix "state_attr(sensor, 'list')" json
+      && lib.hasInfix "lanbat_screen_" json
+      && lib.hasInfix "regex_replace('[^a-z0-9]+', '_')" json
+      && lib.hasInfix "regex_replace('^_+|_+$', '')" json
+      && lib.hasInfix "slot | int(0) >= 1 and slot | int(0) <= 5" json
+      && lib.hasInfix "reminder_state not in ['none', 'unavailable', 'unknown', '']" json
+      && !(haConfig base).script ? lanbat_complete_reminder
+    ))
+
+    (expect "techo5: Home Assistant post-setup creates default local_todo lists for profiles" (
+      let
+        setup = postSetup routerNoTap;
+      in
+      lib.hasInfix "TECHO5_TODO_LISTS=" setup
+      && lib.hasInfix "alex_todo" setup
+      && lib.hasInfix "alex_reminders" setup
+      && lib.hasInfix "sam_reminders" setup
+      && !(lib.hasInfix "sam_chores" setup)
+      && lib.hasInfix "ensure_todo_lists" (
+        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
+      )
+      && lib.hasInfix "todo_list_name" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
+      && lib.hasInfix "storage_key" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
+    ))
 
     (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
       (

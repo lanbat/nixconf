@@ -48,8 +48,10 @@ PROTOCOL = 1
 CAN = ["caption", "greet", "capture", "phones", "here"]
 
 PROBE_S = 20.0           # a frame this often while someone unnamed is in front
+ITEMS_REFRESH_S = 60.0   # reminders, to-dos and events while a screen view is shown
 CA_RETRY_S = 60.0        # an install of the CA that failed is tried again after this
 SETTING_RETRY_S = 60.0   # a setting the device didn't take is sent again after this
+_ITEMS_NEVER = object()  # _items_for before the first fetch is scheduled
 GREET_SECONDS = 10       # how long a greeting stays up
 THANKS_SECONDS = 5       # and the thanks that takes the sign-in code down
 CODE_SECONDS = 60        # and the sign-in code
@@ -62,6 +64,8 @@ class Profile:
     glance: list[str] = field(default_factory=list)
     calendars: list[str] = field(default_factory=list)
     immich_person: str = ""
+    todo: str = ""
+    reminders: str = ""
 
     @classmethod
     def from_json(cls, data: Any) -> "Profile":
@@ -69,7 +73,9 @@ class Profile:
         return cls(view=str(data.get("view") or ""),
                    glance=[str(e) for e in data.get("glance") or []][:8],
                    calendars=[str(c) for c in data.get("calendars") or []],
-                   immich_person=str(data.get("immich_person") or ""))
+                   immich_person=str(data.get("immich_person") or ""),
+                   todo=str(data.get("todo") or ""),
+                   reminders=str(data.get("reminders") or ""))
 
 
 @dataclass
@@ -152,6 +158,10 @@ class Brain:
         self.notes: list[dict] = []
         self._noted_here: list[str] | None = None
         self._noted_view: str | None = None
+        self._items_for: str | None | object = _ITEMS_NEVER
+        self._next_items: float = 0.0
+        self._last_items: dict | None = None
+        self._fetch_gen: int = 0
 
     def note(self, **what: Any) -> None:
         self.notes.append(what)
@@ -271,6 +281,7 @@ class Brain:
             if keys != self._noted_here:
                 self._noted_here = keys
                 self.note(here=keys)
+            out += self._items_here_changed(now)
             if not self.here and self._person and self._named:
                 # The router lost them (it restarted, or its evidence ran out)
                 # while someone is still in front: ask again who it is.
@@ -338,13 +349,147 @@ class Brain:
             mine = self.cfg.profiles.get(key)
             default = Profile(view=key if key in self.people else "",
                               glance=[f"sensor.lanbat_people_where_{k}" for k in sorted(self.people)
-                                      if k != key][:8])
+                                      if k != key][:8],
+                              todo=f"todo.{key}_todo", reminders=f"todo.{key}_reminders")
             if mine is None:
                 return key, default
             return key, Profile(view=mine.view or default.view, glance=mine.glance or default.glance,
                                 calendars=mine.calendars or self.cfg.household.calendars,
-                                immich_person=mine.immich_person)
+                                immich_person=mine.immich_person,
+                                todo=mine.todo or f"todo.{key}_todo",
+                                reminders=mine.reminders or f"todo.{key}_reminders")
         return None, self.cfg.household
+
+    def wants_items(self) -> tuple[str | None, Profile]:
+        return self.profile()
+
+    def _empty_items(self, person: str | None = None) -> dict:
+        return {"items": {"person": person, "reminders": [], "todos": [], "more": 0, "events": []}}
+
+    def _send_items(self, msg: dict, *, force: bool = False) -> list:
+        if not force and msg == self._last_items:
+            return []
+        self._last_items = msg
+        return [("router", msg)]
+
+    def items(self, now: float, data: dict | None, *, for_person: str | None = None) -> list:
+        from . import lists
+
+        if data is None:
+            return self._send_items(self._empty_items(for_person))
+        payload = {
+            "person": for_person,
+            "reminders": [{"uid": r.uid, "title": lists.clean(r.title), "due": r.due.isoformat() if r.due else None,
+                           "list": r.list}
+                          for r in data["reminders"]],
+            "todos": [{"title": lists.clean(t.title)} for t in data["todos"]],
+            "more": data["more"],
+            "events": [{"title": lists.clean(e.title), "start": e.start.isoformat(), "all_day": e.all_day}
+                       for e in data["events"]],
+        }
+        return self._send_items({"items": payload})
+
+    def merge_fetch(self, rem_raw: dict | None, todo_raw: dict | None, ev_raw: dict | None,
+                    *, now=None) -> dict | None:
+        from datetime import datetime
+
+        from . import lists
+
+        if rem_raw is None and todo_raw is None and ev_raw is None:
+            return None
+        if now is None:
+            now = datetime.now().astimezone()
+        person, prof = self.wants_items()
+        reminders: list = []
+        todos: list = []
+        more = 0
+        if person is not None and prof.reminders and rem_raw is not None:
+            reminders = lists.pick_reminders(lists.parse_items(prof.reminders, rem_raw), now)
+        if person is not None and prof.todo and todo_raw is not None:
+            todos, more = lists.pick_todos(lists.parse_items(prof.todo, todo_raw))
+        cals = prof.calendars or self.cfg.household.calendars
+        events = lists.parse_events(ev_raw, now) if ev_raw is not None and cals else []
+        return {"reminders": reminders, "todos": todos, "more": more, "events": events}
+
+    def _fetch_target_ok(self, for_person: str | None) -> bool:
+        n = len(self.here)
+        if n >= 2:
+            return False
+        if n == 1:
+            return for_person == self.here[0]["person"]
+        return for_person is None
+
+    def apply_fetch(self, for_person: str | None, gen: int, rem_raw: dict | None, todo_raw: dict | None,
+                    ev_raw: dict | None, *, now=None, mono: float = 0.0) -> list:
+        if gen != self._fetch_gen or not self._fetch_target_ok(for_person):
+            return []
+        data = self.merge_fetch(rem_raw, todo_raw, ev_raw, now=now)
+        if data is None:
+            return []
+        return self.items(mono, data, for_person=for_person)
+
+    def router_connected(self, now: float) -> list:
+        self._last_items = None
+        if len(self.here) >= 2 or not self._can_fetch() or not self._screen_shows_items():
+            return []
+        person, prof = self.wants_items()
+        self._next_items = now + ITEMS_REFRESH_S
+        self._items_for = person if len(self.here) == 1 else None
+        return self._maybe_fetch(person, prof, now)
+
+    def _can_fetch(self) -> bool:
+        return bool(self.cfg.ha_url and self.cfg.ha_token)
+
+    def _screen_shows_items(self) -> bool:
+        if self._dimmed:
+            return False
+        return self.echo.get("screen") is not False
+
+    def _invalidate_fetches(self) -> None:
+        self._fetch_gen += 1
+
+    def _items_here_changed(self, now: float) -> list:
+        n = len(self.here)
+        person, prof = self.wants_items()
+        prev = self._items_for
+        if n >= 2:
+            self._invalidate_fetches()
+            self._items_for = "__multi__"
+            self._next_items = now + ITEMS_REFRESH_S
+            return self._send_items(self._empty_items(), force=True)
+        if n == 1:
+            out: list = []
+            if prev != person:
+                if prev is not _ITEMS_NEVER:
+                    self._invalidate_fetches()
+                self._items_for = person
+                self._next_items = now + ITEMS_REFRESH_S
+                out += self._maybe_fetch(person, prof, now)
+            return out
+        out = []
+        if isinstance(prev, str):
+            self._invalidate_fetches()
+            out += self._send_items(self._empty_items(), force=True)
+        if prev is not None:
+            self._items_for = None
+            self._next_items = now + ITEMS_REFRESH_S
+            out += self._maybe_fetch(None, prof, now)
+        return out
+
+    def _maybe_fetch(self, person: str | None, prof: Profile, now: float) -> list:
+        if not self._can_fetch():
+            return []
+        return [("fetch", person, prof, self._fetch_gen)]
+
+    def _items_tick(self, now: float) -> list:
+        if len(self.here) >= 2 or not self._can_fetch() or not self._screen_shows_items():
+            return []
+        person, prof = self.wants_items()
+        if now < self._next_items:
+            return []
+        self._next_items = now + ITEMS_REFRESH_S
+        self._items_for = person if len(self.here) == 1 else None
+        return self._maybe_fetch(person, prof, now)
 
     def _apply_profile(self) -> list:
         _, p = self.profile()
@@ -410,7 +555,7 @@ class Brain:
         self._ca = "done" if ok else now + CA_RETRY_S
 
     def tick(self, now: float) -> list:
-        out = self._probe(now) + self._screen(now) + self._install_ca(now)
+        out = self._probe(now) + self._screen(now) + self._install_ca(now) + self._items_tick(now)
         if now - self._reported >= REPORT_SECONDS:
             self._reported = now
             seen = self.tracker.report(now)

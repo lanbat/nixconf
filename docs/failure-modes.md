@@ -94,7 +94,7 @@ Services that stay up during Pi reboot (always-on tier):
 - Snapserver ✓
 - Wyoming pipeline (STT/TTS/wake word), the speaker-identification proxy (`voice-id`, which Home Assistant's speech-to-text goes through: if it is down, voice commands get no transcript until it restarts; switching the Voice pipeline's speech-to-text to faster-whisper in Home Assistant bypasses it; while the workload layer is locked it transcribes as usual but recognises nobody), the local conversation model (`llama-cpp`, when `haLlm` is on the loopback) and the server's voice satellite ✓
 - Who is home (`wifi-presence`) ✓ (if it stops, the router forgets who is home after 3 minutes; recognition carries on without it)
-- Echo Shows (`techo5-bridge`) ✓ (if it stops, the devices still answer as voice satellites and show their clocks; greetings, personal screens and the screen going off in an empty room stop until it restarts)
+- Echo Shows (`techo5-bridge`) ✓ (if it stops, the devices still answer as voice satellites and show their clocks; greetings, personal screens and the screen going off in an empty room stop until it restarts). If Home Assistant is down while the bridge runs, fetches fail and the screen shows no reminder, to-do or event tiles; greeting and home status are limited to what the device can still load from Home Assistant when it is back
 - Telegraf (server) ✓
 - Redis (Immich) ✓
 - Homepage ✓

@@ -91,10 +91,24 @@ let
     }
     // device.settings;
 
-  profileJson = p: {
+  profileJson = key: p: {
     view = if p.view == null then "" else p.view;
     inherit (p) glance calendars;
     immich_person = p.immichPerson;
+    todo =
+      if key == null then
+        ""
+      else if p.todo != null then
+        p.todo
+      else
+        "todo.${key}_todo";
+    reminders =
+      if key == null then
+        ""
+      else if p.reminders != null then
+        p.reminders
+      else
+        "todo.${key}_reminders";
   };
 
   configFile = pkgs.writeText "techo5-bridge.json" (
@@ -122,8 +136,8 @@ let
         settings = settingsFor d;
         screen_off_after = d.screenOffAfter * 60;
         ha_url = lib.optionalString hasHa "https://ha.${domain}";
-        profiles = lib.mapAttrs (_: profileJson) d.profiles;
-        household = profileJson d.household;
+        profiles = lib.mapAttrs (person: profileJson person) d.profiles;
+        household = profileJson null d.household;
         install_ca = d.installCa;
       }) devices;
     }

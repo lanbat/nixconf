@@ -133,6 +133,20 @@ let
     };
     inherit people;
   };
+  genAnyCfg = genCfg // {
+    lightsOffAny = true;
+    lightsOffAnyMinutes = 10;
+  };
+  genAny = fmLib.mkFollowMe {
+    cfg = genAnyCfg;
+    inherit people;
+  };
+  genAnyLive = fmLib.mkFollowMe {
+    cfg = genAnyCfg // {
+      dryRun = false;
+    };
+    inherit people;
+  };
   templateEntities = lib.concatMap (b: (b.binary_sensor or [ ]) ++ (b.sensor or [ ])) gen.template;
   entityNames = map (e: e.name) templateEntities;
 
@@ -170,16 +184,26 @@ let
   musicFollowLive = automationLive "followme_music_follow_alex";
   lightsOff = automation "followme_lights_off_office";
   lightsOffLive = automationLive "followme_lights_off_office";
+  automationAny = id: lib.findFirst (a: (a.id or "") == id) null genAny.automation;
+  automationAnyLive = id: lib.findFirst (a: (a.id or "") == id) null genAnyLive.automation;
+  lightsOffAny = automationAny "followme_lights_off_any_office";
+  lightsOffAnyLive = automationAnyLive "followme_lights_off_any_office";
+  lightsOffAnyKitchen = automationAny "followme_lights_off_any_kitchen";
 
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
       inherit (gen) template automation;
+      automationLightsOffAny = genAny.automation;
+      automationLightsOffAnyLive = genAnyLive.automation;
       inherit (genCfg)
         unlocatedMinutes
         darkLux
         sunBelow
         followCooldownSeconds
         ;
+      lightsOffAnyMinutes = genAnyCfg.lightsOffAnyMinutes;
+      kitchenLights = genAnyCfg.rooms.Kitchen.lights;
+      echoShowKitchenLight = "light.kitchen_echo_screen";
     }
   );
 
@@ -243,6 +267,8 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       in
       c.arriveSeconds == 10
       && c.lightsOffMinutes == 5
+      && c.lightsOffAny == false
+      && c.lightsOffAnyMinutes == 10
       && c.followSeconds == 20
       && c.followCooldownSeconds == 60
       && c.musicPauseMinutes == 15
@@ -416,6 +442,54 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
     + expect "lights off: dry run only logs" (
       lib.length lightsOff.actions == 1
       && lib.hasPrefix "would " (lib.head lightsOff.actions).data.message
+    )
+    + expect "lights off any: absent by default" (automation "followme_lights_off_any_office" == null)
+    + expect "lights off any: a rule per room with lights when enabled, none without" (
+      lightsOffAny != null
+      && automationAny "followme_lights_off_any_hall" == null
+      && lightsOffAnyKitchen != null
+    )
+    + expect "lights off any: triggered by occupied on to off for lightsOffAnyMinutes" (
+      let
+        t = lib.head lightsOffAny.triggers;
+      in
+      t.entity_id == "binary_sensor.followme_office_occupied"
+      && t.from == "on"
+      && t.to == "off"
+      && t.for.minutes == 10
+    )
+    + expect "lights off any: never from unavailable (on to off only)" (
+      (lib.head lightsOffAny.triggers).from == "on"
+    )
+    + expect "lights off any: not while paused or with guests, only when a room light is on" (
+      let
+        c = json lightsOffAny.conditions;
+      in
+      lib.hasInfix "input_boolean.followme_paused" c
+      && lib.hasInfix "input_boolean.followme_guests" c
+      && !(lib.hasInfix "followme_lit_office" c)
+      && lib.hasInfix "light.office_lamp" c
+    )
+    + expect "lights off any: live run turns off only the room's configured lights" (
+      let
+        a = json lightsOffAnyLive.actions;
+      in
+      lib.hasInfix "light.turn_off" a
+      && lib.hasInfix "light.office_lamp" a
+      && !(lib.hasInfix "followme_lit" a)
+      && !(lib.hasInfix "light.turn_on" a)
+    )
+    + expect "lights off any: dry run logs the hand-switched message" (
+      lib.length lightsOffAny.actions == 1
+      && lib.hasPrefix "would " (lib.head lightsOffAny.actions).data.message
+      && lib.hasInfix "switched by hand" (lib.head lightsOffAny.actions).data.message
+    )
+    + expect "lights off any: kitchen targets only its listed lights, not the Echo Show" (
+      let
+        live = automationAnyLive "followme_lights_off_any_kitchen";
+        steps = lib.elemAt live.actions 1;
+      in
+      steps.action == "light.turn_off" && steps.target.entity_id == [ "light.kitchen_strip" ]
     )
     +
       expect "last room: written whenever a tracked person's sensor names a covered room, dry run or not"

@@ -28,8 +28,12 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
   - a frame when a person comes into view, for Frigate to name ("seen"), and one for
     "remember me";
   - a greeting as a notification;
-  - the room's person's own screen: their dashboard view, glance chips, calendars and
-    Immich photos; the household's for nobody, someone unknown or several people;
+  - the room's person's own screen (see below): their dashboard view, glance chips,
+    calendars and Immich photos; the household's for nobody, someone unknown or several
+    people;
+  - while the screen is on, a fetch every 60 seconds of that view's reminders, to-dos and
+    calendar events from Home Assistant (the voice satellite user's token), sent to the
+    assistant router as plain item payloads;
   - the sign-in code (the who page's link as a QR code) for someone it can't name, once
     per arrival;
   - the screen off after `screenOffAfter` minutes of an empty, idle room, on again when
@@ -37,6 +41,50 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
   - the household's phones in its Bluetooth adverts, as a room sensor.
 - **Dashboards**: `lanbat-screen-<room>`, drawn by the device, a view per person.
 - `script.lanbat_notify_person` sends a message to the body beside a person.
+
+## What the person's screen shows
+
+Each profile may name a Home Assistant to-do list for open tasks and one for reminders
+(`profiles.<person>.todo` and `.reminders`; when left out they default to
+`todo.<person key>_todo` and `todo.<person key>_reminders`). The household profile has
+none. Those lists are ordinary Home Assistant entities: anyone with a login can open them
+in the apps or edit them by voice. The Echo Show shows them only when the router places
+**exactly one** known person in the room; a bystander, an unknown face or several people
+get the household view instead, with no reminders or to-dos.
+
+`home-assistant-post-setup` creates the default lists as `local_todo` entries when they
+do not exist yet. You may point a profile at an existing `todo.*` entity instead.
+
+When one person is alone, their dashboard view (`lanbat-screen-<room>`, path
+`<person key>`) is a stack of sections, top to bottom: a greeting, **Reminders** (hidden
+when there are none), **Next up** (today and tomorrow, up to three events), **To-do**
+(the first open items and a “more” count), then **Home** (glance chips, the room's lights
+off button, weather and who's where). The household view keeps the greeting, **Next up**
+and **Home** only. On narrow screens (under 600 px width) the **Home** section hides; the
+greeting and reminders never do.
+
+The bridge reads the lists and calendars with `todo.get_items` and
+`calendar.get_events`, then sends items to the router. The router publishes MQTT sensors
+on the screen's device, named like `sensor.lanbat_screen_<room slug>_reminder_1` …
+`_reminder_5`, `_todo_1` … `_todo_5`, `_todo_more`, and `_event_1` … `_event_3`. Reminder
+and to-do slots hold text only while that same person is alone in the room; they clear when
+someone else arrives, the router restarts, or the bridge disconnects. Calendar events for
+the household view publish whenever a screen body is connected, at any occupancy.
+
+Tapping a reminder tile runs `script.lanbat_complete_reminder`, which marks the item done in
+Home Assistant (`todo.update_item`). To-do tiles are display-only.
+
+If Home Assistant is down or refuses a service call, the bridge sends no items: the screen
+still shows the greeting and home status where it can, but reminder, to-do and event tiles
+stay empty until Home Assistant answers again.
+
+### Not yet verified on a live system
+
+- That the voice satellite user's token may call `todo.get_items`, `todo.update_item` and
+  `calendar.get_events` (if one is refused, grant that capability to the satellite user in
+  `pkgs/home-assistant-post-setup/setup-ha.sh`).
+- That `local_todo` lists are created as expected on a live Home Assistant (not only in
+  the post-setup script tests).
 
 ## Trusting Home Assistant's certificate
 

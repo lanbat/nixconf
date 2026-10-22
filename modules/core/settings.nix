@@ -494,6 +494,24 @@ in
                     default = "";
                     description = "The person, as Immich names them, whose photos the slideshow shows; empty: everyone's.";
                   };
+                  todo = mkOption {
+                    type = types.nullOr (types.strMatching "todo\\.[a-z0-9_]+");
+                    default = null;
+                    example = "todo.alex_todo";
+                    description = ''
+                      The Home Assistant to-do list for this person on the device;
+                      null: todo.<person key>_todo.
+                    '';
+                  };
+                  reminders = mkOption {
+                    type = types.nullOr (types.strMatching "todo\\.[a-z0-9_]+");
+                    default = null;
+                    example = "todo.alex_reminders";
+                    description = ''
+                      The Home Assistant to-do list for this person's reminders;
+                      null: todo.<person key>_reminders.
+                    '';
+                  };
                 };
               };
             in

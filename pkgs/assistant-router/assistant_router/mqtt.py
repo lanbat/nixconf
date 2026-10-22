@@ -34,9 +34,10 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any, Awaitable, Callable
 
-from .body import GESTURE_EVENTS, MOODS, PHASES, Bodies
+from .body import GESTURE_EVENTS, MOODS, PHASES, Bodies, normalize_items_payload
 
 LOOKS = ("track", "user", "up", "center")
 from .people import People
@@ -244,6 +245,97 @@ def _where_topic(key: str) -> str:
     return f"{PREFIX}/people/{slug(key)}/where"
 
 
+REMINDER_SLOTS = 5
+TODO_SLOTS = 5
+EVENT_SLOTS = 3
+
+
+def _screen_uid(room: str) -> str:
+    return f"lanbat_screen_{slug(room)}"
+
+
+def _screen_base(room: str) -> str:
+    return f"{PREFIX}/screen/{slug(room)}"
+
+
+def _format_event(event: dict) -> str:
+    title = event.get("title") or ""
+    if event.get("all_day"):
+        return title or "none"
+    start = event.get("start")
+    if not isinstance(start, str):
+        return title or "none"
+    text = start[:-1] + "+00:00" if start.endswith("Z") else start
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError:
+        return title or "none"
+    return f"{when.strftime('%H:%M')} {title}"
+
+
+def items_discovery(room: str) -> list[tuple[str, dict]]:
+    """Discovery for a room's screen item sensors (reminders, to-dos, events)."""
+    uid = _screen_uid(room)
+    device = {"identifiers": [uid], "name": f"{room} screen", "manufacturer": "lanbat",
+              "model": "Reminders and to-dos", "suggested_area": room}
+    common = {"device": device, "availability": [{"topic": ROUTER_AVAILABILITY}]}
+    base = _screen_base(room)
+
+    def entity(suffix: str, name: str, topic: str, *, attributes: bool = False) -> tuple[str, dict]:
+        obj = f"{uid}_{suffix}"
+        cfg = {**common, "name": name, "unique_id": obj, "object_id": obj, "state_topic": topic}
+        if attributes:
+            cfg["json_attributes_topic"] = f"{topic}/attributes"
+        return (f"{DISCOVERY}/sensor/{uid}/{suffix}/config", cfg)
+
+    out = [entity(f"reminder_{i}", f"Reminder {i}", f"{base}/reminder/{i}", attributes=True)
+           for i in range(1, REMINDER_SLOTS + 1)]
+    out += [entity(f"todo_{i}", f"To-do {i}", f"{base}/todo_{i}") for i in range(1, TODO_SLOTS + 1)]
+    out.append(entity("todo_more", "More to-dos", f"{base}/todo_more"))
+    out += [entity(f"event_{i}", f"Event {i}", f"{base}/event_{i}") for i in range(1, EVENT_SLOTS + 1)]
+    return out
+
+
+def items_state(room: str, items: dict | None) -> dict[str, tuple[str, dict]]:
+    """object_id -> (state, attributes); empty slots are the string `none`."""
+    uid = _screen_uid(room)
+    empty = ("none", {})
+    out = {f"{uid}_reminder_{i}": empty for i in range(1, REMINDER_SLOTS + 1)}
+    out.update({f"{uid}_todo_{i}": empty for i in range(1, TODO_SLOTS + 1)})
+    out.update({f"{uid}_event_{i}": empty for i in range(1, EVENT_SLOTS + 1)})
+    out[f"{uid}_todo_more"] = ("0", {})
+    if not items:
+        return out
+    parsed = normalize_items_payload(items)
+    reminders = parsed["reminders"]
+    todos = parsed["todos"]
+    events = parsed["events"]
+    more = parsed["more"]
+    for i, rem in enumerate(reminders[:REMINDER_SLOTS], 1):
+        if isinstance(rem, dict) and isinstance(rem.get("title"), str):
+            attrs = {k: rem[k] for k in ("uid", "list", "due") if isinstance(rem.get(k), str)}
+            out[f"{uid}_reminder_{i}"] = (rem["title"], attrs)
+    for i, todo in enumerate(todos[:TODO_SLOTS], 1):
+        if isinstance(todo, dict) and isinstance(todo.get("title"), str):
+            out[f"{uid}_todo_{i}"] = (todo["title"], {})
+    for i, event in enumerate(events[:EVENT_SLOTS], 1):
+        if isinstance(event, dict):
+            out[f"{uid}_event_{i}"] = (_format_event(event), {})
+    out[f"{uid}_todo_more"] = (str(more), {})
+    return out
+
+
+def _items_topics(room: str) -> dict[str, tuple[str, bool]]:
+    """object_id -> (state topic, whether it has a separate attributes topic)."""
+    uid = _screen_uid(room)
+    base = _screen_base(room)
+    topics = {f"{uid}_reminder_{i}": (f"{base}/reminder/{i}", True) for i in range(1, REMINDER_SLOTS + 1)}
+    topics.update({f"{uid}_todo_{i}": (f"{base}/todo_{i}", False) for i in range(1, TODO_SLOTS + 1)})
+    topics[f"{uid}_todo_more"] = (f"{base}/todo_more", False)
+    topics.update({f"{uid}_event_{i}": (f"{base}/event_{i}", False) for i in range(1, EVENT_SLOTS + 1)})
+    return topics
+
+
 def people_discovery(names: dict[str, str] | None = None) -> list[tuple[str, dict]]:
     """The People device: who is home, and a "Where is <name>" for each person
     (`names`, key -> name)."""
@@ -419,12 +511,15 @@ class HomeAssistant:
     """Keeps Home Assistant's view of the robots and people current; the MQTT
     connection itself is the caller's (run_mqtt), behind `publish`."""
 
-    def __init__(self, bodies: Bodies, people: People, clock: Callable[[], float]) -> None:
+    def __init__(self, bodies: Bodies, people: People, clock: Callable[[], float],
+                 *, screen_rooms: tuple[str, ...] | list[str] = ()) -> None:
         self.bodies = bodies
         self.people = people
         self.clock = clock
+        self._screen_rooms = tuple(screen_rooms)
         self._published: dict[str, str] = {}  # topic -> payload, to send only changes
         self._discovered: dict[str, tuple[str | None, bool]] = {}  # room -> (its firmware, a robot) as announced
+        self._items_discovered: set[str] = set()  # rooms whose item entities were announced
         self._leds: dict[str, dict] = {}  # room -> the light's state, as last commanded
         self._people_announced: dict[str, str] | None = None  # the people announced, key -> name
         bodies.events = asyncio.Queue(maxsize=64)
@@ -441,7 +536,48 @@ class HomeAssistant:
         """Home Assistant restarted, or the broker connection is new: send it all again."""
         self._published.clear()
         self._discovered.clear()
+        self._items_discovered.clear()
         self._people_announced = None
+
+    def _items_rooms(self) -> list[str]:
+        seen = {r.casefold(): r for r in self._screen_rooms}
+        for room in self.bodies.rooms():
+            if self.bodies.kind(room) == "screen":
+                seen.setdefault(room.casefold(), room)
+        return sorted(seen.values(), key=str.casefold)
+
+    def _items_to_publish(self, room: str, now: float) -> dict | None:
+        """None clears every slot. Household (`person` null) publishes events only."""
+        if not self.bodies.has(room) or self.bodies.kind(room) != "screen":
+            return None
+        here = self.people.here(room, now)
+        self.bodies.reconcile_screen_items(room, here)
+        stored = self.bodies.screen_items(room)
+        if stored is None:
+            return None
+        person = stored.get("person")
+        if person is None:
+            return {"person": None, "reminders": [], "todos": [], "more": 0, "events": stored.get("events") or []}
+        if len(here) != 1 or next(iter(here)) != person:
+            return None
+        return stored
+
+    async def _publish_items(self, publish: Publish, room: str, items: dict | None,
+                            *, force: bool = False) -> None:
+        if room not in self._items_discovered:
+            for topic, config in items_discovery(room):
+                await self._send(publish, topic, config)
+            self._items_discovered.add(room)
+        for obj, (state, attrs) in items_state(room, items).items():
+            topic, with_attrs = _items_topics(room)[obj]
+            await self._send(publish, topic, state, force=force)
+            if with_attrs:
+                await self._send(publish, f"{topic}/attributes", attrs, force=force)
+
+    async def bootstrap_items(self, publish: Publish) -> None:
+        """Retained `none` on every configured screen room before anything else."""
+        for room in self._items_rooms():
+            await self._publish_items(publish, room, None, force=True)
 
     async def tick(self, publish: Publish) -> None:
         now = self.clock()
@@ -484,6 +620,8 @@ class HomeAssistant:
         for room in [r for r in self._discovered if r not in rooms]:
             await self._send(publish, f"{_base(room)}/availability", "offline")
             del self._discovered[room]
+        for room in self._items_rooms():
+            await self._publish_items(publish, room, self._items_to_publish(room, now))
 
     async def events(self, publish: Publish) -> None:
         while True:
@@ -507,6 +645,7 @@ class HomeAssistant:
         if topic == f"{DISCOVERY}/status":
             if payload == "online":
                 self.forget()
+                await self.bootstrap_items(publish)
                 await self.tick(publish)
             return
         parts = topic.split("/")
@@ -546,6 +685,7 @@ async def run_mqtt(ha: HomeAssistant, host: str, port: int, username: str | None
                     await client.publish(topic, payload, retain=retain)
 
                 ha.forget()
+                await ha.bootstrap_items(publish)
                 await publish(ROUTER_AVAILABILITY, "online", True)
                 await client.subscribe(f"{DISCOVERY}/status")
                 await client.subscribe(f"{PREFIX}/stackchan/+/cmd/+")

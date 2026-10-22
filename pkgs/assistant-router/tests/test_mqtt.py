@@ -2,7 +2,7 @@ import asyncio
 import json
 
 from assistant_router.body import Bodies
-from assistant_router.mqtt import HomeAssistant, command, robot_discovery, slug
+from assistant_router.mqtt import HomeAssistant, command, items_discovery, items_state, robot_discovery, slug
 from assistant_router.people import Assessment, People
 
 
@@ -405,3 +405,184 @@ def test_a_sighting_is_an_event_in_the_logbook():
     assert configs["homeassistant/event/lanbat_stackchan_living_room/sighting/config"]["event_types"] == ["seen"]
     assert "homeassistant/event/lanbat_room_kitchen/sighting/config" in dict(
         robot_discovery("Kitchen", None, robot=False))
+
+
+SAMPLE_ITEMS = {
+    "person": "alex",
+    "reminders": [{"uid": "r1", "title": "Pay bill", "due": "2026-10-21T09:00:00+00:00",
+                   "list": "todo.alex_reminders"}],
+    "todos": [{"title": "Buy milk"}, {"title": "Call mom"}],
+    "more": 0,
+    "events": [{"title": "Standup", "start": "2026-10-21T10:00:00+00:00", "all_day": False}],
+}
+
+MARIA_ITEMS = {
+    "person": "maria",
+    "reminders": [{"uid": "r2", "title": "Water plants", "due": None, "list": "todo.maria_reminders"}],
+    "todos": [], "more": 0, "events": [],
+}
+
+HOUSEHOLD_ITEMS = {
+    "person": None,
+    "reminders": [],
+    "todos": [],
+    "more": 0,
+    "events": [{"title": "Family dinner", "start": "2026-10-21T18:00:00+00:00", "all_day": False}],
+}
+
+
+def test_items_discovery_names_the_room_screen():
+    configs = dict(items_discovery("Kitchen"))
+    uid = "lanbat_screen_kitchen"
+    reminder = configs[f"homeassistant/sensor/{uid}/reminder_1/config"]
+    assert reminder["unique_id"] == f"{uid}_reminder_1"
+    assert reminder["object_id"] == f"{uid}_reminder_1"
+    assert reminder["device"]["name"] == "Kitchen screen"
+    assert reminder["state_topic"] == "lanbat/screen/kitchen/reminder/1"
+    assert reminder["json_attributes_topic"] == "lanbat/screen/kitchen/reminder/1/attributes"
+    assert configs[f"homeassistant/sensor/{uid}/todo_more/config"]["state_topic"] == \
+        "lanbat/screen/kitchen/todo_more"
+    assert len([k for k in configs if "/reminder_" in k]) == 5
+    assert len([k for k in configs if "/todo_" in k and "more" not in k]) == 5
+    assert len([k for k in configs if "/event_" in k]) == 3
+
+
+def test_items_state_fills_slots_and_empties_the_rest():
+    states = items_state("Kitchen", SAMPLE_ITEMS)
+    uid = "lanbat_screen_kitchen"
+    assert states[f"{uid}_reminder_1"] == ("Pay bill", {"uid": "r1", "list": "todo.alex_reminders",
+                                                        "due": "2026-10-21T09:00:00+00:00"})
+    assert states[f"{uid}_reminder_2"] == ("none", {})
+    assert states[f"{uid}_todo_1"] == ("Buy milk", {})
+    assert states[f"{uid}_todo_2"] == ("Call mom", {})
+    assert states[f"{uid}_todo_3"] == ("none", {})
+    assert states[f"{uid}_todo_more"] == ("0", {})
+    assert states[f"{uid}_event_1"] == ("10:00 Standup", {})
+    assert states[f"{uid}_event_2"] == ("none", {})
+    assert all(states[f"{uid}_reminder_{i}"][0] == "none" for i in range(2, 6))
+
+
+async def test_items_become_slot_sensors():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    socket = Socket()
+    bodies.connect("Kitchen", socket, "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Pay bill"
+    attrs = broker.last("lanbat/screen/kitchen/reminder/1/attributes")
+    assert attrs == {"uid": "r1", "list": "todo.alex_reminders", "due": "2026-10-21T09:00:00+00:00"}
+    assert broker.last("lanbat/screen/kitchen/todo_1") == "Buy milk"
+    assert broker.last("lanbat/screen/kitchen/todo_2") == "Call mom"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "10:00 Standup"
+    assert broker.last("lanbat/screen/kitchen/reminder/5") == "none"
+
+
+async def test_household_events_publish_with_no_one_or_two_people_in_the_room():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex", "maria": "Maria"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    bodies.receive_items("Kitchen", HOUSEHOLD_ITEMS, people_here=0, sole_person=None)
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/todo_1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    people.observe("Kitchen", "tap", "maria", 1.0, 100.0)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
+
+
+async def test_two_people_in_the_room_publish_nothing_private():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex", "maria": "Maria"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    people.observe("Kitchen", "tap", "maria", 1.0, 100.0)
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/todo_1") == "none"
+    assert broker.last("lanbat/screen/kitchen/todo_more") == "0"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "none"
+    bodies.receive_items("Kitchen", HOUSEHOLD_ITEMS, people_here=2, sole_person=None)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
+
+
+async def test_disconnect_clears():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    socket = Socket()
+    bodies.connect("Kitchen", socket, "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Pay bill"
+    bodies.disconnect("Kitchen", socket)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+
+
+async def test_start_clears_retained_slots():
+    bodies = Bodies("You are Nabu.")
+    people = People({})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    slots = [t for t, _, retain in broker.messages if t.startswith("lanbat/screen/kitchen/") and retain]
+    assert slots
+    assert all(broker.last(t) == "none" or broker.last(t) == "0" for t in slots
+               if not t.endswith("/attributes"))
+    assert broker.messages[0][2] is True
+
+
+async def test_stale_items_are_not_shown_to_the_next_person_alone():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex", "maria": "Maria"})
+    clock = [100.0]
+    ha = HomeAssistant(bodies, people, lambda: clock[0], screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, clock[0])
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Pay bill"
+    clock[0] = 250.0  # alex's tap aged out; maria alone before her bridge fetch
+    people.observe("Kitchen", "tap", "maria", 1.0, clock[0])
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    bodies.receive_items("Kitchen", MARIA_ITEMS, people_here=1, sole_person="maria")
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Water plants"
+
+
+async def test_unchanged_items_are_not_republished():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    before = len(broker.messages)
+    await ha.tick(broker.publish)
+    assert len(broker.messages) == before

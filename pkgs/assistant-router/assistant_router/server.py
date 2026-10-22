@@ -852,6 +852,10 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                                                     "caption": f"Got it, {name}! That's your card now."})
                     if data["event"].get("tapped") is True:
                         LOG.info(json.dumps({"body": "phone tapped", "room": room}))
+                elif room and kind not in non_bodies and isinstance(data.get("items"), dict):
+                    here = people.here(room, clock())
+                    sole = next(iter(here)) if len(here) == 1 else None
+                    bodies.receive_items(room, data["items"], people_here=len(here), sole_person=sole)
                 elif room and kind not in non_bodies and isinstance(data.get("state"), dict):
                     bodies.update(room, data["state"], clock())
                     observe_faces(room, data["state"].get("faces"), clock(), source="aimed")

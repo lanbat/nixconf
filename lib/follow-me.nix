@@ -126,6 +126,10 @@ let
   allOff =
     lights: "{{ expand(${toJSON lights}) | selectattr('state', 'eq', 'on') | list | count == 0 }}";
 
+  # At least one light of the room is on.
+  anyOn =
+    lights: "{{ expand(${toJSON lights}) | selectattr('state', 'eq', 'on') | list | count > 0 }}";
+
   notPaused = {
     condition = "state";
     entity_id = "input_boolean.followme_paused";
@@ -293,6 +297,46 @@ let
           {
             action = "input_boolean.turn_off";
             target.entity_id = "input_boolean.followme_lit_${r}";
+          }
+        ];
+      };
+    };
+
+  # Hand-switched lights off once the room has been empty for a while. No
+  # followme_lit gate: these are lights someone turned on, not follow-me's.
+  lightsOffAny =
+    cfg: room: rc:
+    let
+      r = slug room;
+    in
+    {
+      id = "followme_lights_off_any_${r}";
+      alias = "Follow-me: hand-switched lights off in ${room}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.followme_${r}_occupied";
+          from = "on";
+          to = "off";
+          for.minutes = cfg.lightsOffAnyMinutes;
+        }
+      ];
+      conditions = [
+        notPaused
+        notGuests
+        {
+          condition = "template";
+          value_template = anyOn rc.lights;
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn off the ${room} lights (nobody there, switched by hand)";
+        steps = [
+          {
+            action = "light.turn_off";
+            target.entity_id = rc.lights;
           }
         ];
       };
@@ -486,11 +530,16 @@ let
         lib.concatLists (
           lib.mapAttrsToList (
             r: rc:
-            lib.optionals (rc.lights != [ ]) [
-              (lightsOn cfg r rc)
-              (lightsOff cfg r rc)
-              (litClear r rc)
-            ]
+            lib.optionals (rc.lights != [ ]) (
+              [
+                (lightsOn cfg r rc)
+                (lightsOff cfg r rc)
+                (litClear r rc)
+              ]
+              ++ lib.optionals (cfg.lightsOffAny or false) [
+                (lightsOffAny cfg r rc)
+              ]
+            )
           ) rooms
         )
         ++ lib.mapAttrsToList (r: _: musicPause cfg r) (lib.filterAttrs (_: rc: rc.music) rooms)

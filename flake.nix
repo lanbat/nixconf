@@ -175,6 +175,9 @@
         media-feed-bridge = import ./tests/media-feed-bridge.nix { inherit pkgs; };
         pkgs-build = import ./tests/pkgs-build.nix { inherit pkgs; };
         ha-dashboards = import ./tests/ha-dashboards.nix { inherit pkgs; };
+        home-assistant-post-setup-todo-lists = import ./tests/home-assistant-post-setup-todo-lists.nix {
+          inherit pkgs;
+        };
         ha-oidc-secret = import ./tests/ha-oidc-secret.nix { inherit pkgs; };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };

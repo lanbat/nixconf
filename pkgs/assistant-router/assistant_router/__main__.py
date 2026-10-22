@@ -81,13 +81,19 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
+    screen_rooms: tuple[str, ...] = ()
+    if a.screen_rooms_file:
+        with open(a.screen_rooms_file, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, list):
+            screen_rooms = tuple(str(r) for r in loaded if isinstance(r, str) and r.strip())
     mqtt = None
     if a.mqtt_host:
         password = None
         if a.mqtt_password_file:
             with open(a.mqtt_password_file, encoding="utf-8") as f:
                 password = f.read().strip()
-        ha = HomeAssistant(bodies, people, time.monotonic)
+        ha = HomeAssistant(bodies, people, time.monotonic, screen_rooms=screen_rooms)
         mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
         if a.body_port and not a.no_greet else None
@@ -152,6 +158,7 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--mqtt-port", type=int, default=1883)
     p.add_argument("--mqtt-user")
     p.add_argument("--mqtt-password-file", help="the broker password, one line (a systemd credential)")
+    p.add_argument("--screen-rooms-file", help="JSON list of rooms with techo5 screens (mqtt.py item sensors)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,

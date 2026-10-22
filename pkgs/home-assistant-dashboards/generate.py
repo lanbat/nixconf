@@ -606,28 +606,92 @@ def where_sensors(home: Home, people: dict[str, str], but: str | None = None) ->
             if k != but and f"sensor.lanbat_people_where_{person_slug(k)}" in ids]
 
 
+SCREEN_EMPTY = ["none", "unavailable", "unknown"]
+WIDE_SCREEN = [{"condition": "screen", "media_query": "(min-width: 600px)"}]
+
+
+def screen_sensor(room: str, suffix: str) -> str:
+    """Entity id for a room screen item sensor (assistant router object_id)."""
+    return f"sensor.lanbat_screen_{person_slug(room)}_{suffix}"
+
+
+def screen_item_visible(entity: str) -> list[dict]:
+    return shown_unless(entity, SCREEN_EMPTY)
+
+
+def complete_reminder_action(room: str, slot: int) -> dict:
+    return {"action": "perform-action", "perform_action": "script.lanbat_complete_reminder",
+            "data": {"room": room, "slot": slot}}
+
+
+def reminders_section(room: str) -> dict:
+    cards = [heading("Reminders", "mdi:bell-outline")]
+    for slot in range(1, 6):
+        entity = screen_sensor(room, f"reminder_{slot}")
+        cards.append(tile(entity, name="Reminder", tap_action=complete_reminder_action(room, slot),
+                          visibility=screen_item_visible(entity)))
+    return {"type": "grid", "cards": cards,
+            "visibility": screen_item_visible(screen_sensor(room, "reminder_1"))}
+
+
+def next_up_section(room: str) -> dict:
+    cards = [heading("Next up", "mdi:calendar-clock")]
+    for slot in range(1, 4):
+        entity = screen_sensor(room, f"event_{slot}")
+        cards.append(tile(entity, visibility=screen_item_visible(entity)))
+    return {"type": "grid", "cards": cards,
+            "visibility": screen_item_visible(screen_sensor(room, "event_1"))}
+
+
+def todo_section(room: str) -> dict:
+    cards = [heading("To-do", "mdi:checkbox-marked-outline")]
+    for slot in range(1, 6):
+        entity = screen_sensor(room, f"todo_{slot}")
+        cards.append(tile(entity, visibility=screen_item_visible(entity)))
+    more = screen_sensor(room, "todo_more")
+    cards.append(tile(more, name="More to-dos",
+                      visibility=[{"condition": "state", "entity": more,
+                                   "state_not": ["0", "unavailable", "unknown"]}]))
+    return {"type": "grid", "cards": cards}
+
+
+def greeting_section(room: str, area: dict | None, people: dict[str, str], person: str | None) -> dict:
+    first = people.get(person, "").split()[0] if person and people.get(person, "").split() else ""
+    return {"type": "grid", "cards": [heading(f"Hi {first}" if first else room,
+                                            "mdi:hand-wave" if first else
+                                            (area_icon(area) if area else "mdi:home-outline"))]}
+
+
+def home_section(home: Home, room: str, area: dict | None, people: dict[str, str],
+                 person: str | None, weather: str) -> dict:
+    cards: list[dict] = []
+    if weather:
+        cards.append(tile(weather, grid_options={"columns": 12}))
+    room_lights = [e for e in home.lights() if area and home.area_of(e) == area["id"]]
+    if room_lights:
+        cards.append({"type": "button", "name": "Lights off", "icon": "mdi:lightbulb-group-off", "show_state": False,
+                      "tap_action": all_off_action(room_lights, confirm=False), "hold_action": {"action": "none"},
+                      "visibility": [{"condition": "or", "conditions": [
+                          {"condition": "state", "entity": l, "state": "on"} for l in room_lights]}]})
+    devices = [c for c in (room_cards(home, area["id"]) if area else []) if c["type"] != "picture-entity"]
+    if devices and area:
+        cards.append(subheading(area["name"], area_icon(area)))
+        cards += devices
+    for sensor in where_sensors(home, people, but=person):
+        cards.append(tile(sensor))
+    return {"type": "grid", "cards": cards, "visibility": WIDE_SCREEN}
+
+
 def screen_sections(home: Home, room: str, people: dict[str, str], person: str | None) -> list[dict]:
     area = next((a for a in home.areas if a["name"].casefold() == room.casefold()), None)
     weather = next((e["id"] for e in home.primary if e["domain"] == "weather"), "")
-    first = people.get(person, "").split()[0] if person and people.get(person, "").split() else ""
-    top = [heading(f"Hi {first}" if first else room, "mdi:hand-wave" if first else
-                   (area_icon(area) if area else "mdi:home-outline"))]
-    if weather:
-        top.append(tile(weather, grid_options={"columns": 12}))
-    room_lights = [e for e in home.lights() if area and home.area_of(e) == area["id"]]
-    if room_lights:
-        top.append({"type": "button", "name": "Lights off", "icon": "mdi:lightbulb-group-off", "show_state": False,
-                    "tap_action": all_off_action(room_lights, confirm=False), "hold_action": {"action": "none"},
-                    "visibility": [{"condition": "or", "conditions": [
-                        {"condition": "state", "entity": l, "state": "on"} for l in room_lights]}]})
-    sections = [{"type": "grid", "cards": top}]
-    cards = [c for c in (room_cards(home, area["id"]) if area else []) if c["type"] != "picture-entity"]
-    if cards:
-        sections.append({"type": "grid", "cards": [subheading(area["name"], area_icon(area))] + cards})
-    others = where_sensors(home, people, but=person)
-    if others:
-        sections.append({"type": "grid", "cards": [subheading("Who's where", "mdi:account-group")]
-                         + [tile(s) for s in others]})
+    sections: list[dict] = [greeting_section(room, area, people, person)]
+    if person:
+        sections.append(reminders_section(room))
+    sections.append(next_up_section(room))
+    if person:
+        sections.append(todo_section(room))
+    sections.append(home_section(home, room, area, people, person, weather))
     return sections
 
 

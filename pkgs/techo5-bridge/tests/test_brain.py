@@ -1,15 +1,28 @@
 import base64
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from room_presence import _ah
-from techo5_bridge.brain import CAN, PROBE_S, Brain, DeviceConfig, Profile, _manufacturer_data, mac
+from techo5_bridge.brain import (
+    CAN,
+    ITEMS_REFRESH_S,
+    PROBE_S,
+    Brain,
+    DeviceConfig,
+    Profile,
+    _manufacturer_data,
+    mac,
+)
+from techo5_bridge.lists import Event, Item
 
 PEOPLE = {"kiril": "Kiril Example", "maria": "Maria"}
 
 
 def brain(**extra) -> Brain:
+    people = extra.pop("people", PEOPLE)
     cfg = DeviceConfig(name="kitchen", room="Kitchen", dashboard="lanbat-screen-kitchen",
                        code_url="http://192.0.2.10:8775/code/x.png", **extra)
-    return Brain(cfg, PEOPLE)
+    return Brain(cfg, people)
 
 
 def calls(outs, action=None):
@@ -18,6 +31,13 @@ def calls(outs, action=None):
 
 def to_router(outs):
     return [o[1] for o in outs if o[0] == "router"]
+
+
+def fetches(outs):
+    return [o for o in outs if o[0] == "fetch"]
+
+
+EMPTY_ITEMS = {"items": {"person": None, "reminders": [], "todos": [], "more": 0, "events": []}}
 
 
 def test_it_says_hello_as_a_screen():
@@ -310,3 +330,144 @@ def test_the_screen_going_off_and_on_is_kept_for_the_log():
     b.tick(71.0)
     notes = [n for n in b.take_notes() if "screen" in n and "why" in n]
     assert [n["screen"] for n in notes] == ["off", "on"]
+
+
+def test_one_known_person_gets_a_fetch_at_once():
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"})
+    outs = b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    (kind, who, prof, gen) = fetches(outs)[0]
+    assert kind == "fetch" and who == "alex" and prof == b.profile()[1] and gen == 0
+    who, prof = b.wants_items()
+    assert who == "alex" and prof.todo == "todo.alex_todo" and prof.reminders == "todo.alex_reminders"
+
+
+def test_two_people_get_no_items_and_the_sensors_are_cleared():
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex", "maria": "Maria"})
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    outs = b.router({"here": [{"person": "alex"}, {"person": "maria"}]}, 1.0)
+    assert EMPTY_ITEMS in to_router(outs)
+    assert not fetches(outs)
+
+
+def test_leaving_clears_items():
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"})
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    outs = b.router({"here": []}, 5.0)
+    assert EMPTY_ITEMS in to_router(outs)
+
+
+def test_lone_person_leaving_fetches_household_items():
+    household = Profile(calendars=["calendar.family"])
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"}, household=household)
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    outs = b.router({"here": []}, 5.0)
+    assert EMPTY_ITEMS in to_router(outs)
+    assert fetches(outs)[0][:3] == ("fetch", None, household)
+
+
+def test_items_are_refreshed_every_minute_while_alone():
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"})
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 100.0)
+    assert not fetches(b.tick(100.0 + ITEMS_REFRESH_S - 1))
+    assert fetches(b.tick(100.0 + ITEMS_REFRESH_S))[0][:3] == ("fetch", "alex", b.profile()[1])
+
+
+def test_items_message_shape():
+    tz = ZoneInfo("UTC")
+    due = datetime(2026, 10, 21, 9, 0, tzinfo=tz)
+    start = datetime(2026, 10, 21, 14, 0, tzinfo=tz)
+    data = {
+        "reminders": [Item("r1", "Pay bill", due, "todo.alex_reminders")],
+        "todos": [Item("t1", "Buy milk", None, "todo.alex_todo")],
+        "more": 2,
+        "events": [Event("Standup", start, False)],
+    }
+    b = brain(people={"alex": "Alex"})
+    (msg,) = to_router(b.items(0.0, data, for_person="alex"))
+    assert msg == {
+        "items": {
+            "person": "alex",
+            "reminders": [{"uid": "r1", "title": "Pay bill", "due": due.isoformat(), "list": "todo.alex_reminders"}],
+            "todos": [{"title": "Buy milk"}],
+            "more": 2,
+            "events": [{"title": "Standup", "start": start.isoformat(), "all_day": False}],
+        }
+    }
+
+
+def test_items_message_names_the_person():
+    b = brain(people={"alex": "Alex"})
+    (msg,) = to_router(b.items(0.0, {"reminders": [], "todos": [], "more": 0, "events": []}, for_person="alex"))
+    assert msg["items"]["person"] == "alex"
+    (clear,) = to_router(b.items(1.0, None, for_person=None))
+    assert clear["items"]["person"] is None
+
+
+def test_household_fetches_events_only():
+    household = Profile(calendars=["calendar.family"])
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", household=household)
+    outs = b.router({"here": []}, 0.0)
+    assert fetches(outs)[0][:3] == ("fetch", None, household)
+    assert b.profile()[1].todo == "" and b.profile()[1].reminders == ""
+
+
+def test_a_failed_read_still_sends_events():
+    tz = ZoneInfo("UTC")
+    start = datetime(2026, 10, 21, 14, 0, tzinfo=tz)
+    b = brain()
+    data = {"reminders": [], "todos": [], "more": 0, "events": [Event("Standup", start, False)]}
+    assert to_router(b.items(0.0, data, for_person="alex")) == [{
+        "items": {
+            "person": "alex",
+            "reminders": [],
+            "todos": [],
+            "more": 0,
+            "events": [{"title": "Standup", "start": start.isoformat(), "all_day": False}],
+        }
+    }]
+    assert to_router(b.items(1.0, data, for_person="alex")) == []
+    assert b.merge_fetch(None, None, None) is None
+
+
+def test_stale_fetch_after_a_second_person_arrives():
+    tz = ZoneInfo("UTC")
+    start = datetime(2026, 10, 21, 14, 0, tzinfo=tz)
+    ev = {"calendar.a": {"events": [{"summary": "Standup", "start": start.isoformat(), "end": start.isoformat()}]}}
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex", "maria": "Maria"},
+              household=Profile(calendars=["calendar.a"]))
+    gen = fetches(b.router({"here": [{"person": "alex"}]}, 0.0))[0][3]
+    b.router({"here": [{"person": "alex"}, {"person": "maria"}]}, 1.0)
+    assert to_router(b.apply_fetch("alex", gen, None, None, ev, now=start, mono=2.0)) == []
+
+
+def test_stale_fetch_after_the_person_leaves():
+    tz = ZoneInfo("UTC")
+    start = datetime(2026, 10, 21, 14, 0, tzinfo=tz)
+    ev = {"calendar.a": {"events": [{"summary": "Standup", "start": start.isoformat(), "end": start.isoformat()}]}}
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"},
+              household=Profile(calendars=["calendar.a"]))
+    gen = fetches(b.router({"here": [{"person": "alex"}]}, 0.0))[0][3]
+    b.router({"here": []}, 5.0)
+    assert to_router(b.apply_fetch("alex", gen, None, None, ev, now=start, mono=6.0)) == []
+
+
+def test_router_reconnect_fetches_items_at_once():
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"})
+    b.router({"here": [{"person": "alex"}]}, 0.0)
+    tz = ZoneInfo("UTC")
+    data = {"reminders": [], "todos": [], "more": 0,
+            "events": [Event("Standup", datetime(2026, 10, 21, 14, 0, tzinfo=tz), False)]}
+    to_router(b.items(1.0, data, for_person="alex"))
+    assert to_router(b.items(2.0, data, for_person="alex")) == []
+    assert fetches(b.router_connected(10.0))[0][:3] == ("fetch", "alex", b.profile()[1])
+
+
+def test_items_are_not_fetched_while_the_screen_is_off():
+    household = Profile(calendars=["calendar.family"])
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", household=household)
+    b.router({"here": []}, 0.0)
+    b._dimmed = True
+    assert not fetches(b.tick(ITEMS_REFRESH_S))
+    b._dimmed = False
+    b.state("screen", False, 1.0)
+    assert not fetches(b.tick(ITEMS_REFRESH_S + 1))
