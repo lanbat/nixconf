@@ -109,20 +109,82 @@ class Streams(unittest.TestCase):
                 await voice.task
             boosted = [c for c in self.calls if c[0] == duck.WPCTL and c[1] == "set-volume"]
             duck.follow(voice, "tts_finished")
-            back = [c for c in self.calls if c[0] == duck.WPCTL][-1]
+            mark = len(self.calls)
+            await voice.releasing
+            back = [c for c in self.calls[mark:] if c[0] == duck.WPCTL][-1]
             duck.follow(voice, "idle")
             return boosted, back
 
-        real = duck.lva_volume
+        real = (duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE)
+        duck.RELEASE_DELAY = duck.RELEASE_FADE = 0.02
         try:
             boosted, back = asyncio.run(go(0.4))
         finally:
-            duck.lva_volume = real
+            duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE = real
         self.assertTrue(boosted)
         self.assertEqual(boosted[-1][2], "20")
         self.assertAlmostEqual(float(boosted[-1][3]), 2.5, places=2)  # +8 dB, capped at full scale
         self.assertEqual(back[1:], ("set-volume", "20", "1.000"))
         self.assertFalse(voice.busy)
+        self.assertEqual(voice.boosted, {})
+
+    def volumes_since(self, mark):
+        return [float(c[3]) for c in self.calls[mark:] if c[0] == duck.WPCTL and c[1] == "set-volume"]
+
+    def test_the_boost_stays_while_the_last_word_plays_then_ramps_down(self):
+        # The end of a reply dropped several dB when the boost came off in one
+        # step as the player's "finished" arrived, ahead of the audio buffers.
+        room = duck.Room()
+        room.add(-35)
+        voice = duck.Voice(room)
+
+        async def go():
+            duck.follow(voice, "tts_speaking")
+            await voice.task
+            duck.follow(voice, "tts_finished")
+            mark = len(self.calls)
+            await asyncio.sleep(0.1)  # inside the delay: nothing changes
+            during = self.volumes_since(mark)
+            await voice.releasing
+            return during, self.volumes_since(mark)
+
+        real = (duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE, duck.STEP)
+        duck.lva_volume = lambda: 0.4
+        duck.RELEASE_DELAY, duck.RELEASE_FADE, duck.STEP = 0.3, 0.1, 0.02
+        try:
+            during, after = asyncio.run(go())
+        finally:
+            duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE, duck.STEP = real
+        self.assertEqual(during, [])
+        self.assertGreater(len(after), 2)  # a ramp, not one step
+        self.assertEqual(after, sorted(after, reverse=True))
+        self.assertEqual(after[-1], 1.0)
+
+    def test_a_second_reply_before_the_release_keeps_the_boost(self):
+        # A continued conversation: the next reply starts inside the delay.
+        room = duck.Room()
+        room.add(-35)
+        voice = duck.Voice(room)
+
+        async def go():
+            duck.follow(voice, "tts_speaking")
+            await voice.task
+            duck.follow(voice, "tts_finished")
+            mark = len(self.calls)
+            await asyncio.sleep(0.05)
+            duck.follow(voice, "tts_speaking")
+            await asyncio.sleep(0.3)  # past where the release would have run
+            return self.volumes_since(mark)
+
+        real = (duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE)
+        duck.lva_volume = lambda: 0.4
+        duck.RELEASE_DELAY, duck.RELEASE_FADE = 0.15, 0.05
+        try:
+            seen = asyncio.run(go())
+        finally:
+            duck.lva_volume, duck.RELEASE_DELAY, duck.RELEASE_FADE = real
+        self.assertTrue(all(v > 2.4 for v in seen), seen)  # never dips toward 1.0
+        self.assertIn(20, voice.boosted)
 
     def test_a_quiet_room_touches_nothing(self):
         room = duck.Room()
