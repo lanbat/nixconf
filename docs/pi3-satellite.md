@@ -411,6 +411,12 @@ to set:
   notifications.
 - **TV power over CEC.** "Turn the TV off/on" switches the TV through Kodi's CEC adapter
   (`CECStandby` / `CECActivateSource`), sent through Kodi's EventServer on the loopback.
+- **Sound survives a PipeWire restart.** Kodi's PipeWire output never reconnects, so the TV
+  sessions (Kodi and EmulationStation) restart with PipeWire. A deploy that restarts the
+  audio stops a film for a moment instead of leaving it silent until someone restarts Kodi.
+  If a film has no sound, `journalctl -u tv-kodi` and Kodi's `~media/.kodi/temp/kodi.log`
+  say `no sink was returned` when Kodi has lost PipeWire; `sudo systemctl restart tv-kodi`
+  brings it back.
 - **Films and episodes by voice.** "Watch The Matrix", "play the movie Heat", "play the
   next episode of Severance", "play the show The Bear" look in that room's Kodi library:
   a film first, then a show's first unwatched episode.

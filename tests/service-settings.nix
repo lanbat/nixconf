@@ -2227,6 +2227,21 @@ let
       # "to" stays what sets a level, so a wildcard cannot read "up by 30" as a level.
       && lib.all (c: lib.hasInfix " to {level}" c) (commands "set")
     ))
+
+    # Kodi's PipeWire output never reconnects: a film was silent for nine days
+    # after PipeWire restarted on a deploy (2026-10-22).
+    (expect "tv box: the TV sessions restart with PipeWire, so Kodi keeps its sound" (
+      lib.all
+        (
+          u:
+          lvaTvBox.systemd.services.${u}.partOf == [ "pipewire.service" ]
+          && lib.elem "pipewire.service" lvaTvBox.systemd.services.${u}.after
+        )
+        [
+          "tv-kodi"
+          "tv-games"
+        ]
+    ))
   ];
 
   partCases = map (c: c.value) (
