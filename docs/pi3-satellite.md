@@ -23,7 +23,9 @@ used.
   reads 1 while the supply is too weak. The USB ports draw from the same supply (1.2 A for
   all four), so give a USB hub a power supply of its own. A crash shows up as a short boot in
   `journalctl --list-boots`: the hardware watchdog restarts a Pi that has stopped within
-  15 s. `journalctl -k -g Undervoltage` lists the warnings that reached the card, and one
+  15 s. If the card stops completing writes instead, the Pi keeps running and answering
+  pings, but its log just ends. The kernel restarts it once a task has waited 5 minutes on
+  the card. `journalctl -k -g Undervoltage` lists the warnings that reached the card, and one
   just before a crash points at the supply. A crash in the middle of a deploy can leave
   empty files in the Nix store, though not since `hosts/pi3/hardware.nix` flushes each
   path before registering it. `sudo nix-store --verify --check-contents` finds them. It

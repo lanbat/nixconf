@@ -14,8 +14,9 @@
 #
 # 1 GB of RAM: compressed swap in RAM keeps a build or a nix evaluation from
 # being killed. The journal is persistent but capped, so a crash leaves a log.
-# A Pi 3 on a supply that sags crashes: the watchdog brings it back, and Nix
-# flushes every store path to the card, so a crash mid-deploy damages none.
+# A Pi 3 on a supply that sags crashes, and its card can stop completing
+# writes: the watchdog brings it back from either, and Nix flushes every store
+# path to the card, so a crash mid-deploy damages none.
 {
   config,
   lib,
@@ -60,6 +61,16 @@
   # which resets the board when nothing has for 15 s, about the longest its
   # counter runs. A kernel panic stops the petting too.
   systemd.settings.Manager.RuntimeWatchdogSec = "15s";
+
+  # The card can also stop completing writes while the Pi runs on from memory.
+  # On 2026-10-21 one stayed connected to Home Assistant for two hours after
+  # its last log line reached the card, and systemd went on petting the
+  # watchdog. A task stuck waiting on I/O for 5 minutes, far longer than a slow
+  # write takes, now makes the kernel panic, and the watchdog restarts the board.
+  boot.kernel.sysctl = {
+    "kernel.hung_task_timeout_secs" = 300;
+    "kernel.hung_task_panic" = 1;
+  };
 
   # The image's console loglevel of 7 floods the serial line and the journal.
   boot.consoleLogLevel = lib.mkForce 4;
