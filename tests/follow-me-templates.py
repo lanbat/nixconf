@@ -151,6 +151,17 @@ def automation(auto_id: str) -> dict:
     return next(a for a in GEN["automation"] if a.get("id") == auto_id)
 
 
+def automation_lights_off_any(auto_id: str) -> dict:
+    return next(a for a in GEN["automationLightsOffAny"] if a.get("id") == auto_id)
+
+
+def find_automation(auto_id: str) -> dict | None:
+    try:
+        return automation(auto_id)
+    except StopIteration:
+        return None
+
+
 async def eval_template(text: str, variables: dict, now: dt.datetime | None = None) -> str:
     with tempfile.TemporaryDirectory() as cfg:
         hass = HomeAssistant(cfg)
@@ -186,6 +197,52 @@ async def t_music_cooldown() -> None:
         assert got == want, f"{name}: {got!r}, wanted {want!r}"
 
 
+async def test_lights_off_any_is_absent_by_default() -> None:
+    assert find_automation("followme_lights_off_any_office") is None
+
+
+async def test_lights_off_any_triggers_after_ten_minutes_empty() -> None:
+    auto = automation_lights_off_any("followme_lights_off_any_office")
+    t = auto["triggers"][0]
+    assert t == {
+        "trigger": "state",
+        "entity_id": "binary_sensor.followme_office_occupied",
+        "from": "on",
+        "to": "off",
+        "for": {"minutes": GEN["lightsOffAnyMinutes"]},
+    }
+
+
+async def test_lights_off_any_respects_pause_guests_and_dry_run() -> None:
+    auto = automation_lights_off_any("followme_lights_off_any_office")
+    kinds = {c.get("condition") for c in auto["conditions"]}
+    assert kinds == {"state", "template"}
+    entities = {c.get("entity_id") for c in auto["conditions"] if c.get("condition") == "state"}
+    assert entities == {"input_boolean.followme_paused", "input_boolean.followme_guests"}
+    assert auto["actions"][0]["action"] == "logbook.log"
+    msg = auto["actions"][0]["data"]["message"]
+    assert msg.startswith("would ") and "switched by hand" in msg
+
+
+async def test_lights_off_any_only_touches_the_rooms_lights() -> None:
+    lamp = GEN["kitchenLights"]
+    echo = GEN["echoShowKitchenLight"]
+    assert lamp == ["light.kitchen_strip"] and echo not in lamp
+    auto = automation_lights_off_any("followme_lights_off_any_kitchen")
+    on_tpl = next(c for c in auto["conditions"] if c.get("condition") == "template")["value_template"]
+    assert "light.kitchen_strip" in on_tpl and echo not in on_tpl
+    live = next(a for a in GEN["automationLightsOffAnyLive"] if a.get("id") == "followme_lights_off_any_kitchen")
+    off = next(a for a in live["actions"] if a.get("action") == "light.turn_off")
+    assert off["target"]["entity_id"] == lamp and echo not in off["target"]["entity_id"]
+
+
+async def test_unavailable_presence_does_not_turn_lights_off() -> None:
+    for auto_id in ("followme_lights_off_office", "followme_lights_off_any_office"):
+        auto = automation_lights_off_any(auto_id) if "any" in auto_id else automation(auto_id)
+        assert auto["triggers"][0]["from"] == "on"
+        assert auto["triggers"][0]["to"] == "off"
+
+
 async def t_ignores_untracked_people() -> None:
     states = {WHERE["alex"]: "Kitchen", LAST["alex"]: "", WHERE["sam"]: "Kitchen", LAST["sam"]: "",
               "sensor.lanbat_people_where_guest": "Office"}
@@ -195,13 +252,19 @@ async def t_ignores_untracked_people() -> None:
 
 async def main() -> int:
     failed = 0
-    for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t_")):
+    tests = sorted(
+        (n, f)
+        for n, f in globals().items()
+        if n.startswith("t_") or n.startswith("test_")
+    )
+    for name, fn in tests:
+        label = name[2:] if name.startswith("t_") else name[5:]
         try:
             await fn()
-            print(f"ok   {name[2:]}")
+            print(f"ok   {label}")
         except Exception:
             failed += 1
-            print(f"FAIL {name[2:]}\n{traceback.format_exc()}")
+            print(f"FAIL {label}\n{traceback.format_exc()}")
     return 1 if failed else 0
 
 

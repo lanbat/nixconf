@@ -116,6 +116,20 @@ in
       default = 5;
       description = "How long a room must be empty before the lights follow-me turned on go off.";
     };
+    lightsOffAny = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Turn off a room's lights when it has been empty for a while, including ones
+        switched on by hand. Only the lights listed for the room; never a screen or
+        robot LED. Respects dry run, pause and guests like the other empty-room rules.
+      '';
+    };
+    lightsOffAnyMinutes = mkOption {
+      type = seconds;
+      default = 10;
+      description = "How long a room must be empty before hand-switched lights go off.";
+    };
     followSeconds = mkOption {
       type = seconds;
       default = 20;
