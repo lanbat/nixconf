@@ -36,13 +36,18 @@ class Connection:
     last_received_ms: int | None
 
 
-_HEAD = re.compile(r"^\S+\s+(\d+)\s+\d+\s+\S+\s+\S+(?:\s+(.*))?$")
+# [State] Recv-Q Send-Q Local Peer [users]. `ss` leaves the State column out
+# when asked for `state established`, which is how this runs; it is there
+# without that filter. A pattern that wanted it never found snapclient's
+# connection on a Pi 5 (2026-10-22), and restarted a healthy, idle client every
+# two minutes: 638 times in a day.
+_HEAD = re.compile(r"^(?:[A-Za-z][\w-]*\s+)?(\d+)\s+\d+\s+\S+\s+\S+(?:\s+(.*))?$")
 _PID = re.compile(r"pid=(\d+)")
 
 
 def parse(output: str) -> list[Connection]:
-    """The connections in `ss -Htinp` output: a line per socket, then its
-    indented details."""
+    """The connections in `ss -Htinp` output, with or without the State
+    column: a line per socket, then its indented details."""
     found: list[Connection] = []
     for line in output.splitlines():
         if not line.strip():
