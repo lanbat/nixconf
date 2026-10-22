@@ -332,14 +332,32 @@ pictures, Wi-Fi, Bluetooth, card):
   there, so it isn't changed here.
 - **Guest:** a name typed on the who page, with no account (or fixed by an admin).
 - **Heard:** met by voice, the name as Nabu heard it.
+- **Unknown:** a face that matched no one, with a name Nabu made up (below).
 
-For guests and names heard, an admin can:
+For guests, names heard and Unknowns, an admin can:
 
 - **fix the name** (a heard name is then confirmed, a guest);
 - **forget** them: voice, faces, cards and phones;
-- **link them to an account**, when they turn out to be the same person: their voice,
-  face pictures, phones and cards move to the account, and the entry goes. It can't be
-  split apart again, so the page asks first.
+- **merge them into someone else**, when they turn out to be the same person: their voice,
+  face pictures, phones, cards, sightings and settings move to that person, and the entry
+  goes. The other can be an account, a guest, a heard name or another Unknown, but an
+  Unknown never absorbs someone who has been identified. It can't be split apart again,
+  so the page asks first.
+
+Anyone with face pictures also has a **Face pictures** page: each picture the library
+holds for them, with a delete button (it asks first). Deleting one stops Nabu using it to
+recognise them; deleting the last means it can't recognise them at all. Frigate's own
+`train` folder of unclassified attempts is never a person, and `train` can't be a name.
+
+**Find duplicates** (shown while there are Unknowns) asks the face library who each
+Unknown's later pictures look like, up to 12 Unknowns and 3 pictures each, and lists the
+pairs it is at least 0.6 sure of, with the picture and a *Merge them…* button. It runs
+only when you press the button (every picture is a call to Frigate), and the answer is kept
+ten minutes. The picture an Unknown was first enrolled with isn't tried: it would only say it
+is itself. It is a suggestion: look at the faces before merging.
+
+On **Sightings**, each row can be moved to someone else (*"that wasn't them"*), or to *Nobody
+known*; *add this picture to them* also teaches the library that face under the new person.
 
 Nobody else sees the list: the page is behind the login, and checks the groups the
 provider passes on.
