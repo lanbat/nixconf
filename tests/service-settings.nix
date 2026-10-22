@@ -251,6 +251,7 @@ let
     ];
   };
   lvaOldOption = lvaServerWith { lva.wakeModel = "hey_jarvis"; };
+  lvaWakeThreshold = lvaServerWith { lva.wakeThreshold = 0.95; };
   lvaThreeWords = lvaServerWith {
     lva.wakeModels = [
       "okay_nabu"
@@ -1344,6 +1345,9 @@ let
       lib.any (lib.hasInfix "lva-set-prefs 0.4") lvaTvBox.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
       && lib.any (lib.hasInfix "lva-set-prefs") lvaPi3Aec.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
       && !lib.any (lib.hasInfix "lva-set-prefs ") lvaPi3Aec.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
+      # A cutoff with no volume still passes an empty first argument, so the
+      # probability stays the second argument of lva-set-prefs.
+      && lib.any (lib.hasInfix ''lva-set-prefs "" 0.95'') lvaWakeThreshold.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
     ))
 
     # They stop with LVA (partOf); starting LVA again (a restart by hand, the

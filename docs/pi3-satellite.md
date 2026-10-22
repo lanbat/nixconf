@@ -238,6 +238,14 @@ It costs CPU for every second of music; measure it on a Pi 3 before leaving it o
 They are written into LVA's `prefs.json` every time it starts, so the Nix setting wins over a
 choice made in Home Assistant's "Wake word" selects, which lasts until the next restart.
 
+**False wakes.** `lva.wakeThreshold` is the probability the model must reach
+before it counts. Home Assistant shows the same number as Wake Word sensitivity:
+higher wakes less often. `okay_nabu` ships at 0.85, which a busy room (speech, a
+radio, a keyboard beside the PlayStation Eye) clears often. About a tenth more,
+0.95, is the step that quiets that; a quiet room can leave the option unset and
+keep the model's own cutoff. The value is written into `prefs.json` on every
+start, so it wins over the Home Assistant control.
+
 The default is "okay nabu", Home Assistant's own wake word. "Hey nabu", which the Wyoming
 pipeline uses, exists only as an openWakeWord model, which runs several neural networks on every
 audio frame. Measured on the Pi 3 (1.2 GHz, 30 s of audio, 2026-10-06):
