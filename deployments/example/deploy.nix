@@ -75,6 +75,10 @@
     # techo5Devices.kitchen = {
     #   address = "192.0.2.60";
     #   room = "Kitchen";
+    #   # profiles.alex = {
+    #   #   # todo = "todo.alex_todo";
+    #   #   # reminders = "todo.alex_reminders";
+    #   # };
     # };
 
     # Android TV boxes, for lanbatPlugins.android.

@@ -63,6 +63,8 @@
     #     profiles.alex = {
     #       glance = [ "sensor.washer_status" ];
     #       immichPerson = "Alex";
+    #       # todo = "todo.alex_todo";
+    #       # reminders = "todo.alex_reminders";
     #     };
     #     household.calendars = [ "calendar.family" ];
     #   };

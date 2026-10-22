@@ -466,11 +466,24 @@ let
         address = "192.0.2.60";
         room = "Kitchen";
         playerName = "Kitchen Show";
-        profiles.alex.glance = [ "sensor.washer_status" ];
+        profiles.alex = { };
+        profiles.sam.todo = "todo.sam_chores";
         household.calendars = [ "calendar.family" ];
       };
     }
   ];
+
+  techo5BadTodo = serverWith [
+    {
+      lanbat.deployment.techo5Devices.kitchen = {
+        address = "192.0.2.60";
+        room = "Kitchen";
+        playerName = "Kitchen Show";
+        profiles.alex.todo = "sensor.x";
+      };
+    }
+  ];
+
   # The router configured on a server that lists its services without it.
   routerUnlisted =
     (lanbatLib.mkProfile "example" (
@@ -2042,6 +2055,28 @@ let
         && failedAssertions routerNoTap == [ ]
       )
     )
+
+    (expect "techo5-bridge: per-person to-do and reminder lists in the profile" (
+      let
+        cfg = builtins.fromJSON (
+          builtins.unsafeDiscardStringContext (
+            builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
+          )
+        );
+        kitchen = lib.findFirst (d: d.name == "kitchen") null cfg.devices;
+      in
+      kitchen.profiles.alex.todo == "todo.alex_todo"
+      && kitchen.profiles.alex.reminders == "todo.alex_reminders"
+      && kitchen.profiles.sam.todo == "todo.sam_chores"
+      && kitchen.profiles.sam.reminders == "todo.sam_reminders"
+      && kitchen.household.todo == ""
+      && kitchen.household.reminders == ""
+    ))
+
+    (expect "techo5-bridge: a profile's todo must name a todo list" (
+      !(builtins.tryEval (builtins.deepSeq techo5BadTodo.lanbat.deployment.techo5Devices.kitchen true))
+      .success
+    ))
 
     (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
       (
