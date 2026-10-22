@@ -116,20 +116,24 @@ name. Music and video both work.
   (`installCa`). A device with `installCa = false` can't play from Jellyfin.
 - **Firewall.** Jellyfin accepts UDP (discovery) and its HTTP port (the device's progress
   reports) from the Echo Shows' addresses and from `settings.dlna.renderers`, and from no
-  other address. `settings.dlna.server` (off) would also share the libraries with every DLNA
-  client on the LAN, which asks for no login: casting doesn't need it.
+  other address. The plugin has no switch for its media-server side, so what keeps it from the
+  rest of the LAN is this firewall. `settings.dlna.server` (off) would open UDP 1900 and
+  port 8096 to every address: TVs and apps could then browse the libraries without signing in
+  (DLNA has no logins), and reach Jellyfin over plain HTTP without Caddy. Casting doesn't need it.
 - **On the dashboard.** The device's own music page shows what is playing, with the controls,
-  for a DLNA stream as for any other. Home Assistant finds the device as a DLNA media
-  player (Settings → Devices → Discovered → DLNA Digital Media Renderer; confirm it once); put it
-  in the room's area and the screen's Home section lists it with the room's other devices.
+  for a DLNA stream as for any other. `home-assistant-post-setup` adds Home Assistant's DLNA
+  player for the device itself (from `http://<address>:8181/dlna/device.xml`, when the device
+  is on and its DLNA is on), and puts it in the device's room on the next run after Home
+  Assistant has loaded it (the nightly run, or `systemctl restart home-assistant-post-setup`),
+  so the screen's Home section lists it with the room's other devices.
 - `dlna = false` on a device leaves its three switches as they are; `settings.dlna.enable =
   false` turns the plugin's play-to off and opens no ports.
 
 ### Not yet verified on a live system
 
-- That the plugin's configuration has the keys `EnablePlayTo` and `EnableServer` (the
-  bootstrap leaves a configuration alone that lacks them, and logs it).
-- That Jellyfin finds the device and plays to it with the stream address above.
+- That Jellyfin finds the device and plays to it with the stream address above. (The plugin's
+  setting `EnablePlayTo` and its other options were read from the plugin package itself, DLNA
+  10.0.0.0, not guessed.)
 
 ## Trusting Home Assistant's certificate
 
