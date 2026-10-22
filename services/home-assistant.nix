@@ -212,6 +212,35 @@ let
     }) techo5Devices
   );
 
+  techo5ProfileListEntity =
+    person: kind: p:
+    if kind == "todo" then
+      if p.todo != null then p.todo else "todo.${person}_todo"
+    else if p.reminders != null then
+      p.reminders
+    else
+      "todo.${person}_reminders";
+
+  # Default local_todo list titles (entity object id) for post-setup to create.
+  techo5TodoLists = lib.unique (
+    lib.concatLists (
+      lib.mapAttrsToList (
+        _: d:
+        lib.concatLists (
+          lib.mapAttrsToList (
+            person: p:
+            let
+              todo = techo5ProfileListEntity person "todo" p;
+              reminders = techo5ProfileListEntity person "reminders" p;
+            in
+            lib.optional (todo == "todo.${person}_todo") (lib.removePrefix "todo." todo)
+            ++ lib.optional (reminders == "todo.${person}_reminders") (lib.removePrefix "todo." reminders)
+          ) d.profiles
+        )
+      ) techo5Devices
+    )
+  );
+
   hasLvaSatellite = lib.any (
     hostKey: (voiceSatelliteRegistrations.${hostKey}.backend or "wyoming") == "lva"
   ) voiceSatelliteHosts;
@@ -1650,6 +1679,7 @@ in
         ''}
         ${lib.optionalString hasTechos ''
           export TECHO5_DEVICES=${lib.escapeShellArg techo5Json}
+          export TECHO5_TODO_LISTS=${lib.escapeShellArg (builtins.toJSON techo5TodoLists)}
         ''}
         ${lib.optionalString xiaomiBle ''
           export XIAOMI_BLE_KEYS_FILE="${config.lanbat.secrets.ha-xiaomi-ble.path}"
@@ -1798,6 +1828,49 @@ in
           # their "Where is" sensor names the room, and the router's caption
           # command reaches its body. Away from every body, a notification in
           # Home Assistant instead.
+          lanbat_complete_reminder = lib.mkIf hasTechos {
+            alias = "Complete a reminder shown on an Echo Show";
+            mode = "single";
+            fields = {
+              room.description = "The room's name (same as on the MQTT reminder sensors).";
+              slot.description = "Reminder slot on the screen (1–5).";
+            };
+            sequence = [
+              {
+                variables.slug = "{{ room | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
+              }
+              {
+                "if" = "{{ slot | int(0) >= 1 and slot | int(0) <= 5 }}";
+                "then" = [
+                  {
+                    variables.sensor = "{{ 'sensor.lanbat_screen_' ~ slug ~ '_reminder_' ~ (slot | int) }}";
+                  }
+                  {
+                    variables = {
+                      uid = "{{ state_attr(sensor, 'uid') or '' }}";
+                      list_entity = "{{ state_attr(sensor, 'list') or '' }}";
+                      reminder_state = "{{ states(sensor) }}";
+                    };
+                  }
+                  {
+                    "if" =
+                      "{{ uid != '' and list_entity != '' and reminder_state not in ['none', 'unavailable', 'unknown', ''] }}";
+                    "then" = [
+                      {
+                        action = "todo.update_item";
+                        target.entity_id = "{{ list_entity }}";
+                        data = {
+                          item = "{{ uid }}";
+                          status = "completed";
+                        };
+                      }
+                    ];
+                  }
+                ];
+              }
+            ];
+          };
+
           lanbat_notify_person = lib.mkIf llmRouter {
             alias = "Tell a person, where they are";
             mode = "parallel";

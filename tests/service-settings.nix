@@ -2078,6 +2078,35 @@ let
       .success
     ))
 
+    (expect "techo5: completing a reminder from the screen uses the MQTT sensors and todo.update_item" (
+      let
+        script = (haConfig routerNoTap).script.lanbat_complete_reminder or null;
+        json = builtins.toJSON script;
+      in
+      script != null
+      && script.mode == "single"
+      && lib.hasInfix "todo.update_item" json
+      && lib.hasInfix "state_attr" json
+      && lib.hasInfix "uid" json
+      && lib.hasInfix "list" json
+      && lib.hasInfix "lanbat_screen_" json
+      && !(haConfig base).script ? lanbat_complete_reminder
+    ))
+
+    (expect "techo5: Home Assistant post-setup creates default local_todo lists for profiles" (
+      let
+        setup = postSetup routerNoTap;
+      in
+      lib.hasInfix "TECHO5_TODO_LISTS=" setup
+      && lib.hasInfix "alex_todo" setup
+      && lib.hasInfix "alex_reminders" setup
+      && lib.hasInfix "sam_reminders" setup
+      && !(lib.hasInfix "sam_chores" setup)
+      && lib.hasInfix "ensure_todo_lists" (
+        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
+      )
+    ))
+
     (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
       (
         lvaPi3Aec.systemd.settings.Manager.RuntimeWatchdogSec == "15s"

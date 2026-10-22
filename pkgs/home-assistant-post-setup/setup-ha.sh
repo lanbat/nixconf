@@ -33,6 +33,8 @@ ANDROID_ADBKEY="${ANDROID_ADBKEY:-}"
 # Echo Shows on TECHO5, a JSON list of {title, host, room, key_file, player}:
 # ESPHome devices with an encryption key (services/techo5-bridge.nix).
 TECHO5_DEVICES="${TECHO5_DEVICES:-[]}"
+# Default local_todo list titles to create for techo5 profiles (object ids, not entity ids).
+TECHO5_TODO_LISTS="${TECHO5_TODO_LISTS:-[]}"
 SERVER_HOST_KEY="${SERVER_HOST_KEY:-}"
 PRIMARY_STORAGE_KEY="${PRIMARY_STORAGE_KEY:-}"
 
@@ -393,6 +395,35 @@ ensure_techo5() {
     add_entry esphome "$(jq -r .title <<< "$d")" \
       "$(jq '{host: .host, port: 6053, password: "", noise_psk: .key}' <<< "$d")"
   done < <(jq -c '(.missing // [])[]' <<< "$wanted")
+}
+
+TODO_LISTS_RECONCILE_JQ='
+  reduce $want[] as $title (.;
+    ([.data.entries | to_entries[]
+      | select(.value.domain == "local_todo" and .value.title == $title)
+      | .key]) as $hits
+    | if ($hits | length) > 0 then .
+      else .missing += [$title]
+      end)'
+
+todo_lists_reconciled() {
+  jq --argjson want "$TECHO5_TODO_LISTS" "$TODO_LISTS_RECONCILE_JQ" "$CONFIG_ENTRIES"
+}
+
+todo_lists_needed() {
+  [[ "$TECHO5_TODO_LISTS" != "[]" && -f "$CONFIG_ENTRIES" ]] || return 1
+  jq -e '(.missing // []) | length > 0' <<< "$(todo_lists_reconciled)" >/dev/null
+}
+
+ensure_todo_lists() {
+  todo_lists_needed || return 0
+  local wanted title
+  wanted="$(todo_lists_reconciled)"
+  while IFS= read -r title; do
+    [[ -n "$title" ]] || continue
+    log "adding local to-do list ${title}"
+    add_entry local_todo "$title" '{}'
+  done < <(jq -r '(.missing // [])[]' <<< "$wanted")
 }
 
 # Each satellite with a room (lanbat.deployment.voiceRooms), and the Music
@@ -1241,6 +1272,8 @@ ensure_dashboards() {
   rm -rf "$out"
 }
 
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
 needs_work=false
 [[ -f "$CONFIG_ENTRIES" ]] || { log "waiting for Home Assistant storage"; exit 0; }
 
@@ -1267,6 +1300,7 @@ else
 fi
 if kodi_needed; then needs_work=true; fi
 if techo5_needed; then needs_work=true; fi
+if todo_lists_needed; then needs_work=true; fi
 if androidtv_needed; then needs_work=true; fi
 if satellite_areas_needed; then needs_work=true; fi
 if llm_needed; then needs_work=true; fi
@@ -1309,6 +1343,7 @@ fi
 ensure_kodi
 ensure_androidtv
 ensure_techo5
+ensure_todo_lists
 ensure_satellite_areas
 ensure_llm
 ensure_pipeline
@@ -1322,3 +1357,5 @@ ensure_dashboards
 
 systemctl start home-assistant.service
 log "post-setup complete"
+
+fi
