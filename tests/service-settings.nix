@@ -2190,7 +2190,10 @@ let
         let
           exec = routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart;
           file = lib.head (lib.match ".*--reminder-lists-file ([^ ]+).*" exec);
-          lists = builtins.fromJSON (builtins.unsafeDiscardStringContext (builtins.readFile file));
+          # The path came out of a string with its context; put the context back to read it.
+          lists = builtins.fromJSON (
+            builtins.unsafeDiscardStringContext (builtins.readFile (lib.strings.addContextFrom exec file))
+          );
           cfg = builtins.fromJSON (
             builtins.unsafeDiscardStringContext (
               builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
