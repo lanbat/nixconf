@@ -1,7 +1,11 @@
 # lanbat/nixconf
 
-[![CI](https://github.com/lanbat/nixconf/actions/workflows/check.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/check.yml)
+[![CI](https://github.com/lanbat/nixconf/actions/workflows/check.yml/badge.svg?event=pull_request)](https://github.com/lanbat/nixconf/actions/workflows/check.yml)
 [![nightly](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/nightly.yml)
+[![pages](https://github.com/lanbat/nixconf/actions/workflows/pages.yml/badge.svg)](https://github.com/lanbat/nixconf/actions/workflows/pages.yml)
+[![Last commit](https://img.shields.io/github/last-commit/lanbat/nixconf)](https://github.com/lanbat/nixconf/commits/master)
+[![Good first issues](https://img.shields.io/github/issues/lanbat/nixconf/good%20first%20issue?label=good%20first%20issues)](https://github.com/lanbat/nixconf/labels/good%20first%20issue)
+[![Built with Nix](https://img.shields.io/badge/Built%20with-Nix-5277C3?logo=nixos&logoColor=white)](https://nixos.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![IRC: #lanbat on Libera.Chat](https://img.shields.io/badge/IRC-%23lanbat%20on%20Libera.Chat-2f4bff.svg)](https://web.libera.chat/#lanbat)
 
