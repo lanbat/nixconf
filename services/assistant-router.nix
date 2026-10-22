@@ -64,6 +64,10 @@ let
   peopleFile = pkgs.writeText "assistant-router-people.json" (
     builtins.toJSON (lib.mapAttrs (_: p: p.name) (config.lanbat.deployment.people or { }))
   );
+  screenRooms = lib.unique (
+    lib.catAttrs "room" (lib.attrValues (config.lanbat.deployment.techo5Devices or { }))
+  );
+  screenRoomsFile = pkgs.writeText "assistant-router-screen-rooms.json" (builtins.toJSON screenRooms);
   routerSettings.options.localTimeout = mkOption {
     type = types.numbers.positive;
     default = 2.5;
@@ -96,6 +100,15 @@ let
       and who is home, to Home Assistant over MQTT discovery
       (pkgs/assistant-router mqtt.py). Needs Mosquitto on this host; the
       broker login is the mosquitto-assistant-router-pass secret.
+    '';
+  };
+  routerSettings.options.screenRooms = mkOption {
+    type = types.listOf types.str;
+    default = [ ];
+    description = ''
+      Rooms whose techo5 screen item sensors are cleared at router start
+      (reminders, to-dos, events on the room's screen device in Home
+      Assistant). Filled from lanbat.deployment.techo5Devices on the server.
     '';
   };
   routerSettings.options.offerToMeet = mkOption {
@@ -223,6 +236,7 @@ in
       ];
       lanbat.services.assistant-router = {
         inherit port;
+        settings.screenRooms = screenRooms;
         # What other hosts consume: the bodies' socket, not Home Assistant's
         # endpoint, which stays on the loopback.
         endpoint = {
@@ -331,6 +345,7 @@ in
               "--mqtt-port 1883"
               "--mqtt-user assistant-router"
               "--mqtt-password-file %d/mosquitto-assistant-router-pass"
+              "--screen-rooms-file ${screenRoomsFile}"
             ]
           );
           DynamicUser = true;

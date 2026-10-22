@@ -179,6 +179,7 @@ class Bodies:
         self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
         self._names: dict[str, str] = {}  # room key -> the room as the body named it
         self._face_checks: dict[str, dict[str, Any]] = {}  # room key -> its last face check
+        self._screen_items: dict[str, dict[str, Any]] = {}  # room key -> last items from a screen body
         self.events: asyncio.Queue | None = None  # (room, event) for Home Assistant, when it listens
 
     def connect(self, room: str, socket: Any, kind: str = "stackchan", can: Any = None) -> None:
@@ -265,12 +266,52 @@ class Bodies:
     def face_check(self, room: str) -> dict[str, Any] | None:
         return self._face_checks.get(_key(room))
 
+    def receive_items(self, room: str, items: Any, *, people_here: int) -> None:
+        """The techo5 bridge's reminders, to-dos and events for the room's
+        screen; kept only from a screen while exactly one person is here."""
+        if not self.has(room) or self.kind(room) != "screen" or people_here != 1:
+            return
+        if not isinstance(items, dict):
+            return
+        reminders = items.get("reminders") if isinstance(items.get("reminders"), list) else []
+        todos = items.get("todos") if isinstance(items.get("todos"), list) else []
+        events = items.get("events") if isinstance(items.get("events"), list) else []
+        more = items.get("more") if type(items.get("more")) is int and items["more"] >= 0 else 0
+        clean_reminders = []
+        for row in reminders[:5]:
+            if not isinstance(row, dict) or not isinstance(row.get("title"), str):
+                continue
+            rem = {"title": row["title"][:200]}
+            for field in ("uid", "list", "due"):
+                if isinstance(row.get(field), str):
+                    rem[field] = row[field][:200]
+            clean_reminders.append(rem)
+        clean_todos = [{"title": row["title"][:200]} for row in todos[:5]
+                       if isinstance(row, dict) and isinstance(row.get("title"), str)]
+        clean_events = []
+        for row in events[:3]:
+            if not isinstance(row, dict) or not isinstance(row.get("title"), str):
+                continue
+            ev = {"title": row["title"][:200], "all_day": row.get("all_day") is True}
+            if isinstance(row.get("start"), str):
+                ev["start"] = row["start"][:64]
+            clean_events.append(ev)
+        self._screen_items[_key(room)] = {"reminders": clean_reminders, "todos": clean_todos,
+                                          "more": more, "events": clean_events}
+
+    def screen_items(self, room: str) -> dict[str, Any] | None:
+        """The last items a screen in `room` sent; None when it sent none yet."""
+        if not self.has(room) or self.kind(room) != "screen":
+            return None
+        return self._screen_items.get(_key(room))
+
     def disconnect(self, room: str, socket: Any) -> None:
         if self._sockets.get(_key(room)) is socket:
             del self._sockets[_key(room)]
             self._states.pop(_key(room), None)
             self._kinds.pop(_key(room), None)
             self._can.pop(_key(room), None)
+            self._screen_items.pop(_key(room), None)
         fut = self._captures.pop(_key(room), None)
         if fut is not None and not fut.done():
             fut.set_result(None)  # the body went away: no face is coming
