@@ -171,6 +171,7 @@ class Brain:
         self._due: list[tuple[str, str, datetime]] = []   # (uid, title, due)
         self._due_for: str | None = None
         self._rung: set[tuple[str, str]] = set()          # (uid, due) rung
+        self.rung_changed = False                         # __main__ keeps them in a file, so a restart doesn't ring again
 
     def note(self, **what: Any) -> None:
         self.notes.append(what)
@@ -410,17 +411,30 @@ class Brain:
             key = (uid, due.isoformat())
             if due <= now and key not in self._rung:
                 self._rung.add(key)
+                self.rung_changed = True
                 self.note(reminder=title[:40], for_=self._due_for)
                 out.append(("call", "notify", {"message": title, "title": "Reminder", "icon": "mdi:bell-ring",
                                                "chime": "on", "speak": "", "tag": f"{NOTIFY_TAG}-reminder",
                                                "seconds": REMINDER_SECONDS}))
         return out
 
+    def load_rung(self, rung: list) -> None:
+        """The reminders rung before the last stop, as [uid, due] pairs."""
+        self._rung = {(str(uid), str(due)) for uid, due in (r for r in rung if isinstance(r, (list, tuple))
+                                                                 and len(r) == 2)}
+
+    def rung(self) -> list:
+        return sorted([uid, due] for uid, due in self._rung)
+
     def _remember_due(self, person: str | None, reminders: list) -> None:
         self._due = [(r.uid, r.title, r.due) for r in reminders if r.due is not None and person is not None]
         self._due_for = person
         live = {(uid, due.isoformat()) for uid, _, due in self._due}
-        self._rung &= live  # one that was done or removed is forgotten, and rings again if it returns
+        if person is not None and not self._rung <= live:
+            # One that was done or removed is forgotten, and rings again if it returns. Only on
+            # a read for someone: the household's read (nobody) says nothing of anyone's reminders.
+            self._rung &= live
+            self.rung_changed = True
 
     def _send_items(self, msg: dict, *, force: bool = False) -> list:
         if not force and msg == self._last_items:

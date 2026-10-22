@@ -43,6 +43,13 @@ class Echo:
             data = dict(data, code_url=f"{code_base}/code/{self.code_id}.png")
         self.trust = trust or {}  # the CA, and SSH to put it on the device (ca.py)
         self.brain = Brain(DeviceConfig.from_json(data, token, self.trust.get("keys", "")), people, beacons)
+        self.rung_file = data.get("rung_file") or ""  # the reminders already rung, kept across restarts
+        if self.rung_file:
+            try:
+                with open(self.rung_file, encoding="utf-8") as f:
+                    self.brain.load_rung(json.load(f))
+            except (OSError, ValueError):
+                pass
         self.ha = ha
         self.router_url = router_url
         self.client = None
@@ -68,6 +75,19 @@ class Echo:
                 await self._carry(out)
             except Exception as err:  # pylint: disable=broad-except
                 LOG.warning(json.dumps({"device": self.name, "output": str(out[:2]), "error": str(err)[:200]}))
+        self._keep_rung()
+
+    def _keep_rung(self) -> None:
+        if not self.rung_file or not self.brain.rung_changed:
+            return
+        self.brain.rung_changed = False
+        try:
+            tmp = f"{self.rung_file}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self.brain.rung(), f)
+            os.replace(tmp, self.rung_file)
+        except OSError as err:
+            LOG.warning(json.dumps({"device": self.name, "rung": "not kept", "error": str(err)[:120]}))
 
     async def _carry(self, out: tuple) -> None:
         kind = out[0]

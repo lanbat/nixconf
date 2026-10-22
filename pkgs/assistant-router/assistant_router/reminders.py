@@ -174,3 +174,16 @@ def describe(due: datetime, now: datetime) -> str:
 def item_due(due: datetime) -> str:
     """The time as Home Assistant's to-do services take it: local, no zone."""
     return due.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_due(raw: str, tz) -> datetime | None:
+    """A to-do item's due as Home Assistant gives it ("2026-10-22T17:00:00", a date alone,
+    or with a zone) in aware time: no zone is `tz`'s (the server's); a date alone is midnight."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        due = datetime.fromisoformat(raw[:-1] + "+00:00" if raw.endswith("Z") else raw)
+    except ValueError:
+        return None
+    return due if due.tzinfo is not None else due.replace(tzinfo=tz)

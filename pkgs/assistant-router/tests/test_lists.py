@@ -208,3 +208,20 @@ async def test_reminders_can_be_completed_and_dropped_but_not_added_to_by_name(t
     assert not await p.put("kiril", "reminders", "buy milk")
     assert not await p.complete("kiril", "reminders", "someone-elses")
     assert not await p.complete("maria", "reminders", "r1") or ha.calls[-1][2]["entity_id"] != "todo.kiril_reminders"
+
+
+async def test_a_profile_may_name_the_persons_reminders_list(tmp_path):
+    ha = FakeHass(lists=("todo.kiril_todo", "todo.kiril_chores"))
+    p = Personal(ha, Lists(str(tmp_path / "lists.json")), {"kiril": "Kiril"}, None,
+                 {"kiril": "todo.kiril_chores", "maria": "not an entity"})
+    assert p.entity("kiril", "reminders") == "todo.kiril_chores"
+    assert p.entity("kiril", "todo") == "todo.kiril_todo"
+    assert p.entity("maria", "reminders") == "todo.maria_reminders"  # a bad name is ignored
+    await p.remind("kiril", "call mum", NOW.replace(hour=17), NOW)
+    assert ha.calls[-1][2]["entity_id"] == "todo.kiril_chores"
+    assert (await p.items("kiril", "reminders")) is not None
+    # One that isn't there is not ours to make.
+    p2 = Personal(FakeHass(lists=("todo.kiril_todo",)), Lists(str(tmp_path / "l2.json")), {"kiril": "Kiril"}, None,
+                  {"kiril": "todo.kiril_chores"})
+    assert await p2.remind("kiril", "x", NOW, NOW) == ("I can't find your reminders list.", False)
+    assert p2.lists.lists == {}

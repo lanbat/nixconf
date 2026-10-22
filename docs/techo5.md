@@ -60,8 +60,8 @@ do not exist yet, for each profile's person and each person in `deployment.peopl
 point a profile at an existing `todo.*` entity instead.
 
 A reminder **chimes** (with the reminder as a notification, for half an hour) when it comes
-due while its person is alone in front of the screen, once per bridge run; one that is already
-due when they are next seen alone chimes then. It is never spoken, and never rung for a
+due while its person is alone in front of the screen, once, even across a restart of the bridge
+(`/var/lib/techo5-bridge`); one that is already due when they are next seen alone chimes then. It is never spoken, and never rung for a
 bystander ([people.md](people.md#reminders)). A reminder made by voice shows within seconds,
 as lists do.
 

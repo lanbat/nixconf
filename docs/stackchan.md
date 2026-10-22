@@ -392,6 +392,12 @@ the mic **channel order**, and a per-room **offset**.
 Check it: `journalctl -u lva-stackchan -f` shows `voice at 25 degrees (confidence 0.83):
 turning` as you move around the robot.
 
+## Reminders on the robot
+
+A reminder that comes due for the one person alone in the robot's room appears as its caption,
+with a happy mood, a perk and the amber notification light, three times two minutes apart (the
+robot has no chime). The router does this (`ringer.py`); see [people.md](people.md#reminders).
+
 ## Bodies that aren't robots
 
 The router's body socket (`assistant_router/body.py`) takes other bodies too: an Echo

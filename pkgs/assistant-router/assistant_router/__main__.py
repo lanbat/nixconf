@@ -24,6 +24,7 @@ from .lists import Lists, Personal
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
+from .ringer import Ringer
 from .prefs import Prefs
 from .mqtt import HomeAssistant, run_mqtt
 from .server import Config, forget_person, make_app, make_body_app, screen_refresher
@@ -61,8 +62,14 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         with open(a.ha_token_file, encoding="utf-8") as f:
             hass = Hass(a.ha_url, f.read().strip())
     lists = Lists(a.lists_state) if a.lists_state and hass is not None else None
-    personal = Personal(hass, lists, people.names, screen_refresher(bodies, people, time.monotonic)) \
-        if lists is not None else None
+    reminder_lists: dict[str, str] = {}
+    if a.reminder_lists_file:
+        with open(a.reminder_lists_file, encoding="utf-8") as f:
+            loaded_lists = json.load(f)
+        if isinstance(loaded_lists, dict):
+            reminder_lists = {str(k): str(v) for k, v in loaded_lists.items()}
+    personal = Personal(hass, lists, people.names, screen_refresher(bodies, people, time.monotonic),
+                        reminder_lists) if lists is not None else None
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -118,10 +125,13 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
         if a.body_port and not a.no_greet else None
+    ringer = asyncio.create_task(Ringer(bodies, people, personal, time.monotonic,
+                                        state_path=a.rung_state).run()) \
+        if a.body_port and personal is not None else None
     try:
         await asyncio.Event().wait()
     finally:
-        for task in (mqtt, greeter):
+        for task in (mqtt, greeter, ringer):
             if task is not None:
                 task.cancel()
         if hass is not None:
@@ -191,6 +201,10 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--ha-token-file", help="the voice satellites' Home Assistant token, one line (a systemd credential)")
     p.add_argument("--lists-state", help="JSON {key: [list]} in the state dir: the to-do lists people asked for "
                    "(lists.py), which home-assistant-post-setup makes in Home Assistant")
+    p.add_argument("--reminder-lists-file", help="JSON {key: todo.entity}: a person's reminders list when their "
+                   "profile names one other than todo.<key>_reminders (lists.py)")
+    p.add_argument("--rung-state", help="JSON in the state dir: the reminders already shown on the robots, "
+                   "and how often (ringer.py)")
     p.add_argument("--prefs-state", help="JSON {key: settings} in the state dir: the screen settings people "
                    "chose on the who page (prefs.py)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")

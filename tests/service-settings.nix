@@ -487,6 +487,9 @@ let
       };
       # Someone with no profile on the screen: the default lists all the same.
       lanbat.deployment.people.jo.name = "Jo";
+      # And someone whose profile names the list their reminders are in.
+      lanbat.deployment.people.kit.name = "Kit";
+      lanbat.deployment.techo5Devices.kitchen.profiles.kit.reminders = "todo.kit_nags";
     }
   ];
 
@@ -2180,6 +2183,29 @@ let
       && lib.hasInfix "DLNA_ENABLE=\"0\"" (jellyfinBootstrap jellyfinImvdb)
       && !lib.hasInfix "192.0.2.77" jellyfinImvdb.networking.firewall.extraCommands
     ))
+
+    (expect
+      "assistant-router: a profile's reminders list is the router's too, and what was rung is kept"
+      (
+        let
+          exec = routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart;
+          file = lib.head (lib.match ".*--reminder-lists-file ([^ ]+).*" exec);
+          lists = builtins.fromJSON (builtins.unsafeDiscardStringContext (builtins.readFile file));
+          cfg = builtins.fromJSON (
+            builtins.unsafeDiscardStringContext (
+              builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
+            )
+          );
+          kitchen = lib.findFirst (d: d.name == "kitchen") null cfg.devices;
+        in
+        lists == {
+          kit = "todo.kit_nags";
+        }
+        && lib.hasInfix "--rung-state /var/lib/assistant-router/rung.json" exec
+        && kitchen.rung_file == "/var/lib/techo5-bridge/rung-kitchen.json"
+        && kitchen.profiles.kit.reminders == "todo.kit_nags"
+      )
+    )
 
     (expect "techo5-bridge: a profile's todo must name a todo list" (
       !(builtins.tryEval (builtins.deepSeq techo5BadTodo.lanbat.deployment.techo5Devices.kitchen true))
