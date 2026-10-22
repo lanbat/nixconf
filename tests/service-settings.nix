@@ -2219,6 +2219,29 @@ let
         && lvaPi3Aec.nix.settings.fsync-store-paths
       )
     )
+
+    # "volume up by 30%" matched none of the volume sentences, so Home
+    # Assistant's own handler answered "Volume set" and moved another player,
+    # not the film (2026-10-22).
+    (expect "voice: volume up and down take an amount, and so do louder and quieter" (
+      let
+        commands =
+          id:
+          (lib.findFirst (t: t.id == id) null (automationById base "lanbat_voice_volume").trigger).command;
+      in
+      lib.all (c: lib.elem c (commands "up")) [
+        "volume up [by {level}]"
+        "[make it] louder [by {level}] [please]"
+        "(increase|raise) [the] volume [by {level}]"
+      ]
+      && lib.all (c: lib.elem c (commands "down")) [
+        "volume down [by {level}]"
+        "[make it] quieter [by {level}] [please]"
+        "(decrease|lower|reduce) [the] volume [by {level}]"
+      ]
+      # "to" stays what sets a level, so a wildcard cannot read "up by 30" as a level.
+      && lib.all (c: lib.hasInfix " to {level}" c) (commands "set")
+    ))
   ];
 
   partCases = map (c: c.value) (
