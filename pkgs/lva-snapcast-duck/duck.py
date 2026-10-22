@@ -55,6 +55,9 @@ DUCK_VOLUME = float(os.environ.get("DUCK_VOLUME", "0.25"))
 DUCK_LISTEN_VOLUME = float(os.environ.get("DUCK_LISTEN_VOLUME", "0.05"))
 FADE_DOWN = float(os.environ.get("FADE_DOWN_SECONDS", "0.2"))
 FADE_UP = float(os.environ.get("FADE_UP_SECONDS", "0.8"))
+# The reply's boost comes off after its tail has played out, and ramps down.
+RELEASE_DELAY = float(os.environ.get("VOICE_RELEASE_DELAY_S", "0.8"))
+RELEASE_FADE = float(os.environ.get("VOICE_RELEASE_FADE_S", "0.4"))
 # A pipeline that never reports idle (Home Assistant dropped mid-turn without
 # the connection closing) must not leave the music down for good.
 MAX_DUCK = float(os.environ.get("MAX_DUCK_SECONDS", "120"))
@@ -306,11 +309,13 @@ class Voice:
     def __init__(self, room: Room) -> None:
         self.room = room
         self.busy = False  # listening or answering: no reading of the room then
-        self.boosted: set[int] = set()
+        self.boosted: dict[int, float] = {}  # node -> the gain it is at (or heading for)
         self.task: asyncio.Task | None = None
+        self.releasing: asyncio.Task | None = None
 
     def speak(self) -> None:
         self.busy = True
+        self._keep()
         loud = self.room.loudness()
         gain = voice_gain(boost_db(loud), lva_volume())
         if gain <= 1.001:
@@ -324,20 +329,48 @@ class Voice:
     async def _boost(self, gain: float) -> None:
         # The reply's stream appears when it starts playing: look for a moment.
         for _ in range(20):
-            nodes = [n for n in voice_nodes() if n not in self.boosted]
+            nodes = [n for n in voice_nodes() if self.boosted.get(n) != gain]
             if nodes:
-                self.boosted.update(nodes)
-                await fade({n: (1.0, gain) for n in nodes}, 0.15)
+                # From where each is now: a stream still raised from the reply
+                # before moves to this gain, it does not dip to 1.0 first.
+                targets = {n: (self.boosted.get(n, 1.0), gain) for n in nodes}
+                self.boosted.update({n: gain for n in nodes})
+                await fade(targets, 0.15)
                 return
             await asyncio.sleep(0.05)
 
+    def _keep(self) -> None:
+        """A new reply begins: a release still waiting to start is dropped."""
+        if self.releasing and not self.releasing.done():
+            self.releasing.cancel()
+
     def settle(self) -> None:
-        """The reply is over: LVA's streams back to their own volume."""
+        """The reply is over: LVA's streams go back to their own volume, but not
+        at once. The event comes as the player finishes, and the last word is
+        still on its way through the audio buffers; taking the boost off in one
+        step then made the end of every reply drop several dB (heard on a Pi 5
+        with a film on, 2026-10-23, +7 dB of boost). It waits for the tail to
+        play out and then ramps down."""
         if self.task and not self.task.done():
             self.task.cancel()
+        self._keep()
+        if self.boosted:
+            self.releasing = asyncio.ensure_future(self._release(dict(self.boosted)))
+
+    async def _release(self, nodes: dict[int, float]) -> None:
+        await asyncio.sleep(RELEASE_DELAY)
+        await fade({n: (gain, 1.0) for n, gain in nodes.items()}, RELEASE_FADE)
+        for node in nodes:
+            self.boosted.pop(node, None)
+
+    def settle_now(self) -> None:
+        """Straight back to LVA's own volume (shutting down)."""
+        for task in (self.task, self.releasing):
+            if task and not task.done():
+                task.cancel()
         for node in self.boosted:
             set_volume(node, 1.0)
-        self.boosted = set()
+        self.boosted = {}
 
     def idle(self) -> None:
         self.settle()
@@ -438,7 +471,7 @@ async def run_until_stopped() -> None:
         task.cancel()
     ducker.restore_now()
     if voice is not None:
-        voice.settle()
+        voice.settle_now()
 
 
 def main() -> None:
