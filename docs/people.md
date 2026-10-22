@@ -260,8 +260,8 @@ have **My reminders** on the who page: add one with a date and time, mark one do
 
 The reminder shows on that person's screen, and **chimes there when it comes due, if they are
 alone in front of it** (docs/techo5.md). Nothing is ever spoken, and a reminder is never shown
-to a bystander: it waits until its person is alone in front of a screen again. A robot has no
-screen, so a reminder does not ring there. The reminders go to `todo.<key>_reminders`: a profile
+to a bystander: it waits until its person is alone in front of a screen again. A Stack-chan's
+screen does not show reminders yet: only an Echo Show rings. The reminders go to `todo.<key>_reminders`: a profile
 that points `reminders` at another list won't show them, so leave it at the default.
 
 ### Your own lists
