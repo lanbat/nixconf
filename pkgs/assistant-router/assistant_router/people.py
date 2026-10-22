@@ -106,6 +106,8 @@ def _names(names: list[str]) -> str:
 class People:
     def __init__(self, names: dict[str, str]) -> None:
         self.names = dict(names)
+        # People nobody has met (unknowns.py): in `names`, never greeted or counted as present.
+        self.strangers: set[str] = set()
         # room -> source -> person -> evidence
         self._seen: dict[str, dict[str, dict[str, Evidence]]] = {}
         # person -> (how it was heard, room) -> (signal strength, when): to place
@@ -126,9 +128,10 @@ class People:
 
     def remove(self, key: str) -> None:
         self.names.pop(str(key), None)
+        self.strangers.discard(str(key))
 
     def observe(self, room: str, source: str, person: str, confidence, now: float) -> None:
-        if source not in SOURCES or person not in self.names or not room:
+        if source not in SOURCES or person not in self.names or person in self.strangers or not room:
             return
         if type(confidence) not in (int, float) or not 0 <= confidence <= 1:
             return

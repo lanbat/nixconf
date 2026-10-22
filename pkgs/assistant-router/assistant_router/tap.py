@@ -204,6 +204,7 @@ class Taps:
         self._secret = secrets.token_bytes(16)  # links die with a restart; robots get new ones
         self.listeners: list[Callable[[dict[str, str]], Any]] = []
         self.forgetters: list[Callable[[str], Any]] = []
+        self.strangers = None  # unknowns.Strangers: an Unknown seen in the room is who signs in there
 
     def _nonce(self, room: str, period: int) -> str:
         msg = f"{_key(room)}:{period}".encode()
@@ -350,6 +351,14 @@ class Taps:
                 self._set_kind(spoke, "account")
                 LOG.info(json.dumps({"linked": spoke}))
                 key = spoke
+            elif self.strangers is not None:
+                # Nobody spoke, but an Unknown was just seen here: the login is them
+                # (unknowns.py). They keep their key, and take the account's name.
+                met = self.strangers.recent(room_name, self.clock())
+                if met and not self._store.linked(met):
+                    self._store.link(login, met)
+                    self.strangers.identify(met, display_name(name, username), "account")
+                    key = met
         if key not in self.people.names:
             self._remember(key, display_name(name, username))
             self._set_kind(key, "account")
