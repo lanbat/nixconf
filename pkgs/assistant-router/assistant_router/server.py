@@ -35,6 +35,7 @@ from .prefs import Prefs
 from .sightings import Sightings
 from .state import State
 from .tap import LINK_PERIOD_S, Taps
+from .unknowns import Strangers
 
 LOG = logging.getLogger("assistant-router")
 
@@ -226,7 +227,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
              voice: VoiceIdClient | None = None, cards: Cards | None = None,
              forget_phones: Callable[[str], int] | None = None,
-             sightings: Sightings | None = None) -> web.Application:
+             sightings: Sightings | None = None, strangers: Strangers | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -439,13 +440,20 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         key = _person_key(name)
         if not key:
             return finish(device, ENROLL_BAD_NAME, [])
-        base, n = key, 2
-        while key in people.names:  # another Jane: jane_2
-            key, n = f"{base}_{n}", n + 1
-        remember(key, name)
-        if people_store is not None:
-            # The name as speech-to-text spelled it: an admin may fix it (household.py).
-            people_store.set_kind(key, "heard")
+        stranger = strangers.recent(room, now) if strangers is not None else None
+        if stranger is not None:
+            # The face just seen here was an Unknown: they have a name now, and keep
+            # their key, face pictures and sightings (unknowns.py).
+            key = stranger
+            strangers.identify(key, name, "heard")
+        else:
+            base, n = key, 2
+            while key in people.names:  # another Jane: jane_2
+                key, n = f"{base}_{n}", n + 1
+            remember(key, name)
+            if people_store is not None:
+                # The name as speech-to-text spelled it: an admin may fix it (household.py).
+                people_store.set_kind(key, "heard")
         speakers[device] = (key, now)
         LOG.info(json.dumps({"met": key, "room": room}))
         await _bind(device, room, key, texts, now, new=True)
@@ -681,7 +689,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
                   cards: Cards | None = None, taps: Taps | None = None,
                   irks: Irks | None = None, sightings: Sightings | None = None,
-                  prefs: Prefs | None = None) -> web.Application:
+                  strangers: Strangers | None = None, prefs: Prefs | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -711,22 +719,42 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     on_camera: dict[str, set[str]] = {}  # place key -> who its cameras see now (sightings when they appear)
     tasks: set[asyncio.Task] = set()
 
-    def sighted(room: str, check: dict, img: bytes) -> None:
+    async def sighted(room: str, check: dict, img: bytes) -> dict:
         """A body's frame with a face in it is a sighting, named or not; the
-        frame itself is kept (sightings.py) and Home Assistant told."""
-        if sightings is None or check["result"] in ("no face found", "face library unavailable"):
-            return
+        frame itself is kept (sightings.py) and Home Assistant told. A face
+        that matched no one becomes (or is again) an Unknown (unknowns.py):
+        the check, and the sighting, name them. The check is returned."""
+        if check["result"] in ("no face found", "face library unavailable"):
+            return check
+        if strangers is not None:
+            if check["person"] in people.strangers:
+                strangers.touch(room, check["person"], clock())
+            elif check["result"] == "nobody known":
+                key = await strangers.meet(room, img)
+                if key is not None:
+                    check = {**check, "result": people.names[key], "person": key}
+        if sightings is None:
+            return check
         source = "robot" if bodies.is_robot(room) else "screen"
         sightings.record(room, check["person"], source, check["confidence"], jpeg=img)
         bodies.announce(room, {"sighting": {"person": people.names.get(check["person"] or "", None),
                                             "source": source, "confidence": check["confidence"]}})
+        return check
 
-    def camera_sightings(room: str, faces: list) -> None:
-        """A Frigate camera's face that wasn't there before is a sighting."""
+    def camera_sightings(room: str, faces: list, unknown=None) -> None:
+        """A Frigate camera's face that wasn't there before is a sighting; a
+        face it matched to no one is given a name (unknowns.py)."""
         here = {f.get("person"): f for f in faces[:8]
                 if isinstance(f, dict) and f.get("person") in people.names}
+        for person in here:
+            if strangers is not None:
+                strangers.touch(room, person, clock())
         before = on_camera.get(room.strip().casefold(), set())
         on_camera[room.strip().casefold()] = set(here)
+        if strangers is not None and isinstance(unknown, list):
+            for face in unknown[:8]:
+                if isinstance(face, dict) and isinstance(face.get("event"), str):
+                    spawn(strangers.meet_event(room, face["event"]))
         if sightings is None:
             return
         for person in sorted(set(here) - before):
@@ -882,15 +910,16 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                         except FrigateError as err:
                             hit, error = None, err
                         person = hit.get("name") if hit and hit.get("success") else None
-                        known = person in people.names if person else False
+                        # A stranger (unknowns.py) is a person, but not one the body is told about.
+                        known = person in people.names and person not in people.strangers if person else False
                         if known:
                             # After a turn to the voice, likely the speaker ("aimed");
                             # a face that came into view is someone here ("seen").
                             source = "seen" if data.get("why") == "seen" else "aimed"
                             people.observe(room, source, person, hit.get("confidence"), clock())
                         check = face_check(hit, error, people.names, str(data.get("why") or "turn"), time.time())
+                        check = await sighted(room, check, img)
                         bodies.note_face_check(room, check)
-                        sighted(room, check, img)
                         LOG.info(json.dumps({"face_probe": room, **check,
                                              **({"frigate": error.detail[:120]} if error else {})}))
                         await ws.send_json({"face_result": {
@@ -905,7 +934,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             people.observe_phone(room, seen.get("person"), seen["rssi"], clock(), via=via)
                 elif room and kind == "face-source" and isinstance(data.get("faces"), list):
                     observe_faces(room, data["faces"], clock())
-                    camera_sightings(room, data["faces"])
+                    camera_sightings(room, data["faces"], data.get("unknown"))
                 elif room and kind == "house-sensor" and isinstance(data.get("home"), list):
                     people.observe_home([h.get("person") for h in data["home"][:64] if isinstance(h, dict)],
                                         clock())

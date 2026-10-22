@@ -287,3 +287,12 @@ def test_subscriptions_are_topic_and_qos_pairs_as_paho_takes_them():
     subs = subscriptions()
     assert subs == [(topic, 0) for topic in SUBSCRIBE]
     assert all(isinstance(t, str) and q == 0 for t, q in subs)  # what paho's subscribe unpacks
+
+
+def test_an_unknown_face_hands_its_event_to_the_router():
+    state = make_state()
+    state.on_face_update("cam-living", "e1", None, 0.9)
+    state.on_face_update("cam-hall", "e2", None, 0.8)
+    assert state.snapshot("living").unknown_events == ("e1",)
+    assert router.faces((), {}, ("e1",)) == {"faces": [], "unknown": [{"event": "e1"}]}
+    assert "unknown" not in router.faces((), {}, ())

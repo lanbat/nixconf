@@ -190,7 +190,7 @@ class Mapper:
         now = time.time()
         for room in self.rooms:
             snap = self.state.snapshot(room)
-            sig = (snap.faces, snap.unknown, snap.camera_online, self.frigate_up)
+            sig = (snap.faces, snap.unknown, snap.unknown_events, snap.camera_online, self.frigate_up)
             if self._last.get(room) == sig:
                 continue
             self._last[room] = sig
@@ -202,7 +202,7 @@ class Mapper:
         if ws is None:
             return
         try:
-            await ws.send(json.dumps(router.faces(snap.faces, snap.events)))
+            await ws.send(json.dumps(router.faces(snap.faces, snap.events, snap.unknown_events)))
         except Exception:
             pass  # the room's socket task reconnects
 
@@ -225,7 +225,7 @@ class Mapper:
                     self._room_sockets[room] = ws
                     await ws.send(json.dumps(router.hello(room)))
                     snap = self.state.snapshot(room)
-                    await ws.send(json.dumps(router.faces(snap.faces, snap.events)))
+                    await ws.send(json.dumps(router.faces(snap.faces, snap.events, snap.unknown_events)))
                     _log(f"body socket for {room} at {self.router_url}")
                     async for _ in ws:
                         pass  # face-source gets no messages; this keeps it open
