@@ -370,7 +370,7 @@ class Brain:
                               todo=f"todo.{key}_todo", reminders=f"todo.{key}_reminders")
             if mine is not None:
                 default = Profile(view=mine.view or default.view, glance=mine.glance or default.glance,
-                                  calendars=mine.calendars or self.cfg.household.calendars,
+                                  calendars=mine.calendars,
                                   immich_person=mine.immich_person,
                                   todo=mine.todo or f"todo.{key}_todo",
                                   reminders=mine.reminders or f"todo.{key}_reminders")
@@ -393,6 +393,13 @@ class Brain:
         if isinstance(prefs.get("immich_person"), str) and prefs["immich_person"]:
             p.immich_person = prefs["immich_person"][:60]
         return p
+
+    def calendars_for(self, prof: Profile, device: bool = False) -> list[str]:
+        """The calendars of a person's screen: their own (what they chose for Next up, else
+        the profile's), then the house's, which every person's has too. The device's own
+        calendar page (`device`) ignores what they chose for Next up: it keeps the profile's."""
+        own = prof.calendars if device else (prof.next_up or prof.calendars)
+        return list(dict.fromkeys([*own, *self.cfg.household.calendars]))
 
     def wants_items(self) -> tuple[str | None, Profile]:
         return self.profile()
@@ -479,7 +486,7 @@ class Brain:
             reminders = lists.pick_reminders(lists.parse_items(prof.reminders, rem_raw), now)
         if person is not None and prof.todo and todo_raw is not None:
             todos, more = lists.pick_todos(lists.parse_items(prof.todo, todo_raw))
-        cals = prof.next_up or prof.calendars or self.cfg.household.calendars
+        cals = self.calendars_for(prof)
         events = lists.parse_events(ev_raw, now) if ev_raw is not None and cals else []
         return {"reminders": reminders, "todos": todos, "more": more, "events": events}
 
@@ -574,7 +581,7 @@ class Brain:
                 self.note(view=path, for_=who or "household")
             out += self._call("dashboard_path", {"path": path})
         out += self._call("home_glance", {"entities": ", ".join(p.glance)})
-        out += self._call("calendar_sources", {"calendars": ", ".join(p.calendars)})
+        out += self._call("calendar_sources", {"calendars": ", ".join(self.calendars_for(p, device=True))})
         if self._sent.get("immich_person") != p.immich_person:
             self._sent["immich_person"] = p.immich_person
             out.append(("set", "immich_person", p.immich_person))

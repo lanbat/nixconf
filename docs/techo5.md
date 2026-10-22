@@ -75,6 +75,11 @@ the profile. The device's own glance chips and calendar page keep the profile's 
 (`glance`, `calendars`): changing them makes TECHO5 drop every API connection, Home
 Assistant's too, which a change at each arrival would do.
 
+The **house calendar** is in everyone's: the household profile's calendars
+(`techo5Devices.<room>.household.calendars`) are added to each person's own, after them, once
+each, in **Next up** and on the device's calendar page, whether the person's come from the
+profile or from what they chose.
+
 When one person is alone, their dashboard view (`lanbat-screen-<room>`, path
 `<person key>`) is a stack of sections, top to bottom: a greeting, **Reminders** (hidden
 when there are none), **Next up** (today and tomorrow, up to three events), **To-do**

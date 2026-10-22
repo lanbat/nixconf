@@ -130,8 +130,29 @@ def test_what_a_person_chose_on_the_who_page_wins_over_the_profile():
     # The device's own glance chips and calendars stay the profile's: changing
     # them makes it drop every connection.
     assert ("call", "home_glance", {"entities": "sensor.washer"}) in outs
-    assert ("call", "calendar_sources", {"calendars": "calendar.work"}) in outs
+    assert ("call", "calendar_sources", {"calendars": "calendar.work, calendar.family"}) in outs  # and the house's
     assert fetches(outs)[0][2].todo == "todo.shopping_list"
+
+
+def test_the_house_calendar_is_in_everyones_next_up():
+    b = brain(profiles={"kiril": Profile(calendars=["calendar.work"])},
+              household=Profile(calendars=["calendar.family", "calendar.work"]),
+              ha_url="https://ha.example.org", ha_token="t")
+    # Their profile's, then the house's, each once.
+    b.router({"here": [{"person": "kiril"}]}, 0.0)
+    _, p = b.wants_items()
+    assert b.calendars_for(p) == ["calendar.work", "calendar.family"]
+    # What they chose for Next up replaces the profile's, never the house's.
+    b.router({"here": [{"person": "kiril", "prefs": {"calendars": ["calendar.kiril"]}}]}, 1.0)
+    _, p = b.wants_items()
+    assert b.calendars_for(p) == ["calendar.kiril", "calendar.family", "calendar.work"]
+    # The device's own calendar page keeps the profile's, plus the house's.
+    assert b.calendars_for(p, device=True) == ["calendar.work", "calendar.family"]
+    # Someone with no profile, and nobody: the house's alone.
+    b.router({"here": [{"person": "maria"}]}, 2.0)
+    assert b.calendars_for(b.wants_items()[1]) == ["calendar.family", "calendar.work"]
+    b.router({"here": []}, 3.0)
+    assert b.calendars_for(b.wants_items()[1]) == ["calendar.family", "calendar.work"]
 
 
 def test_new_choices_are_read_at_once():
