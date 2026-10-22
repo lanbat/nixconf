@@ -213,10 +213,13 @@ you; a satellite in a room with no player says "There's no speaker in here." The
 client regardless; `lanbat.voiceSatellite.playMusic = false` keeps another host's satellite to
 spoken replies.
 
-**Volume by voice.** "Volume to 70 percent", "louder", "turn the music down", "increase the
-volume by 20 percent": these set the room's Music Assistant player, which is the music's volume.
-(Home Assistant's own volume sentences need a player's name; without one they reached the LLM,
-which can't set a volume.) Ducking never touches that volume: it lowers the Snapcast stream in
+**Volume by voice.** "Set the volume to 70 percent", "louder", "turn the music down",
+"increase the volume by 20 percent", "volume up by 30", "volume down": these set the room's
+Music Assistant player, which is the music's volume, or Kodi's while a film or show is on
+(playing or paused). Say "set the volume to 70", not just "volume 70". (Home Assistant's own
+volume sentences need a player's name; without one they reached the LLM, which can't set a
+volume, and a phrasing these sentences miss is answered "Volume set" by Home Assistant's own
+handler, which moves some other player.) Ducking never touches that volume: it lowers the Snapcast stream in
 PipeWire, and keeps the levels to return to in `/run/lva-snapcast-duck/saved.json`, so a ducker
 stopped or restarted while the music is down (a deploy) still puts it back.
 

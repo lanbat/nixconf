@@ -470,9 +470,12 @@ let
   };
 
   # "volume to 70 percent", "louder", "turn the music down", "increase the
-  # volume by 20 percent": the room's Music Assistant player, which is the
-  # music's volume. Home Assistant's own volume sentences need a player's name
-  # and, without one, fell through to the LLM, which can't set a volume.
+  # volume by 20 percent", "volume up by 30": the room's Music Assistant player,
+  # which is the music's volume. Home Assistant's own volume sentences need a
+  # player's name and, without one, fell through to the LLM, which can't set a
+  # volume. A phrasing none of these sentences matches ("volume up by 30%" did
+  # not, until 2026-10-22) is answered "Volume set" by Home Assistant's own
+  # handler, which moved another player and left a film's volume alone.
   voiceVolumeVariables = {
     inherit (voicePlayVariables)
       sentence
@@ -547,22 +550,22 @@ let
         platform = "conversation";
         id = "up";
         command = [
-          "(increase|raise) the volume [by {level}]"
+          "(increase|raise) [the] volume [by {level}]"
           "turn (it|the volume|the music|the radio) up [by {level}]"
           "turn up the (volume|music|radio) [by {level}]"
-          "[make it] louder [please]"
-          "volume up"
+          "[make it] louder [by {level}] [please]"
+          "volume up [by {level}]"
         ];
       }
       {
         platform = "conversation";
         id = "down";
         command = [
-          "(decrease|lower|reduce) the volume [by {level}]"
+          "(decrease|lower|reduce) [the] volume [by {level}]"
           "turn (it|the volume|the music|the radio) down [by {level}]"
           "turn down the (volume|music|radio) [by {level}]"
-          "[make it] quieter [please]"
-          "volume down"
+          "[make it] quieter [by {level}] [please]"
+          "volume down [by {level}]"
         ];
       }
     ];
