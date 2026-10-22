@@ -32,6 +32,8 @@ used.
   reads the whole store for several minutes, so run it on a good supply.
 - **A USB microphone.** The PlayStation Eye (USB 1415:2000) is the default; its speech is
   quiet, so the deploy entry sets `lanbat.voiceSatellite.microphone.volumeMultiplier`.
+  Its camera can be a face source for the router too: [the satellite's camera](people.md#the-satellites-camera)
+  (the `satellite-camera` plugin; mind the Pi 3's shared USB power).
 - **A speaker**: the 3.5 mm jack, a USB speaker or a Bluetooth speaker (section 5).
 
 ## Deploy entry
