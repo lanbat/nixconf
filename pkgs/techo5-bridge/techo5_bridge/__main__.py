@@ -91,24 +91,27 @@ class Echo:
             self.client.request_single_image()
             asyncio.get_running_loop().call_later(IMAGE_TIMEOUT_S, self._image_timeout, out[1])
         elif kind == "fetch":
-            await self._fetch_items(out[1], out[2])
+            await self._fetch_items(out[1], out[2], out[3])
 
-    async def _fetch_items(self, _person: str | None, profile) -> None:
-        if self.ha is None:
-            return
-        now = datetime.now().astimezone()
-        rem = todo = ev = None
-        if profile.reminders:
-            rem = await self.ha.todo_items(profile.reminders)
-        if profile.todo:
-            todo = await self.ha.todo_items(profile.todo)
-        cals = profile.calendars or self.brain.cfg.household.calendars
-        if cals:
-            ev = await self.ha.events(cals)
-        data = self.brain.merge_fetch(rem, todo, ev, now=now)
-        if data is None:
-            return
-        await self.carry(self.brain.items(time.monotonic(), data))
+    async def _fetch_items(self, for_person: str | None, profile, gen: int) -> None:
+        outs = await fetch_items_from_ha(self.brain, self.ha, for_person, profile, gen)
+        if outs:
+            await self.carry(outs)
+
+
+async def fetch_items_from_ha(brain: Brain, ha: Ha | None, for_person: str | None, profile, gen: int) -> list:
+    if ha is None:
+        return []
+    now = datetime.now().astimezone()
+    rem = todo = ev = None
+    if profile.reminders:
+        rem = await ha.todo_items(profile.reminders)
+    if profile.todo:
+        todo = await ha.todo_items(profile.todo)
+    cals = profile.calendars or brain.cfg.household.calendars
+    if cals:
+        ev = await ha.events(cals)
+    return brain.apply_fetch(for_person, gen, rem, todo, ev, now=now, mono=time.monotonic())
 
     def _set(self, object_id: str, value) -> None:
         info = self.entities.get(object_id)
@@ -208,8 +211,8 @@ class Echo:
             try:
                 async with session.ws_connect(self.router_url, heartbeat=20) as ws:
                     self.ws = ws
-                    self.brain.router_connected()
                     delay = 1
+                    await self.carry(self.brain.router_connected(time.monotonic()))
                     await ws.send_json(self.brain.hello())
                     await ws.send_json({"state": self.brain._state(time.monotonic())})  # pylint: disable=protected-access
                     LOG.info(json.dumps({"device": self.name, "router": "connected", "room": self.brain.cfg.room}))
@@ -291,20 +294,17 @@ async def run(cfg: dict) -> None:
     ssl_context = ssl.create_default_context(cafile=cfg["ca_file"]) if cfg.get("ca_file") else None
     codes: dict[str, Echo] = {}
     base = cfg.get("code_base") or ""
-    async with aiohttp.ClientSession() as session:
-        def echo_for(d: dict) -> Echo:
-            ha = None
-            if token and d.get("ha_url"):
-                ha = Ha(d["ha_url"], token, session, ssl_context)
-            return Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
-                        trust, ha)
-
-        echoes = [echo_for(d) for d in cfg["devices"]]
+    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
+                   trust) for d in cfg["devices"]]
     runner = None
     if base and cfg.get("code_port"):
         runner = web.AppRunner(code_app(codes))
         await runner.setup()
         await web.TCPSite(runner, cfg.get("code_host") or "0.0.0.0", int(cfg["code_port"])).start()
+    async with aiohttp.ClientSession() as session:
+        for echo, device in zip(echoes, cfg["devices"], strict=True):
+            if token and device.get("ha_url"):
+                echo.ha = Ha(device["ha_url"], token, session, ssl_context)
         tasks = [t for e in echoes for t in (asyncio.create_task(e.device_loop()),
                                               asyncio.create_task(e.router_loop(session)),
                                               asyncio.create_task(e.tick_loop()))]

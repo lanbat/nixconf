@@ -51,6 +51,7 @@ PROBE_S = 20.0           # a frame this often while someone unnamed is in front
 ITEMS_REFRESH_S = 60.0   # reminders, to-dos and events while a screen view is shown
 CA_RETRY_S = 60.0        # an install of the CA that failed is tried again after this
 SETTING_RETRY_S = 60.0   # a setting the device didn't take is sent again after this
+_ITEMS_NEVER = object()  # _items_for before the first fetch is scheduled
 GREET_SECONDS = 10       # how long a greeting stays up
 THANKS_SECONDS = 5       # and the thanks that takes the sign-in code down
 CODE_SECONDS = 60        # and the sign-in code
@@ -157,9 +158,10 @@ class Brain:
         self.notes: list[dict] = []
         self._noted_here: list[str] | None = None
         self._noted_view: str | None = None
-        self._items_for: str | None | object = object()  # who items are for; object(): never fetched
+        self._items_for: str | None | object = _ITEMS_NEVER
         self._next_items: float = 0.0
         self._last_items: dict | None = None
+        self._fetch_gen: int = 0
 
     def note(self, **what: Any) -> None:
         self.notes.append(what)
@@ -408,29 +410,64 @@ class Brain:
         events = lists.parse_events(ev_raw, now) if ev_raw is not None and cals else []
         return {"reminders": reminders, "todos": todos, "more": more, "events": events}
 
-    def router_connected(self) -> None:
+    def _fetch_target_ok(self, for_person: str | None) -> bool:
+        n = len(self.here)
+        if n >= 2:
+            return False
+        if n == 1:
+            return for_person == self.here[0]["person"]
+        return for_person is None
+
+    def apply_fetch(self, for_person: str | None, gen: int, rem_raw: dict | None, todo_raw: dict | None,
+                    ev_raw: dict | None, *, now=None, mono: float = 0.0) -> list:
+        if gen != self._fetch_gen or not self._fetch_target_ok(for_person):
+            return []
+        data = self.merge_fetch(rem_raw, todo_raw, ev_raw, now=now)
+        if data is None:
+            return []
+        return self.items(mono, data)
+
+    def router_connected(self, now: float) -> list:
         self._last_items = None
+        if len(self.here) >= 2 or not self._can_fetch() or not self._screen_shows_items():
+            return []
+        person, prof = self.wants_items()
+        self._next_items = now + ITEMS_REFRESH_S
+        self._items_for = person if len(self.here) == 1 else None
+        return self._maybe_fetch(person, prof, now)
 
     def _can_fetch(self) -> bool:
         return bool(self.cfg.ha_url and self.cfg.ha_token)
+
+    def _screen_shows_items(self) -> bool:
+        if self._dimmed:
+            return False
+        return self.echo.get("screen") is not False
+
+    def _invalidate_fetches(self) -> None:
+        self._fetch_gen += 1
 
     def _items_here_changed(self, now: float) -> list:
         n = len(self.here)
         person, prof = self.wants_items()
         prev = self._items_for
         if n >= 2:
+            self._invalidate_fetches()
             self._items_for = "__multi__"
             self._next_items = now + ITEMS_REFRESH_S
             return self._send_items(self._empty_items(), force=True)
         if n == 1:
             out: list = []
             if prev != person:
+                if prev is not _ITEMS_NEVER:
+                    self._invalidate_fetches()
                 self._items_for = person
                 self._next_items = now + ITEMS_REFRESH_S
                 out += self._maybe_fetch(person, prof, now)
             return out
         out = []
         if isinstance(prev, str):
+            self._invalidate_fetches()
             out += self._send_items(self._empty_items(), force=True)
         if prev is not None:
             self._items_for = None
@@ -441,16 +478,16 @@ class Brain:
     def _maybe_fetch(self, person: str | None, prof: Profile, now: float) -> list:
         if not self._can_fetch():
             return []
-        return [("fetch", person, prof)]
+        return [("fetch", person, prof, self._fetch_gen)]
 
     def _items_tick(self, now: float) -> list:
-        if len(self.here) >= 2 or not self._can_fetch():
+        if len(self.here) >= 2 or not self._can_fetch() or not self._screen_shows_items():
             return []
         person, prof = self.wants_items()
         if now < self._next_items:
             return []
         self._next_items = now + ITEMS_REFRESH_S
-        self._items_for = person
+        self._items_for = person if len(self.here) == 1 else None
         return self._maybe_fetch(person, prof, now)
 
     def _apply_profile(self) -> list:
