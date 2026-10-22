@@ -54,16 +54,34 @@ let
     else
       null;
 
-  # The wake words, and the volume when one is given as the argument.
+  # The wake words, the reply volume ($1) and the wake-word probability
+  # cutoff ($2), when this host sets them. An empty $1 keeps a volume Home
+  # Assistant last set; an absent $2 keeps the model's own cutoff.
   setPrefs = pkgs.writeShellScript "lva-set-prefs" ''
     prefs=${stateDir}/prefs.json
     [ -s "$prefs" ] || echo '{}' > "$prefs"
     ${lib.getExe pkgs.jq} --argjson words ${lib.escapeShellArg (builtins.toJSON lva.wakeModels)} \
       --arg volume "''${1:-}" \
-      '.active_wake_words = $words | if $volume != "" then .volume = ($volume | tonumber) else . end' \
+      --arg threshold "''${2:-}" \
+      '.active_wake_words = $words
+       | if $volume != "" then .volume = ($volume | tonumber) else . end
+       | if $threshold != "" then
+           .wake_word_1_sensitivity = ($threshold | tonumber)
+           | if ($words | length) > 1 then .wake_word_2_sensitivity = ($threshold | tonumber) else . end
+         else . end' \
       "$prefs" > "$prefs.new"
     mv "$prefs.new" "$prefs"
   '';
+
+  # Volume stays $1. A cutoff with no volume still passes an empty $1, so
+  # the cutoff is always $2 (systemd treats "" as an empty argument).
+  prefsArgs =
+    if lva.wakeThreshold != null then
+      " ${
+         if lva.volume != null then toString lva.volume else "\"\""
+       } ${builtins.toJSON lva.wakeThreshold}"
+    else
+      lib.optionalString (lva.volume != null) " ${toString lva.volume}";
 
   peripheralApiEnabled =
     !lva.disablePeripheralApi || lva.snapcastDucking.enable || lva.peripheralApiUsers != [ ];
@@ -214,8 +232,8 @@ in
           # --wake-model only applies while prefs.json names no wake words, and
           # LVA writes there whatever Home Assistant selects; setting them here
           # on every start keeps this host's configuration in charge. The same
-          # goes for the volume, when this host sets one.
-          ++ [ "${setPrefs}${lib.optionalString (lva.volume != null) " ${toString lva.volume}"}" ];
+          # goes for the volume and the wake-word cutoff, when this host sets them.
+          ++ [ "${setPrefs}${prefsArgs}" ];
         ExecCondition = "${micPresent}";
         ExecStart = "${lvaPackage}/bin/linux-voice-assistant ${lib.escapeShellArgs execStartArgs}";
         Restart = "on-failure";
