@@ -327,6 +327,18 @@ def test_reconcile_drops_items_for_the_wrong_lone_occupant():
     assert bodies.screen_items("Kitchen") is None
 
 
+def test_reconcile_keeps_household_items_at_any_occupancy():
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
+    household = {"person": None, "reminders": [], "todos": [], "more": 0,
+                 "events": [{"title": "Dinner", "start": "2026-10-21T18:00:00+00:00", "all_day": False}]}
+    bodies.receive_items("Kitchen", household, people_here=0, sole_person=None)
+    bodies.reconcile_screen_items("Kitchen", {})
+    assert bodies.screen_items("Kitchen")["events"][0]["title"] == "Dinner"
+    bodies.reconcile_screen_items("Kitchen", {"alex": (1.0, ["tap"]), "maria": (1.0, ["tap"])})
+    assert bodies.screen_items("Kitchen")["person"] is None
+
+
 def test_disconnect_clears_stored_items():
     bodies = Bodies("You are Nabu.")
     sock = Sock()

@@ -356,6 +356,15 @@ def test_leaving_clears_items():
     assert EMPTY_ITEMS in to_router(outs)
 
 
+def test_lone_person_leaving_fetches_household_items():
+    household = Profile(calendars=["calendar.family"])
+    b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"}, household=household)
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    outs = b.router({"here": []}, 5.0)
+    assert EMPTY_ITEMS in to_router(outs)
+    assert fetches(outs)[0][:3] == ("fetch", None, household)
+
+
 def test_items_are_refreshed_every_minute_while_alone():
     b = brain(ha_url="https://ha.example.org", ha_token="tok", people={"alex": "Alex"})
     b.router({"here": [{"person": "alex", "name": "Alex"}]}, 100.0)

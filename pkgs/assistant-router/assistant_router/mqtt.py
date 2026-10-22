@@ -547,22 +547,19 @@ class HomeAssistant:
         return sorted(seen.values(), key=str.casefold)
 
     def _items_to_publish(self, room: str, now: float) -> dict | None:
-        """None clears every slot; household messages publish events only."""
-        here = self.people.here(room, now)
-        self.bodies.reconcile_screen_items(room, here)
-        if len(here) != 1:
-            return None
+        """None clears every slot. Household (`person` null) publishes events only."""
         if not self.bodies.has(room) or self.bodies.kind(room) != "screen":
             return None
+        here = self.people.here(room, now)
+        self.bodies.reconcile_screen_items(room, here)
         stored = self.bodies.screen_items(room)
         if stored is None:
             return None
-        sole = next(iter(here))
         person = stored.get("person")
-        if person is not None and person != sole:
-            return None
         if person is None:
             return {"person": None, "reminders": [], "todos": [], "more": 0, "events": stored.get("events") or []}
+        if len(here) != 1 or next(iter(here)) != person:
+            return None
         return stored
 
     async def _publish_items(self, publish: Publish, room: str, items: dict | None,

@@ -303,30 +303,25 @@ class Bodies:
     def receive_items(self, room: str, items: Any, *, people_here: int,
                       sole_person: str | None = None) -> None:
         """The techo5 bridge's reminders, to-dos and events for the room's
-        screen; kept only from a screen while exactly one person is here and
-        the message names that person (or is a household/events-only clear)."""
-        if not self.has(room) or self.kind(room) != "screen" or people_here != 1:
+        screen. Person-tagged lists only while exactly one person is here and
+        named; household calendar events (`person` null) at any occupancy."""
+        if not self.has(room) or self.kind(room) != "screen":
             return
         if not isinstance(items, dict):
             return
         parsed = normalize_items_payload(items)
         msg_person = parsed["person"]
-        if msg_person is not None and msg_person != sole_person:
+        if msg_person is not None and (people_here != 1 or msg_person != sole_person):
             return
         self._screen_items[_key(room)] = parsed
 
     def reconcile_screen_items(self, room: str, here: dict[str, tuple[float, list[str]]]) -> None:
-        """Drop stored items when occupancy is not exactly the person they belong to."""
+        """Drop person-tagged items when occupancy is not exactly that person."""
         key = _key(room)
         stored = self._screen_items.get(key)
-        if stored is None:
+        if stored is None or stored.get("person") is None:
             return
-        if len(here) != 1:
-            del self._screen_items[key]
-            return
-        sole = next(iter(here))
-        person = stored.get("person")
-        if person is not None and person != sole:
+        if len(here) != 1 or next(iter(here)) != stored["person"]:
             del self._screen_items[key]
 
     def screen_items(self, room: str) -> dict[str, Any] | None:

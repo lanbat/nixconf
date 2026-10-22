@@ -422,6 +422,14 @@ MARIA_ITEMS = {
     "todos": [], "more": 0, "events": [],
 }
 
+HOUSEHOLD_ITEMS = {
+    "person": None,
+    "reminders": [],
+    "todos": [],
+    "more": 0,
+    "events": [{"title": "Family dinner", "start": "2026-10-21T18:00:00+00:00", "all_day": False}],
+}
+
 
 def test_items_discovery_names_the_room_screen():
     configs = dict(items_discovery("Kitchen"))
@@ -474,13 +482,32 @@ async def test_items_become_slot_sensors():
     assert broker.last("lanbat/screen/kitchen/reminder/5") == "none"
 
 
+async def test_household_events_publish_with_no_one_or_two_people_in_the_room():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex", "maria": "Maria"})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    bodies.receive_items("Kitchen", HOUSEHOLD_ITEMS, people_here=0, sole_person=None)
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/todo_1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
+    people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    people.observe("Kitchen", "tap", "maria", 1.0, 100.0)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
+
+
 async def test_two_people_in_the_room_publish_nothing_private():
     bodies = Bodies("You are Nabu.")
     people = People({"alex": "Alex", "maria": "Maria"})
     ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
     bodies.connect("Kitchen", Socket(), "screen", ["here"])
-    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     people.observe("Kitchen", "tap", "maria", 1.0, 100.0)
     broker = Broker()
     await ha.bootstrap_items(broker.publish)
@@ -488,6 +515,11 @@ async def test_two_people_in_the_room_publish_nothing_private():
     assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
     assert broker.last("lanbat/screen/kitchen/todo_1") == "none"
     assert broker.last("lanbat/screen/kitchen/todo_more") == "0"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "none"
+    bodies.receive_items("Kitchen", HOUSEHOLD_ITEMS, people_here=2, sole_person=None)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    assert broker.last("lanbat/screen/kitchen/event_1") == "18:00 Family dinner"
 
 
 async def test_disconnect_clears():
