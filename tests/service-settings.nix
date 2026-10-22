@@ -2131,9 +2131,12 @@ let
       && lib.hasInfix "storage_key" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
     ))
 
-    (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
+    (expect
+      "pi3: the watchdog restarts a Pi that stops, or whose card stops; store paths are on the card before they count"
       (
         lvaPi3Aec.systemd.settings.Manager.RuntimeWatchdogSec == "15s"
+        && lvaPi3Aec.boot.kernel.sysctl."kernel.hung_task_panic" == 1
+        && lvaPi3Aec.boot.kernel.sysctl."kernel.hung_task_timeout_secs" == 300
         && lvaPi3Aec.nix.settings.fsync-store-paths
       )
     )
