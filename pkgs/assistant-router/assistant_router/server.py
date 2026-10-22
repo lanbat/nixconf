@@ -22,12 +22,13 @@ from typing import Awaitable, Callable
 import aiohttp
 from aiohttp import web
 
-from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity, triage
+from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity, lists as lists_mod, triage
 from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
 from .frigate import Frigate, FrigateError
 from .irks import Irks
+from .lists import Lists, Personal
 from .people import VOICE_UNKNOWN, People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
@@ -138,10 +139,14 @@ def _person_key(name: str) -> str | None:
 
 async def forget_person(key: str, people_store: PeopleStore | None, voice: VoiceIdClient | None,
                         frigate: Frigate | None, cards: Cards | None = None,
-                        sightings: Sightings | None = None, prefs: Prefs | None = None) -> bool:
-    """Forget `key`'s voice, face, cards, sightings and own settings; and
-    them, when they were added at runtime (True). One the profile declares
-    stays (False)."""
+                        sightings: Sightings | None = None, prefs: Prefs | None = None,
+                        lists: Lists | None = None) -> bool:
+    """Forget `key`'s voice, face, cards, sightings, own settings and the
+    lists they asked for (the lists themselves stay in Home Assistant: an
+    administrator deletes those); and them, when they were added at runtime
+    (True). One the profile declares stays (False)."""
+    if lists is not None:
+        lists.forget(key)
     if cards is not None:
         cards.forget(key)
     if prefs is not None:
@@ -227,7 +232,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              capture_face: Callable[[str], Awaitable[bytes | None]] | None = None,
              voice: VoiceIdClient | None = None, cards: Cards | None = None,
              forget_phones: Callable[[str], int] | None = None,
-             sightings: Sightings | None = None, strangers: Strangers | None = None) -> web.Application:
+             sightings: Sightings | None = None, strangers: Strangers | None = None,
+             personal: Personal | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -624,6 +630,14 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(resp)
 
+        listed = lists_mod.command(text) if personal is not None else None
+        if listed is not None:
+            said, done = await personal.handle(last, listed)
+            resp = finish(device, said, ["Success"] if done else [])
+            log({"conv": conv, "device": device, "room": room, "text": text, "tier": "lists", "route": listed.kind,
+                 "ms": int((time.monotonic() - started) * 1000)})
+            return web.json_response(resp)
+
         verdict = gate_mod.gate(text, state.last_reply(device, now)) if ctx else "escalate"
         tier, route = "gate", verdict
         if verdict == "reject":
@@ -683,6 +697,17 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     return app
+
+
+def screen_refresher(bodies: Bodies, people: People, clock=time.monotonic) -> Callable[[str], None]:
+    """A function that tells the screens `key` is in front of that their lists
+    changed ({"items_stale"}), for lists.Personal and the who page."""
+    def refresh(key: str) -> None:
+        now = clock()
+        for room in bodies.rooms():
+            if bodies.can(room, "items") and key in people.here(room, now):
+                asyncio.ensure_future(bodies.send(room, {"items_stale": {"person": key}}))
+    return refresh
 
 
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,

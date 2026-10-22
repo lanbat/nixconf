@@ -482,3 +482,86 @@ async def test_a_guest_has_no_settings_to_show_other_peoples_things(aiohttp_clie
     post = {"token": taps.sessions.form_token(guest), "todo": "todo.kiril_todo"}
     assert (await c.post("/settings", data=post, headers=with_cookie(guest, Origin=BASE))).status == 403
     assert prefs.prefs == {}
+
+
+class ListsHass:
+    """Home Assistant's to-do lists, as far as the page uses them."""
+
+    def __init__(self):
+        self.items = {"todo.kiril_todo": [{"uid": "u1", "summary": "Milk <b>", "status": "needs_action"}],
+                      "todo.maria_todo": [{"uid": "m1", "summary": "Secret", "status": "needs_action"}]}
+        self.calls = []
+
+    async def states(self, domain=None):
+        return [{"entity_id": e, "name": e, "state": "1"} for e in self.items]
+
+    async def call(self, domain, service, data, response=False):
+        self.calls.append((service, data))
+        rows = self.items[data["entity_id"]]
+        if response:
+            return {data["entity_id"]: {"items": [r for r in rows if r["status"] == "needs_action"]}}
+        if service == "add_item":
+            rows.append({"uid": f"n{len(rows)}", "summary": data["item"], "status": "needs_action"})
+        elif service == "update_item":
+            for r in rows:
+                if r["uid"] == data["item"]:
+                    r["status"] = data["status"]
+        elif service == "remove_item":
+            rows[:] = [r for r in rows if r["uid"] != data["item"]]
+        return {}
+
+
+async def lists_client(aiohttp_client, stored, tmp_path):
+    from assistant_router.lists import Lists, Personal
+    taps, people, _, _, _ = stored
+    people.add("maria", "Maria")
+    ha = ListsHass()
+    told = []
+    lists = Lists(str(tmp_path / "lists.json"))
+    personal = Personal(ha, lists, people.names, told.append)
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], personal=personal))
+    return c, ha, lists, told, taps
+
+
+async def test_my_lists(aiohttp_client, stored, tmp_path):
+    c, ha, lists, told, taps = await lists_client(aiohttp_client, stored, tmp_path)
+    account = await sign_in(c)
+    me = with_cookie(account)
+    assert "/lists" in await (await c.get("/", headers=me)).text()
+    text = await (await c.get("/lists", headers=me)).text()
+    assert "Milk &lt;b&gt;" in text and "Secret" not in text  # escaped, and only their own
+    token = form_token(text)
+    post = lambda action, **f: c.post(f"/lists/{action}", data={"token": token, "list": "todo", **f},  # noqa: E731
+                                      headers=with_cookie(account, Origin=BASE))
+    assert "Bread" in await (await post("add", item="Bread")).text()
+    assert ("add_item", {"entity_id": "todo.kiril_todo", "item": "Bread"}) in ha.calls
+    await post("done", item="u1")
+    assert ha.items["todo.kiril_todo"][0]["status"] == "completed"
+    await post("remove", item="n1")
+    assert [r["summary"] for r in ha.items["todo.kiril_todo"]] == ["Milk <b>"]
+    assert told == ["kiril", "kiril", "kiril"]
+    # An item that isn't on their open list, or a list that isn't theirs, changes nothing.
+    n = len(ha.calls)
+    await post("remove", item="m1")
+    await post("add", item="x", **{"list": "maria"})
+    assert not [c_ for c_ in ha.calls[n:] if c_[0] in ("remove_item", "add_item")]
+    assert "maria" not in "".join(str(c_) for c_ in ha.calls[n:] if c_[0] != "get_items")
+    # A new list is asked for, not made here.
+    assert "ready in a minute" in await (await post("new", name="Hardware")).text()
+    assert lists.slugs("kiril") == ["todo", "hardware"]
+    assert "Being set up" in await (await c.get("/lists", headers=me)).text()
+
+
+async def test_my_lists_are_for_accounts_from_this_page(aiohttp_client, stored, tmp_path):
+    c, ha, _, _, taps = await lists_client(aiohttp_client, stored, tmp_path)
+    account = await sign_in(c)
+    token = form_token(await (await c.get("/lists", headers=with_cookie(account))).text())
+    data = {"token": token, "list": "todo", "item": "x"}
+    assert (await c.post("/lists/add", data=data, headers=with_cookie(account, Origin="https://evil.example"))).status == 403
+    assert (await c.post("/lists/add", data={**data, "token": "x"}, headers=with_cookie(account, Origin=BASE))).status == 403
+    assert (await c.get("/lists")).status == 403
+    form = {"room": "Kitchen", "n": nonce(taps.link("Kitchen")), "name": "Jo"}
+    guest = cookie_of(await c.post("/name", data=form, headers={"Origin": BASE, **PHONE}))
+    assert (await c.get("/lists", headers=with_cookie(guest))).status == 403
+    assert "/lists" not in await (await c.get("/", headers=with_cookie(guest))).text()
+    assert not [c_ for c_ in ha.calls if c_[0] == "add_item"]

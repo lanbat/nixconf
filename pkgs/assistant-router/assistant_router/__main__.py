@@ -20,12 +20,13 @@ from .household import Household
 from .sightings import Sightings
 from .unknowns import Strangers, load_words
 from .irks import Irks
+from .lists import Lists, Personal
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
 from .prefs import Prefs
 from .mqtt import HomeAssistant, run_mqtt
-from .server import Config, forget_person, make_app, make_body_app
+from .server import Config, forget_person, make_app, make_body_app, screen_refresher
 from .tap import Sessions, Taps, make_tap_app, session_secret
 
 
@@ -59,6 +60,9 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     if a.ha_url and a.ha_token_file:
         with open(a.ha_token_file, encoding="utf-8") as f:
             hass = Hass(a.ha_url, f.read().strip())
+    lists = Lists(a.lists_state) if a.lists_state and hass is not None else None
+    personal = Personal(hass, lists, people.names, screen_refresher(bodies, people, time.monotonic)) \
+        if lists is not None else None
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -67,7 +71,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 people.add(key, name)
 
         async def forget(key: str) -> bool:
-            return await forget_person(key, people_store, voice, frigate, cards, sightings, prefs)
+            return await forget_person(key, people_store, voice, frigate, cards, sightings, prefs, lists)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     runtime=people_store.has if people_store is not None else None, store=people_store,
@@ -80,11 +84,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
             taps.forgetters.append(irks.forget)
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
                               irks=irks, forget=forget, sightings=sightings,
-                              prefs=prefs) if people_store is not None else None
+                              prefs=prefs, lists=lists) if people_store is not None else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None,
-                                      sightings=sightings, strangers=strangers))]
+                                      sightings=sightings, strangers=strangers, personal=personal))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
@@ -94,7 +98,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
-        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household, prefs=prefs, hass=hass)))
+        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household, prefs=prefs, hass=hass,
+                                                personal=personal)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
     screen_rooms: tuple[str, ...] = ()
@@ -184,6 +189,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--ha-url", help="Home Assistant, on the loopback: people's own settings, lists and "
                    "reminders (hass.py); unset: none")
     p.add_argument("--ha-token-file", help="the voice satellites' Home Assistant token, one line (a systemd credential)")
+    p.add_argument("--lists-state", help="JSON {key: [list]} in the state dir: the to-do lists people asked for "
+                   "(lists.py), which home-assistant-post-setup makes in Home Assistant")
     p.add_argument("--prefs-state", help="JSON {key: settings} in the state dir: the screen settings people "
                    "chose on the who page (prefs.py)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")

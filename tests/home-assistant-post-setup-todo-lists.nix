@@ -74,5 +74,32 @@ pkgs.runCommand "home-assistant-post-setup-todo-lists-check"
       exit 1
     fi
 
+    # People's own lists, from the router's file: made once, bad names never.
+    export LISTS_FILE="$tmp/lists.json"
+    echo '{"alex":["todo","shopping"],"sam":["hardware"],"Bad Key":["x"],"alex_2":["a/b","UP",7]}' > "$LISTS_FILE"
+    if [[ "$(wanted_todo_lists)" != '["alex_reminders","alex_shopping","alex_todo","sam_hardware","sam_reminders","sam_todo"]' ]]; then
+      echo "wanted_todo_lists: $(wanted_todo_lists)" >&2
+      exit 1
+    fi
+    ensure_todo_lists
+    count3="$(jq '[.data.entries[] | select(.domain == "local_todo")] | length' "$CONFIG_ENTRIES")"
+    if [[ "$count3" != 6 ]]; then
+      echo "lists.json: expected 6 entries, got $count3" >&2
+      exit 1
+    fi
+    if ! jq -e '.data.entries[] | select(.domain == "local_todo" and .title == "alex_shopping")' "$CONFIG_ENTRIES" >/dev/null; then
+      echo "alex_shopping was not made" >&2
+      exit 1
+    fi
+    if todo_lists_needed; then
+      echo "todo_lists_needed should be false after the router's lists are made" >&2
+      exit 1
+    fi
+    # A file that isn't JSON, or isn't an object, adds nothing and breaks nothing.
+    echo 'nonsense' > "$LISTS_FILE"
+    [[ "$(wanted_todo_lists)" == '["alex_reminders","alex_todo","sam_reminders","sam_todo"]' ]]
+    echo '[1,2]' > "$LISTS_FILE"
+    [[ "$(wanted_todo_lists)" == '["alex_reminders","alex_todo","sam_reminders","sam_todo"]' ]]
+
     touch "$out"
   ''
