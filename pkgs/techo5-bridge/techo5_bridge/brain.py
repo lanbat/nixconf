@@ -45,7 +45,7 @@ from typing import Any
 from room_presence import REPORT_SECONDS, Recogniser, Tracker
 
 PROTOCOL = 1
-CAN = ["caption", "greet", "capture", "phones", "here"]
+CAN = ["caption", "greet", "capture", "phones", "here", "items"]
 
 PROBE_S = 20.0           # a frame this often while someone unnamed is in front
 ITEMS_REFRESH_S = 60.0   # reminders, to-dos and events while a screen view is shown
@@ -269,6 +269,9 @@ class Brain:
         out: list = []
         if msg.get("capture") is True:
             out.append(("image", "capture"))
+        if isinstance(msg.get("items_stale"), dict):
+            # Their lists changed (by voice, or on the who page): read them at the next tick.
+            self._next_items = now
         if isinstance(msg.get("tap"), dict) and isinstance(msg["tap"].get("url"), str):
             self.link = msg["tap"]["url"]
         if "irks" in msg:

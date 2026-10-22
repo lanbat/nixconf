@@ -607,6 +607,31 @@ async def test_the_cloud_hears_who_is_there(aiohttp_client, fakes):
     assert "Kiril is nearby" in system
 
 
+async def test_a_list_command_is_the_speakers_own_and_never_reaches_a_model(aiohttp_client, fakes, tmp_path):
+    from assistant_router.lists import Lists, Personal
+    seen, _, _, base = fakes
+    cfg = Config(local_url=f"{base}/local/v1/chat/completions", local_model="qwen3-4b",
+                 cloud_url=f"{base}/cloud/v1/chat/completions", cloud_model="smart", mode="local-first")
+    people = People({"kiril": "Kiril", "maria": "Maria"})
+    people.observe("Bedroom 1", "card", "kiril", 1.0, now=0.0)  # a card tap: sure who is speaking
+    added = []
+
+    class Ha:
+        async def states(self, domain=None):
+            return [{"entity_id": "todo.kiril_todo", "name": "x", "state": "0"}]
+
+        async def call(self, domain, service, data, response=False):
+            added.append((service, data))
+            return {}
+
+    personal = Personal(Ha(), Lists(str(tmp_path / "lists.json")), people.names)
+    c = await aiohttp_client(make_app(cfg, State(), people=people, clock=lambda: 10.0, personal=personal))
+    choice = await post(c, req("Add milk to my list"))
+    assert choice["message"]["content"] == "Added milk to your list."
+    assert added == [("add_item", {"entity_id": "todo.kiril_todo", "item": "milk"})]
+    assert not seen["cloud"] and not seen["local"]
+
+
 async def test_who_is_there_never_changes_a_device_action(aiohttp_client, fakes):
     seen, _, _, base = fakes
     cfg = Config(local_url=f"{base}/local/v1/chat/completions", local_model="qwen3-4b",
@@ -1267,3 +1292,29 @@ async def test_a_camera_outside_is_a_place_where_someone_is(aiohttp_client):
     room, sure, by = people.where("kiril", 100.0)
     assert room == "Driveway" and sure > 0.5 and by
     await cam.close()
+
+
+async def test_a_screen_whose_person_changed_a_list_is_told_to_read_again(aiohttp_client):
+    import asyncio
+    from assistant_router.server import screen_refresher
+    people = People({"kiril": "Kiril", "maria": "Maria"})
+    people.observe("Kitchen", "card", "kiril", 1.0, 99.0)
+    bodies = Bodies("You are Nabu.")
+    app = make_body_app(bodies, clock=lambda: 100.0, people=people)
+    c = await aiohttp_client(app)
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "screen", "proto": 1, "can": ["here", "items"]}})
+    assert (await ws.receive_json()) == {"body_hello": {"faces": False}}
+    refresh = screen_refresher(bodies, people, lambda: 100.0)
+    refresh("maria")  # not there: nothing
+    refresh("kiril")
+    got = await asyncio.wait_for(ws.receive_json(), 2)
+    while "items_stale" not in got:
+        got = await asyncio.wait_for(ws.receive_json(), 2)
+    assert got == {"items_stale": {"person": "kiril"}}
+    await ws.close()
+
+
+def test_a_robot_is_never_told_about_lists():
+    from assistant_router.body import ROBOT_CAN
+    assert "items" not in ROBOT_CAN and "here" not in ROBOT_CAN

@@ -27,7 +27,8 @@
 # With Home Assistant on this host (settings.personal), the who page's "My
 # settings" lets each person choose their screen's calendars, to-do list and
 # photos from Home Assistant's, read with the voice satellites' token
-# (ha-voice-token, an ordinary user's).
+# (ha-voice-token, an ordinary user's); "My lists" and spoken list commands
+# ("add milk to my list") keep each person's own to-do lists in Home Assistant.
 #
 # Always-on: it is in the voice path. Home Assistant's side is loopback only.
 {
@@ -212,6 +213,10 @@ let
   mqttHere = cfg.homeAssistant && config.lanbat.hasService "mosquitto";
   hasHa = config.lanbat.hasService "home-assistant";
   haHere = cfg.personal && hasHa;
+  # The lists people asked for, which home-assistant-post-setup makes
+  # (services/home-assistant.nix reads it as root, from the dynamic user's
+  # real state directory).
+  routerListsFile = "/var/lib/assistant-router/lists.json";
   # The voice satellites' token: this host's satellite's when it has one
   # (modules/core/voice-satellite.nix owns the name there), the router's
   # otherwise, for itself and for the Echo Shows' bridge
@@ -304,6 +309,8 @@ in
           "/forget-phone"
           "/forget-me"
           "/settings"
+          "/lists"
+          "/lists/*"
         ];
       };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];
@@ -386,6 +393,7 @@ in
               "--ha-url http://127.0.0.1:${toString config.lanbat.services.home-assistant.port}"
               "--ha-token-file %d/ha-voice-token"
               "--prefs-state /var/lib/assistant-router/prefs.json"
+              "--lists-state ${routerListsFile}"
             ]
           );
           DynamicUser = true;

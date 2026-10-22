@@ -35,7 +35,7 @@ ORDER = {"Account": 0, "Guest": 1, "Not recorded": 2, "Heard": 3}
 class Household:
     def __init__(self, people, store, taps=None, voice=None, frigate=None, cards=None, irks=None,
                  forget: Callable[[str], Awaitable[bool]] | None = None, sightings=None,
-                 prefs=None) -> None:
+                 prefs=None, lists=None) -> None:
         self.people = people
         self.store = store  # people_store.PeopleStore
         self.taps = taps
@@ -46,6 +46,7 @@ class Household:
         self.sightings = sightings  # sightings.Sightings: searched on /admin/sightings
         self._forget = forget  # server.forget_person, bound to the stores (sightings too)
         self.prefs = prefs  # prefs.Prefs: their own screen settings, which follow a link
+        self.lists = lists  # lists.Lists: the lists they asked for, likewise
 
     def label(self, key: str) -> str:
         if self.store is None or not self.store.has(key):
@@ -129,6 +130,8 @@ class Household:
             moved.append("sightings")
         if self.prefs is not None and self.prefs.rekey(key, into):
             moved.append("settings")
+        if self.lists is not None and self.lists.rekey(key, into):
+            moved.append("lists")
         self.store.relink(key, into)
         self.store.remove(key)
         LOG.info(json.dumps({"linked": key, "into": into, "moved": moved, "by": "admin"}))

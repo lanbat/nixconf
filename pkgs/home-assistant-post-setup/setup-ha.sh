@@ -35,6 +35,10 @@ ANDROID_ADBKEY="${ANDROID_ADBKEY:-}"
 TECHO5_DEVICES="${TECHO5_DEVICES:-[]}"
 # Default local_todo list titles to create for techo5 profiles (object ids, not entity ids).
 TECHO5_TODO_LISTS="${TECHO5_TODO_LISTS:-[]}"
+# The assistant router's lists.json ({person key: [list slug]}): the lists
+# people made by voice or on the who page; each is the local_todo list
+# <key>_<slug>, made here on the next run.
+LISTS_FILE="${LISTS_FILE:-}"
 SERVER_HOST_KEY="${SERVER_HOST_KEY:-}"
 PRIMARY_STORAGE_KEY="${PRIMARY_STORAGE_KEY:-}"
 
@@ -406,12 +410,27 @@ TODO_LISTS_RECONCILE_JQ='
       else .missing += [$title]
       end)'
 
+# Every list wanted: the profile's, and people's own from the router's file.
+# Names are checked, since the file is the router's to write: a key and a slug
+# are lower-case letters, digits and underscores, and nothing else is made.
+wanted_todo_lists() {
+  local own='[]'
+  if [[ -n "$LISTS_FILE" && -r "$LISTS_FILE" ]]; then
+    own="$(jq -c '[to_entries[]
+        | select(.key | test("^[a-z0-9_]{1,40}$"))
+        | .key as $k | .value[]?
+        | select(type == "string" and test("^[a-z0-9_]{1,24}$"))
+        | "\($k)_\(.)"]' "$LISTS_FILE" 2>/dev/null)" || own='[]'
+  fi
+  jq -c -n --argjson a "$TECHO5_TODO_LISTS" --argjson b "${own:-[]}" '($a + $b) | unique'
+}
+
 todo_lists_reconciled() {
-  jq --argjson want "$TECHO5_TODO_LISTS" "$TODO_LISTS_RECONCILE_JQ" "$CONFIG_ENTRIES"
+  jq --argjson want "$(wanted_todo_lists)" "$TODO_LISTS_RECONCILE_JQ" "$CONFIG_ENTRIES"
 }
 
 todo_lists_needed() {
-  [[ "$TECHO5_TODO_LISTS" != "[]" && -f "$CONFIG_ENTRIES" ]] || return 1
+  [[ -f "$CONFIG_ENTRIES" && "$(wanted_todo_lists)" != "[]" ]] || return 1
   jq -e '(.missing // []) | length > 0' <<< "$(todo_lists_reconciled)" >/dev/null
 }
 

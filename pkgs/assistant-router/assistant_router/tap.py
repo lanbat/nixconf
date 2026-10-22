@@ -446,10 +446,11 @@ def safe_next(target: str) -> str:
 
 def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                  forget_person: Callable[[str], Awaitable[bool]] | None = None,
-                 household=None, prefs=None, hass=None) -> web.Application:
+                 household=None, prefs=None, hass=None, personal=None) -> web.Application:
     """The page behind https://who.<domain>, on the loopback for Caddy; with
     `household` (household.Household), "People Nabu knows" for admins; with
-    `prefs` (prefs.Prefs) and `hass` (hass.Hass), "My settings"."""
+    `prefs` (prefs.Prefs) and `hass` (hass.Hass), "My settings"; with `personal`
+    (lists.Personal), "My lists"."""
 
     def ip_of(request: web.Request) -> str:
         return request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -581,6 +582,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         body = "<p>Hold your phone to Nabu's head to say hello.</p>"
         if key and s["kind"] == "account" and prefs is not None and hass is not None:
             body += '<p><a href="/settings">My settings</a> <span class="muted">(your screen)</span></p>'
+        if key and s["kind"] == "account" and personal is not None:
+            body += '<p><a href="/lists">My lists</a></p>'
         if s["kind"] == "account":
             body += account_note()
             if household is not None and taps.admins:
@@ -667,6 +670,80 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         LOG.info(json.dumps({"settings": key, "chose": sorted(mine)}))
         return page("Saved", "<p>Your screen uses them the next time it sees you alone.</p>"
                              + settings_form(request, mine, cals, todos))
+
+    # ── My lists: accounts, their own lists only ──────────────────────────────
+
+    def lists_page(request: web.Request, key: str, shown: list[tuple[str, list[dict] | None]],
+                   note: str = "") -> web.Response:
+        esc = lambda v: html.escape(v, quote=True)  # noqa: E731
+        token = form_token(request)
+
+        def form(action: str, which: str, fields: str, button: str) -> str:
+            return (f'<form method="post" action="/lists/{action}"><input type="hidden" name="token" value="{esc(token)}">'
+                    f'<input type="hidden" name="list" value="{esc(which)}">{fields}<button>{button}</button></form>')
+
+        out = [note]
+        for which, rows in shown:
+            title = "My list" if which == "todo" else which.replace("_", " ").capitalize()
+            out.append(f"<section class=\"person\"><h2>{html.escape(title)}</h2>")
+            if rows is None:
+                out.append('<p class="muted">Being set up: it appears in a minute or two.</p></section>')
+                continue
+            for r in rows:
+                out.append(f'<p>{html.escape(r["summary"])} '
+                           + form("done", which, f'<input type="hidden" name="item" value="{esc(r["uid"])}">', "Done")
+                           + form("remove", which, f'<input type="hidden" name="item" value="{esc(r["uid"])}">', "Remove")
+                           + "</p>")
+            if not rows:
+                out.append('<p class="muted">Nothing on it.</p>')
+            out.append(form("add", which, '<label>Add <input name="item" maxlength="100" required></label>', "Add")
+                       + "</section>")
+        out.append('<h2>A new list</h2>' + form("new", "", '<label>Called <input name="name" maxlength="30" '
+                                                          'required></label>', "Make it"))
+        out.append('<p class="muted">Anyone with a Home Assistant login can open these lists there. '
+                   'Nabu changes only yours, and never deletes a list: ask whoever looks after the home.</p>'
+                   '<p><a href="/">Back</a></p>')
+        return page("My lists", "".join(out))
+
+    def form_token(request: web.Request) -> str:
+        return taps.sessions.form_token(request.cookies.get(SESSION_COOKIE))
+
+    async def my_lists(request: web.Request, note: str = "") -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or personal is None:
+            return page("Nabu", "<p>My lists are for people who sign in with an account.</p>", 403)
+        shown = []
+        for which in personal.lists.slugs(key):
+            have = await personal.exists(key, which)
+            if have is None:
+                return page("My lists", "<p>Home Assistant isn't answering right now. Try again later.</p>", 503)
+            shown.append((which, await personal.items(key, which) if have else None))
+        return lists_page(request, key, shown, note)
+
+    async def lists_get(request: web.Request) -> web.Response:
+        return await my_lists(request)
+
+    async def lists_post(request: web.Request) -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or personal is None or not same_site(request):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        form = await request.post()
+        if not hmac.compare_digest(str(form.get("token", "")), form_token(request)):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        action, which = request.match_info["action"], str(form.get("list", ""))
+        item, ok = str(form.get("item", "")), False
+        if action == "add":
+            ok = await personal.put(key, which, item)
+        elif action == "done":
+            ok = await personal.complete(key, which, item)
+        elif action == "remove":
+            ok = await personal.drop(key, which, item)
+        elif action == "new":
+            said = personal.make(key, str(form.get("name", "")))
+            return await my_lists(request, f"<p>{html.escape(said)}</p>")
+        return await my_lists(request, "" if ok else "<p>That didn't work. Try again.</p>")
 
     # ── People Nabu knows: the home's admins only ─────────────────────────────
     # Behind the provider's login (never an open path), so its headers are its own.
@@ -842,6 +919,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/name", name)
     app.router.add_post("/forget-phone", forget_phone)
     app.router.add_post("/forget-me", forget_me)
+    app.router.add_get("/lists", lists_get)
+    app.router.add_post("/lists/{action:add|done|remove|new}", lists_post)
     app.router.add_get("/settings", settings)
     app.router.add_post("/settings", save_settings)
     app.router.add_get("/admin", admin)

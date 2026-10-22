@@ -61,8 +61,10 @@ GESTURES = ("nod", "shake", "tilt", "wiggle", "dance", "look_around", "look_at_u
 
 # What a body may say it can do in its hello ("can"). A robot, which says
 # nothing, can do all of these but "here".
-CAPABILITIES = ("mood", "gesture", "look", "sleep", "caption", "greet", "capture", "phones", "here")
-ROBOT_CAN = frozenset(CAPABILITIES) - {"here"}
+CAPABILITIES = ("mood", "gesture", "look", "sleep", "caption", "greet", "capture", "phones", "here", "items")
+# "here": told who is in its room. "items": told when a person's lists changed
+# ({"items_stale": {"person"}}), so a screen reads them again at once.
+ROBOT_CAN = frozenset(CAPABILITIES) - {"here", "items"}
 # An act's fields and the capability each needs; the rest (brightness, led,
 # yaw, nap, ...) are a robot's own.
 ACT_NEEDS = {"mood": "mood", "gesture": "gesture", "look": "look", "sleep": "sleep", "caption": "caption",
