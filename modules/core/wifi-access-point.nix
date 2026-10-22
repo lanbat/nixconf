@@ -12,6 +12,8 @@ let
   inherit (lib) mkOption types;
   cfg = config.lanbat.wifi.accessPoint;
   bridge = config.lanbat.network.bridge;
+  transition = cfg.security == "wpa2-wpa3";
+  password = config.lanbat.secrets.wifi-access-point.path;
 in
 {
   options.lanbat.wifi.accessPoint = {
@@ -47,9 +49,19 @@ in
       type = types.enum [
         "wpa2-sha1"
         "wpa2-sha256"
+        "wpa2-wpa3"
       ];
       default = "wpa2-sha1";
-      description = "As the router has it: WPA2-Personal, which every phone and the robots support.";
+      description = ''
+        As the router has it. The default, WPA2-Personal, is what every phone
+        and the robots support. A router that offers WPA2 and WPA3 together
+        needs "wpa2-wpa3" (the same password for both, as WPA2-PSK and SAE,
+        protected management frames optional): a phone or laptop that joined
+        the router with WPA3 saved the network as WPA3 and does not treat a
+        WPA2-only access point of the same name as that network, so it never
+        roams onto it (NetworkManager says "the Wi-Fi network could not be
+        found"). Older devices, such as the robots, still join with WPA2.
+      '';
     };
   };
 
@@ -73,11 +85,27 @@ in
         inherit (cfg) band channel countryCode;
         networks.${cfg.interface} = {
           inherit (cfg) ssid;
-          authentication = {
-            mode = cfg.security;
-            wpaPasswordFile = config.lanbat.secrets.wifi-access-point.path;
+          authentication =
+            if transition then
+              {
+                mode = "wpa3-sae-transition";
+                wpaPasswordFile = password;
+                saePasswords = [ { passwordFile = password; } ];
+              }
+            else
+              {
+                mode = cfg.security;
+                wpaPasswordFile = password;
+              };
+          settings = {
+            bridge = bridge.name;
+          }
+          // lib.optionalAttrs transition {
+            # NixOS's transition mode offers WPA-PSK-SHA256, which needs protected
+            # management frames and which older WPA2 devices (the robots) cannot
+            # join. The router offers plain WPA-PSK beside SAE.
+            wpa_key_mgmt = lib.mkForce "WPA-PSK SAE";
           };
-          settings.bridge = bridge.name;
         };
       };
     };
