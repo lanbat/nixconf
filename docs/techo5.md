@@ -141,6 +141,35 @@ name. Music and video both work.
   setting `EnablePlayTo` and its other options were read from the plugin package itself, DLNA
   10.0.0.0, not guessed.)
 
+## Checking it on a live system
+
+After a deploy, three journal lines say whether the personal screen, lists and reminders can work:
+
+```
+journalctl -u assistant-router -b | grep '"home_assistant"'
+journalctl -u jellyfin-bootstrap -b | grep -i dlna
+journalctl -u home-assistant-post-setup -b | grep -i -E 'to-do|dlna'
+```
+
+- **`{"home_assistant": "ok", "todo": "ok", "calendar": "ok"}`** (the router, once after it starts,
+  and again every 30 s while Home Assistant isn't up): the voice satellites' token is accepted,
+  and may read to-do lists and calendars. `"todo": "none"` just means post-setup hasn't made the
+  lists yet; look again after it has run. `"calendar": "none"` means there is no calendar yet.
+- **`"refused"` with `"status": 401`:** Home Assistant doesn't accept the token (it was rotated, or
+  its user removed): run `secrets/generate-ha-voice-token.sh` again. **403:** Home Assistant
+  banned the server's own address after failed logins: take it out of `/var/lib/hass/ip_bans.yaml`
+  and restart Home Assistant. After a refusal the router stops calling Home Assistant until it
+  restarts, so it can't cause a ban of its own.
+- **`"error"` with a status:** Home Assistant answered, but not with what was asked; the status says
+  what.
+- The check only reads. That the lists can be **written** shows the first time someone says
+  "add milk to my list": an "I can't reach your lists" answer, or the router's log, says if not.
+- In Home Assistant, **Developer tools → States**: `todo.<key>_todo` and `todo.<key>_reminders`
+  for each person should exist.
+- **The DLNA plugin:** the bootstrap logs "installing plugin DLNA" the first time, and "DLNA: play to
+  devices true, media server false" once it is set. "the DLNA plugin's configuration has neither
+  EnablePlayTo nor EnableServer" means the plugin names its settings differently.
+
 ## Trusting Home Assistant's certificate
 
 The device fetches dashboards, replies, pictures and calendars from `https://ha.<domain>`

@@ -25,6 +25,7 @@ from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
 from .ringer import Ringer
+from .selfcheck import run as self_check
 from .prefs import Prefs
 from .mqtt import HomeAssistant, run_mqtt
 from .server import Config, forget_person, make_app, make_body_app, screen_refresher
@@ -125,13 +126,14 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
         if a.body_port and not a.no_greet else None
+    checked = asyncio.create_task(self_check(hass)) if hass is not None else None
     ringer = asyncio.create_task(Ringer(bodies, people, personal, time.monotonic,
                                         state_path=a.rung_state).run()) \
         if a.body_port and personal is not None else None
     try:
         await asyncio.Event().wait()
     finally:
-        for task in (mqtt, greeter, ringer):
+        for task in (mqtt, greeter, ringer, checked):
             if task is not None:
                 task.cancel()
         if hass is not None:
