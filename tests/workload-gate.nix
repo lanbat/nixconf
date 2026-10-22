@@ -32,11 +32,31 @@ pkgs.testers.runNixOSTest {
         workloadDirs."demo".user = "demo";
       };
 
+      # An always-on service that keeps a directory on the layer, as voice-id
+      # does: up while locked, restarted once the layer is open so its sandbox
+      # sees the directory.
+      lanbat.services.keeper.workloadDirs."keeper".user = "keeper";
+
       users.users.demo = {
         isSystemUser = true;
         group = "demo";
       };
       users.groups.demo = { };
+      users.users.keeper = {
+        isSystemUser = true;
+        group = "keeper";
+      };
+      users.groups.keeper = { };
+
+      systemd.services.keeper = {
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          User = "keeper";
+          ProtectSystem = "strict";
+          ReadWritePaths = [ "-/mnt/workload/keeper" ];
+        };
+        script = "exec sleep infinity";
+      };
 
       systemd.services.demo = {
         wantedBy = [ "multi-user.target" ];
@@ -71,6 +91,11 @@ pkgs.testers.runNixOSTest {
         machine.wait_for_file("/mnt/workload/demo/marker")
         machine.succeed("mountpoint -q /var/lib/demo")
 
+    with subtest("an always-on service keeps running and sees its directory"):
+        machine.succeed("systemctl is-active keeper.service")
+        machine.succeed("systemctl restart keeper.service")
+        machine.succeed("nsenter -t $(systemctl show -p MainPID --value keeper.service) -m test -d /mnt/workload/keeper")
+
     with subtest("a tmpfiles run keeps the live directory open"):
         machine.succeed("systemctl restart systemd-tmpfiles-resetup.service")
         machine.succeed("test \"$(stat -c %U:%a /var/lib/demo)\" = demo:750")
@@ -80,6 +105,7 @@ pkgs.testers.runNixOSTest {
         machine.succeed("printf 'y\\n' | lock-workload")
         machine.fail("systemctl is-active demo.service")
         machine.fail("test -e /dev/mapper/workload")
+        machine.succeed("systemctl is-active keeper.service")
         machine.succeed("test \"$(stat -c %a /var/lib/demo)\" = 0")
   '';
 }
