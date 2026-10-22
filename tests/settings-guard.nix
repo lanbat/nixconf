@@ -36,6 +36,8 @@ let
     "deployment.techo5Devices"
     # Nobody to recognise is a valid household setting, not a placeholder.
     "deployment.people"
+    # One admin key (adminSshKey) is enough; the extra keys are optional.
+    "deployment.extraAdminSshKeys"
     "deployment.dns"
     "hosts"
     "mosquitto.extraUsers"
