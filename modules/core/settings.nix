@@ -205,6 +205,13 @@ in
         description = "SSH public key of the admin user on all hosts.";
       };
 
+      extraAdminSshKeys = mkOption {
+        type = types.listOf (types.strMatching "(ssh-|ecdsa-|sk-).+");
+        default = [ ];
+        example = [ "ssh-ed25519 AAAAC3Nza... admin@laptop" ];
+        description = "Further SSH public keys of the admin user on all hosts, besides `adminSshKey`.";
+      };
+
       overlay = mkOption {
         type = types.submodule {
           options = {

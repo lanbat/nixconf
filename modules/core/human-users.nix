@@ -241,7 +241,7 @@ in
         extraGroups = user.groups;
       }
       // lib.optionalAttrs (name == "admin") {
-        openssh.authorizedKeys.keys = [ cfg.deployment.adminSshKey ];
+        openssh.authorizedKeys.keys = [ cfg.deployment.adminSshKey ] ++ cfg.deployment.extraAdminSshKeys;
       }
     ) humanUsers;
 

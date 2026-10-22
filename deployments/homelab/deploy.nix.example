@@ -87,6 +87,7 @@
     # };
 
     adminSshKey = "CHANGE_ME";
+    # extraAdminSshKeys = [ "ssh-ed25519 AAAA... admin@laptop" ];   # optional: more admin keys
     zigbeeVendorId = "CHANGE_ME";
     zigbeeProductId = "CHANGE_ME";
     immich.adminEmail = "CHANGE_ME";
