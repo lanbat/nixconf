@@ -221,7 +221,16 @@ let
     else
       "todo.${person}_reminders";
 
-  # Default local_todo list titles (entity object id) for post-setup to create.
+  # Default local_todo list titles (entity object id) for post-setup to create:
+  # for each profile's person, and each person the profile declares (the bridge
+  # gives anyone it shows without a profile of their own the default lists).
+  techo5ListPeople =
+    d:
+    lib.mapAttrs (_: _: {
+      todo = null;
+      reminders = null;
+    }) (config.lanbat.deployment.people or { })
+    // d.profiles;
   techo5TodoLists = lib.unique (
     lib.concatLists (
       lib.mapAttrsToList (
@@ -235,7 +244,7 @@ let
             in
             lib.optional (todo == "todo.${person}_todo") (lib.removePrefix "todo." todo)
             ++ lib.optional (reminders == "todo.${person}_reminders") (lib.removePrefix "todo." reminders)
-          ) d.profiles
+          ) (techo5ListPeople d)
         )
       ) techo5Devices
     )

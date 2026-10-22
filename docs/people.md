@@ -230,6 +230,23 @@ later. The page has **Forget my phone** and **Forget me** (your phones, face and
 you, unless the profile lists you). Faces, voices and Bluetooth still come from their own
 setup: a browser can't read a phone's Bluetooth keys.
 
+With Home Assistant on the server, accounts (not guests, who could otherwise pick someone
+else's lists to show) also get **My settings**. Each chooses, from what Home Assistant has:
+
+- the calendars of their screen's **Next up**;
+- the **to-do list** their screen shows (their own `todo.<key>_todo` unless they pick
+  another, such as the household's shopping list);
+- whose **photos** the screen's slideshow shows, as Immich names them;
+- the calendar their **reminders** go in too.
+
+The choices are kept in the router's state (`prefs.json`) and go over what the profile says
+for them (`techo5Devices.<room>.profiles.<person>`). An Echo Show uses them the next time it
+sees that person alone in front of it ([techo5.md](techo5.md#what-the-persons-screen-shows)).
+The device's own glance chips and calendar page stay as the profile has them: TECHO5 drops
+every connection to it, Home Assistant's included, whenever those change, so they don't
+change per person. "Forget me" removes the settings too. The router reads Home Assistant
+with the voice satellites' token, an ordinary user's (`settings.personal`, on by default).
+
 The phone has to trust the site's certificate: install the home CA from
 `https://ca.<domain>` first ([deployment checklist](deployment-checklist.md)). Turn it
 off with `lanbat.services.assistant-router.settings.tap = false`.

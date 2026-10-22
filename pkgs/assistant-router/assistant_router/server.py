@@ -31,6 +31,7 @@ from .irks import Irks
 from .people import VOICE_UNKNOWN, People
 from .voice import EAR_WAIT_SECONDS, WAIT_SECONDS, VoiceIdClient, VoiceReports
 from .people_store import PeopleStore
+from .prefs import Prefs
 from .sightings import Sightings
 from .state import State
 from .tap import LINK_PERIOD_S, Taps
@@ -136,11 +137,14 @@ def _person_key(name: str) -> str | None:
 
 async def forget_person(key: str, people_store: PeopleStore | None, voice: VoiceIdClient | None,
                         frigate: Frigate | None, cards: Cards | None = None,
-                        sightings: Sightings | None = None) -> bool:
-    """Forget `key`'s voice, face, cards and sightings; and them, when they
-    were added at runtime (True). One the profile declares stays (False)."""
+                        sightings: Sightings | None = None, prefs: Prefs | None = None) -> bool:
+    """Forget `key`'s voice, face, cards, sightings and own settings; and
+    them, when they were added at runtime (True). One the profile declares
+    stays (False)."""
     if cards is not None:
         cards.forget(key)
+    if prefs is not None:
+        prefs.forget(key)
     if sightings is not None:
         sightings.forget(key)
     if voice is not None:
@@ -676,7 +680,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = None,
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
                   cards: Cards | None = None, taps: Taps | None = None,
-                  irks: Irks | None = None, sightings: Sightings | None = None) -> web.Application:
+                  irks: Irks | None = None, sightings: Sightings | None = None,
+                  prefs: Prefs | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -699,7 +704,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     `taps`, each robot gets the link a phone held to it opens ({"tap": {"url"}}),
     a new one every minute (tap.py). A body that isn't a robot names what it
     can do in its hello ("can", body.py); one that can "here" is told who is in
-    its room ({"here": [...]}) when it connects and on each change."""
+    its room ({"here": [...]}) when it connects and on each change, with the
+    settings each chose for their screen (`prefs`, prefs.py)."""
     people = people or People({})
     non_bodies = ("room-sensor", "face-source", "house-sensor")
     on_camera: dict[str, set[str]] = {}  # place key -> who its cameras see now (sightings when they appear)
@@ -911,27 +917,34 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 LOG.info(json.dumps({"body": "gone", "room": room}))
         return ws
 
-    told_here: dict[str, list[str]] = {}  # room key -> the people a body was last told are here
+    told_here: dict[str, list] = {}  # room key -> the people (and settings) a body was last told are here
 
     def here_list(room: str, now: float) -> list[dict]:
         found = people.here(room, now)
-        return [{"person": k, "name": people.names.get(k, k), "confidence": round(sure, 2)}
-                for k, (sure, _) in sorted(found.items(), key=lambda kv: -kv[1][0])]
+        out = []
+        for k, (sure, _) in sorted(found.items(), key=lambda kv: -kv[1][0]):
+            h = {"person": k, "name": people.names.get(k, k), "confidence": round(sure, 2)}
+            mine = prefs.for_screen(k) if prefs is not None else {}
+            if mine:
+                h["prefs"] = mine
+            out.append(h)
+        return out
 
     async def tell_here() -> None:
         """Each body that can "here", when who is in its room changes (by
-        person, not by every wobble of a confidence)."""
+        person, not by every wobble of a confidence), or their settings do."""
         now = clock()
         for room in bodies.rooms():
             if not bodies.can(room, "here"):
                 continue
             found = here_list(room, now)
-            keys = [h["person"] for h in found]
+            keys = [[h["person"], h.get("prefs")] for h in found]
             if told_here.get(room.casefold()) == keys:
                 continue
             if await bodies.send(room, {"here": found}):
                 told_here[room.casefold()] = keys
-                LOG.info(json.dumps({"here": room, "people": [[h["person"], h["confidence"]] for h in found]}))
+                LOG.info(json.dumps({"here": room, "people": [[h["person"], h["confidence"]] for h in found],
+                                     **({"prefs": True} if any("prefs" in h for h in found) else {})}))
 
     async def here_loop() -> None:
         while True:

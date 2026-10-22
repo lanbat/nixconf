@@ -53,7 +53,14 @@ in the apps or edit them by voice. The Echo Show shows them only when the router
 get the household view instead, with no reminders or to-dos.
 
 `home-assistant-post-setup` creates the default lists as `local_todo` entries when they
-do not exist yet. You may point a profile at an existing `todo.*` entity instead.
+do not exist yet, for each profile's person and each person in `deployment.people`. You may
+point a profile at an existing `todo.*` entity instead.
+
+Each person may also choose their screen's **Next up** calendars, to-do list and photos on
+the who page (**My settings**, [people.md](people.md#tap-your-phone)); those choices win over
+the profile. The device's own glance chips and calendar page keep the profile's values
+(`glance`, `calendars`): changing them makes TECHO5 drop every API connection, Home
+Assistant's too, which a change at each arrival would do.
 
 When one person is alone, their dashboard view (`lanbat-screen-<room>`, path
 `<person key>`) is a stack of sections, top to bottom: a greeting, **Reminders** (hidden

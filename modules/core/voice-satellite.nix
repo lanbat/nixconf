@@ -486,7 +486,8 @@ in
       description = ''
         Something else on this host reads the satellite's Home Assistant token
         (ha-voice-token), so it is required whatever the backend: the Echo Shows'
-        bridge (services/techo5-bridge.nix).
+        bridge (services/techo5-bridge.nix), the assistant router
+        (services/assistant-router.nix). Each sets it true or not at all.
       '';
     };
 
