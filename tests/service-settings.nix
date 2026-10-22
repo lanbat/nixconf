@@ -285,6 +285,7 @@ let
         {
           lanbat.voiceSatellite.backend = "lva";
           lanbat.voiceSatellite.lva.volume = 0.4;
+          lanbat.services.kodi.settings.resumeRewindSeconds = 5;
         }
       ];
       pi-voice = [ { lanbat.voiceSatellite.backend = "lva"; } ];
@@ -1516,8 +1517,9 @@ let
       && !(base.services.litellm.enable or false)
     ))
 
-    (expect "tv: the companion rewinds a film it paused for a question" (
-      lvaTvBox.systemd.services.lva-kodi-companion.environment.RESUME_REWIND_SECONDS == "3"
+    # The variant sets 5 (the default is 3): the setting reaches the companion.
+    (expect "tv: the companion rewinds a film it paused for a question, as far as the setting says" (
+      lvaTvBox.systemd.services.lva-kodi-companion.environment.RESUME_REWIND_SECONDS == "5"
     ))
 
     (expect "tv: a new Kodi stream doesn't inherit a ducked volume" (

@@ -403,7 +403,11 @@ to set:
 - **A film pauses while you talk.** On the wake word, a video Kodi is playing pauses; when
   the conversation ends (after the reply has played) it carries on three seconds back, so
   the line said over the wake word isn't lost, unless you said "pause", "stop" or started
-  something else meanwhile. Music Kodi plays fades down like Snapcast's.
+  something else meanwhile. Music Kodi plays fades down like Snapcast's. The pause comes
+  within the second of the wake word, so a short rewind is enough, but Kodi seeks to the
+  keyframe at or before the point: a 1080p H.264 file with a keyframe every ten seconds
+  went back 6 to 10 seconds, not 3. `lanbat.services.kodi.settings.resumeRewindSeconds`
+  sets it (0 resumes exactly where the film stopped).
 - **Captions.** "Listening…", what you said and the reply show on the TV as Kodi
   notifications.
 - **TV power over CEC.** "Turn the TV off/on" switches the TV through Kodi's CEC adapter
