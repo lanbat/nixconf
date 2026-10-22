@@ -66,6 +66,7 @@ class Profile:
     immich_person: str = ""
     todo: str = ""
     reminders: str = ""
+    next_up: list[str] = field(default_factory=list)  # the person's own choice of calendars for "Next up"
 
     @classmethod
     def from_json(cls, data: Any) -> "Profile":
@@ -276,7 +277,11 @@ class Brain:
             self.note(face_result=msg["face_result"].get("person"), confidence=msg["face_result"].get("confidence"))
             out += self._face_result(msg["face_result"], now)
         if isinstance(msg.get("here"), list):
+            before = self.here
             self.here = [h for h in msg["here"] if isinstance(h, dict) and isinstance(h.get("person"), str)]
+            if len(self.here) == 1 and len(before) == 1 and before[0]["person"] == self.here[0]["person"] \
+                    and before[0].get("prefs") != self.here[0].get("prefs"):
+                self._next_items = now  # the same person chose other lists or calendars: read them now
             keys = [h["person"] for h in self.here]
             if keys != self._noted_here:
                 self._noted_here = keys
@@ -351,14 +356,31 @@ class Brain:
                               glance=[f"sensor.lanbat_people_where_{k}" for k in sorted(self.people)
                                       if k != key][:8],
                               todo=f"todo.{key}_todo", reminders=f"todo.{key}_reminders")
-            if mine is None:
-                return key, default
-            return key, Profile(view=mine.view or default.view, glance=mine.glance or default.glance,
-                                calendars=mine.calendars or self.cfg.household.calendars,
-                                immich_person=mine.immich_person,
-                                todo=mine.todo or f"todo.{key}_todo",
-                                reminders=mine.reminders or f"todo.{key}_reminders")
+            if mine is not None:
+                default = Profile(view=mine.view or default.view, glance=mine.glance or default.glance,
+                                  calendars=mine.calendars or self.cfg.household.calendars,
+                                  immich_person=mine.immich_person,
+                                  todo=mine.todo or f"todo.{key}_todo",
+                                  reminders=mine.reminders or f"todo.{key}_reminders")
+            return key, self._chosen(default, self.here[0].get("prefs"))
         return None, self.cfg.household
+
+    @staticmethod
+    def _chosen(p: Profile, prefs: Any) -> Profile:
+        """What the person chose on the who page (the router's prefs.py) over
+        the profile: the calendars of "Next up", the to-do list and the photos.
+        Never the glance chips or the device's own calendars: those make it
+        drop every connection, Home Assistant's too, each time someone arrives."""
+        if not isinstance(prefs, dict):
+            return p
+        cals = prefs.get("calendars")
+        if isinstance(cals, list):
+            p.next_up = [c for c in cals if isinstance(c, str) and c.startswith("calendar.")][:8]
+        if isinstance(prefs.get("todo"), str) and prefs["todo"].startswith("todo."):
+            p.todo = prefs["todo"]
+        if isinstance(prefs.get("immich_person"), str) and prefs["immich_person"]:
+            p.immich_person = prefs["immich_person"][:60]
+        return p
 
     def wants_items(self) -> tuple[str | None, Profile]:
         return self.profile()
@@ -407,7 +429,7 @@ class Brain:
             reminders = lists.pick_reminders(lists.parse_items(prof.reminders, rem_raw), now)
         if person is not None and prof.todo and todo_raw is not None:
             todos, more = lists.pick_todos(lists.parse_items(prof.todo, todo_raw))
-        cals = prof.calendars or self.cfg.household.calendars
+        cals = prof.next_up or prof.calendars or self.cfg.household.calendars
         events = lists.parse_events(ev_raw, now) if ev_raw is not None and cals else []
         return {"reminders": reminders, "todos": todos, "more": more, "events": events}
 

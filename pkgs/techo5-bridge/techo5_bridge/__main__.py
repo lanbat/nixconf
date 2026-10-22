@@ -243,7 +243,7 @@ async def fetch_items_from_ha(brain: Brain, ha: Ha | None, for_person: str | Non
         rem = await ha.todo_items(profile.reminders)
     if profile.todo:
         todo = await ha.todo_items(profile.todo)
-    cals = profile.calendars or brain.cfg.household.calendars
+    cals = profile.next_up or profile.calendars or brain.cfg.household.calendars
     if cals:
         ev = await ha.events(cals)
     return brain.apply_fetch(for_person, gen, rem, todo, ev, now=now, mono=time.monotonic())

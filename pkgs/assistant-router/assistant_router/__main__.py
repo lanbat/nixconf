@@ -15,6 +15,7 @@ from .body import Bodies
 from .cards import Cards
 from .frigate import Frigate
 from .greet import Greeter
+from .hass import Hass
 from .household import Household
 from .sightings import Sightings
 from .unknowns import Strangers, load_words
@@ -22,6 +23,7 @@ from .irks import Irks
 from .people import People
 from .voice import VoiceIdClient
 from .people_store import PeopleStore
+from .prefs import Prefs
 from .mqtt import HomeAssistant, run_mqtt
 from .server import Config, forget_person, make_app, make_body_app
 from .tap import Sessions, Taps, make_tap_app, session_secret
@@ -52,6 +54,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         adjectives, nouns = load_words(a.unknown_words_file)
         strangers = Strangers(people, people_store, frigate, sightings, adjectives=adjectives, nouns=nouns,
                               max_people=a.unknown_max)
+    prefs = Prefs(a.prefs_state) if a.prefs_state else None
+    hass = None
+    if a.ha_url and a.ha_token_file:
+        with open(a.ha_token_file, encoding="utf-8") as f:
+            hass = Hass(a.ha_url, f.read().strip())
     if a.tap_url:
         def remember(key: str, name: str) -> None:
             if people_store is not None:
@@ -60,7 +67,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 people.add(key, name)
 
         async def forget(key: str) -> bool:
-            return await forget_person(key, people_store, voice, frigate, cards, sightings)
+            return await forget_person(key, people_store, voice, frigate, cards, sightings, prefs)
 
         taps = Taps(a.tap_url, people, time.monotonic, phones_path=a.phones_state, remember=remember,
                     runtime=people_store.has if people_store is not None else None, store=people_store,
@@ -72,7 +79,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         if irks is not None:
             taps.forgetters.append(irks.forget)
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
-                              irks=irks, forget=forget, sightings=sightings) if people_store is not None else None
+                              irks=irks, forget=forget, sightings=sightings,
+                              prefs=prefs) if people_store is not None else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None,
@@ -82,11 +90,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     if a.body_port:
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
                                                    cards=cards, taps=taps, irks=irks, sightings=sightings,
-                                                   strangers=strangers)))
+                                                   strangers=strangers, prefs=prefs)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
-        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household)))
+        runners.append(web.AppRunner(make_tap_app(taps, bodies.rooms, forget, household, prefs=prefs, hass=hass)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
     screen_rooms: tuple[str, ...] = ()
@@ -111,6 +119,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         for task in (mqtt, greeter):
             if task is not None:
                 task.cancel()
+        if hass is not None:
+            await hass.aclose()
         for runner in runners:
             await runner.cleanup()
 
@@ -171,6 +181,11 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--mqtt-user")
     p.add_argument("--mqtt-password-file", help="the broker password, one line (a systemd credential)")
     p.add_argument("--screen-rooms-file", help="JSON list of rooms with techo5 screens (mqtt.py item sensors)")
+    p.add_argument("--ha-url", help="Home Assistant, on the loopback: people's own settings, lists and "
+                   "reminders (hass.py); unset: none")
+    p.add_argument("--ha-token-file", help="the voice satellites' Home Assistant token, one line (a systemd credential)")
+    p.add_argument("--prefs-state", help="JSON {key: settings} in the state dir: the screen settings people "
+                   "chose on the who page (prefs.py)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,

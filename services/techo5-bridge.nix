@@ -59,13 +59,12 @@ let
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 
   keySecret = device: "techo5-${device}-api-key";
-  # The voice satellites' token: this host's satellite's when it has one,
-  # declared here otherwise.
-  satellite = config.lanbat.voiceSatellite;
-  # The name is voice-satellite's on any host with a satellite, whatever its
-  # backend (modules/core/voice-satellite.nix), and a secret's name is one
-  # service's alone, enabled or not.
-  satelliteDeclares = satellite.enable;
+  # The voice satellites' token: this host's satellite's when it has one, the
+  # assistant router's otherwise (services/assistant-router.nix, which runs
+  # wherever the bridge does). The name is voice-satellite's on any host with a
+  # satellite, whatever its backend (modules/core/voice-satellite.nix), and a
+  # secret's name is one service's alone, enabled or not.
+  satelliteDeclares = config.lanbat.voiceSatellite.enable;
 
   # Each device's own settings: lanbat's, then the profile's.
   settingsFor =
@@ -173,19 +172,13 @@ in
           enable = installsCa;
           owner = "root";
         };
-      }
-      // lib.optionalAttrs (!satelliteDeclares) {
-        ha-voice-token = {
-          enable = enabled && hasHa;
-          owner = "root";
-        };
       };
-    readsSecrets = lib.optional (enabled && hasHa && satelliteDeclares) "ha-voice-token";
+    readsSecrets = lib.optional (enabled && hasHa) "ha-voice-token";
   };
 
   # Where the satellite owns the token, the bridge needs its requirement on,
   # even for an LVA satellite (which has no use of its own for it).
-  lanbat.voiceSatellite.haTokenWanted = enabled && hasHa && satelliteDeclares;
+  lanbat.voiceSatellite.haTokenWanted = lib.mkIf (enabled && hasHa && satelliteDeclares) true;
 
   networking.firewall.extraCommands = lib.mkIf enabled (
     lib.concatLines (map (spec: "iptables -I ${spec}") specs)

@@ -38,6 +38,23 @@ let
     lib.attrValues config.lanbat.services
   );
 
+  # Always-on units that keep a directory on the layer. Their sandbox
+  # (ReadWritePaths) holds a private mount of it, which outlives the host's
+  # umount and keeps the LUKS device busy; lock-workload restarts them once the
+  # layer is unmounted. The units are the service's own, else the one named
+  # after it (as control-layer.nix reads them).
+  keepers = lib.unique (
+    lib.concatMap (
+      svc:
+      lib.optionals (svc.tier == "always-on" && svc.workloadDirs != { }) (
+        if svc.units != [ ] then
+          svc.units
+        else
+          lib.optional (config.systemd.services ? ${svc.name}) svc.name
+      )
+    ) (lib.attrValues config.lanbat.services)
+  );
+
   # /var/lib/nextcloud → var-lib-nextcloud.mount
   mountUnit = path: "${lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" path)}.mount";
   bindMountUnits = map (d: mountUnit "/var/lib/${d}") stateDirs;
@@ -180,6 +197,11 @@ in
         if mountpoint -q /mnt/workload; then
           umount /mnt/workload
         fi
+        ${lib.optionalString (keepers != [ ]) ''
+          # An always-on service's sandbox still holds the layer's mount; a
+          # restart, now that it is gone from the host, drops it.
+          systemctl try-restart ${lib.concatMapStringsSep " " (u: "${u}.service") keepers} 2>/dev/null || true
+        ''}
         if [ -e /dev/mapper/workload-luks ]; then
           cryptsetup luksClose workload-luks
           echo "Workload LUKS closed."

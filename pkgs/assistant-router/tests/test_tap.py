@@ -406,3 +406,79 @@ async def test_forgetting_a_linked_login_forgets_the_person_it_is(aiohttp_client
     account = await sign_in(c, "jdoe", "Jane Doe")
     assert (await c.post("/forget-me", headers=with_cookie(account, Origin=BASE))).status == 200
     assert forgotten == ["jane"]
+
+
+class FakeHass:
+    def __init__(self, down=False):
+        self.down = down
+
+    async def states(self, domain=None):
+        from assistant_router.hass import HassError
+        if self.down:
+            raise HassError("GET /api/states")
+        return [{"entity_id": "calendar.family", "name": "Family", "state": "off"},
+                {"entity_id": "calendar.kiril", "name": "Kiril", "state": "off"},
+                {"entity_id": "todo.kiril_reminders", "name": "kiril_reminders", "state": "0"},
+                {"entity_id": "todo.kiril_todo", "name": "kiril_todo", "state": "1"},
+                {"entity_id": "todo.maria_todo", "name": "maria_todo", "state": "1"},
+                {"entity_id": "todo.shopping_list", "name": "Shopping list", "state": "3"}]
+
+
+def form_token(text):
+    return text.split('name="token" value="')[1].split('"')[0]
+
+
+async def test_my_settings(aiohttp_client, stored, tmp_path):
+    from assistant_router.prefs import Prefs
+    taps, people, _, _, _ = stored
+    people.add("maria", "Maria")
+    prefs = Prefs(str(tmp_path / "prefs.json"))
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], prefs=prefs, hass=FakeHass()))
+    account = await sign_in(c)
+    me = with_cookie(account)
+    assert "/settings" in await (await c.get("/", headers=me)).text()
+    r = await c.get("/settings", headers=me)
+    text = await r.text()
+    assert r.status == 200 and "Family" in text and "Shopping list" in text
+    assert "kiril_reminders" not in text  # a reminders list is never the to-do list
+    assert "maria_todo" not in text  # nor another person's own list
+    form = {"token": form_token(text), "calendar": "calendar.kiril", "reminder_calendar": "calendar.kiril",
+            "todo": "todo.shopping_list", "immich_person": "Kiril"}
+    r = await c.post("/settings", data=form, headers=with_cookie(account, Origin=BASE))
+    assert r.status == 200
+    assert prefs.get("kiril") == {"calendars": ["calendar.kiril"], "reminder_calendar": "calendar.kiril",
+                                  "todo": "todo.shopping_list", "immich_person": "Kiril"}
+    # Only what Home Assistant has, and only from this page with this cookie's token.
+    form2 = {**form, "calendar": "calendar.nope", "todo": "todo.kiril_reminders"}
+    await c.post("/settings", data=form2, headers=with_cookie(account, Origin=BASE))
+    assert prefs.get("kiril") == {"reminder_calendar": "calendar.kiril", "immich_person": "Kiril"}
+    assert (await c.post("/settings", data=form, headers=with_cookie(account, Origin="https://evil.example"))).status == 403
+    assert (await c.post("/settings", data={**form, "token": "x"}, headers=with_cookie(account, Origin=BASE))).status == 403
+    assert (await c.post("/settings", data=form, headers={"Origin": BASE})).status == 403
+    assert (await c.get("/settings")).status == 403
+
+
+async def test_my_settings_need_home_assistant(aiohttp_client, stored, tmp_path):
+    from assistant_router.prefs import Prefs
+    taps, _, _, _, _ = stored
+    prefs = Prefs(str(tmp_path / "prefs.json"))
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], prefs=prefs, hass=FakeHass(down=True)))
+    account = await sign_in(c)
+    assert (await c.get("/settings", headers=with_cookie(account))).status == 503
+    c2 = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"]))
+    assert "/settings" not in await (await c2.get("/", headers=with_cookie(account))).text()
+
+
+async def test_a_guest_has_no_settings_to_show_other_peoples_things(aiohttp_client, stored, tmp_path):
+    from assistant_router.prefs import Prefs
+    taps, _, _, _, _ = stored
+    prefs = Prefs(str(tmp_path / "prefs.json"))
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], prefs=prefs, hass=FakeHass()))
+    form = {"room": "Kitchen", "n": nonce(taps.link("Kitchen")), "name": "Jo"}
+    guest = cookie_of(await c.post("/name", data=form, headers={"Origin": BASE, **PHONE}))
+    assert guest
+    assert "/settings" not in await (await c.get("/", headers=with_cookie(guest))).text()
+    assert (await c.get("/settings", headers=with_cookie(guest))).status == 403
+    post = {"token": taps.sessions.form_token(guest), "todo": "todo.kiril_todo"}
+    assert (await c.post("/settings", data=post, headers=with_cookie(guest, Origin=BASE))).status == 403
+    assert prefs.prefs == {}

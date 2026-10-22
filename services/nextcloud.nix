@@ -80,9 +80,20 @@ in
 
   # The timer would start nextcloud-cron, and with it the workload layer, five
   # minutes after boot. Run it only while the layer is unlocked.
+  #
+  # The nixpkgs module also sets the timer's after = [ "nextcloud-setup.service"
+  # ]. That edge, together with this timer's PartOf=workload-online.target (which
+  # makes systemd order the target after the timer) and the workload gate's
+  # BindsTo+After=workload-online.target on nextcloud-setup, forms the ordering
+  # cycle target -> timer -> nextcloud-setup -> target. While the layer is
+  # stopping all three are hard-linked to the target, so systemd cannot drop any
+  # of them to break it: the stop fails, nextcloud and the database stay up, and
+  # the LUKS close fails with EBUSY. Drop the timer's After edge to break the
+  # cycle; the cron service still orders itself after nextcloud-setup on its own.
   systemd.timers.nextcloud-cron = {
     wantedBy = lib.mkForce [ "workload-online.target" ];
     partOf = [ "workload-online.target" ];
+    after = lib.mkForce [ ];
   };
 
   # The database and its owner role, both "nextcloud", on the workload instance

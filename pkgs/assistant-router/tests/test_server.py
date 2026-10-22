@@ -397,6 +397,33 @@ async def test_a_screen_is_told_who_is_here(aiohttp_client):
     await ws.close()
 
 
+async def test_a_screen_is_told_the_settings_people_chose(aiohttp_client, tmp_path):
+    import asyncio
+    from assistant_router.prefs import Prefs
+    people = People({"kiril": "Kiril Example"})
+    prefs = Prefs(str(tmp_path / "prefs.json"))
+    prefs.set("kiril", {"calendars": ["calendar.kiril"], "reminder_calendar": "calendar.kiril"})
+    people.observe("Kitchen", "card", "kiril", 1.0, 99.0)
+    app = make_body_app(Bodies("You are Nabu."), clock=lambda: 100.0, people=people, prefs=prefs)
+    c = await aiohttp_client(app)
+    ws = await c.ws_connect("/v1/body")
+    await ws.send_json({"hello": {"room": "Kitchen", "kind": "screen", "proto": 1, "can": ["here"]}})
+    assert (await ws.receive_json()) == {"body_hello": {"faces": False}}
+    await app["tell_here"]()
+    got = await asyncio.wait_for(ws.receive_json(), 2)
+    # The screen's share only: the reminders' calendar is the router's own.
+    assert got == {"here": [{"person": "kiril", "name": "Kiril Example", "confidence": 0.98,
+                             "prefs": {"calendars": ["calendar.kiril"]}}]}
+    prefs.set("kiril", {"todo": "todo.shopping_list"})
+    await app["tell_here"]()  # the same people, new settings: told again
+    got = await asyncio.wait_for(ws.receive_json(), 2)
+    assert got["here"][0]["prefs"] == {"todo": "todo.shopping_list"}
+    await app["tell_here"]()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(ws.receive_json(), 0.3)
+    await ws.close()
+
+
 async def test_a_robot_is_not_told_who_is_here(aiohttp_client):
     import asyncio
     people = People({"kiril": "Kiril"})
