@@ -179,6 +179,7 @@
           inherit pkgs;
         };
         ha-oidc-secret = import ./tests/ha-oidc-secret.nix { inherit pkgs; };
+        jellyfin-dlna = import ./tests/jellyfin-dlna.nix { inherit pkgs; };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };

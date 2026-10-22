@@ -13,6 +13,11 @@ IMVDB_API_KEY="${IMVDB_API_KEY:-}"
 # Open Subtitles account (optional; empty skips credential configuration).
 OPENSUBTITLES_USERNAME="${OPENSUBTITLES_USERNAME:-}"
 OPENSUBTITLES_PASSWORD="${OPENSUBTITLES_PASSWORD:-}"
+# DLNA: 1 installs the DLNA plugin and lets Jellyfin play to DLNA speakers and
+# screens (the Echo Shows); DLNA_SERVER=1 also shares the libraries with every
+# DLNA client on the LAN, which asks for no login. 0 turns both off again.
+DLNA_ENABLE="${DLNA_ENABLE:-0}"
+DLNA_SERVER="${DLNA_SERVER:-0}"
 STATE_DIR="${STATE_DIR:-/var/lib/jellyfin}"
 WIZARD_STATE_FILE="${WIZARD_STATE_FILE:-${STATE_DIR}/.lanbat-bootstrap-complete}"
 CONFIG_STATE_FILE="${CONFIG_STATE_FILE:-${STATE_DIR}/.lanbat-jellyfin-config-complete}"
@@ -320,6 +325,7 @@ setup_plugin_repositories() {
 # under /Plugins can differ (IMVDb's does), so it is looked up by name.
 BOOKSHELF_GUID="9c4e63f1-031b-4f25-988b-4f7d78a8b53e"
 IMVDB_GUID="e29621a5-fa9e-4330-982e-ef6e54c0cad2"
+DLNA_GUID="33eba9cd-7da1-4720-967f-dd7dae7b74a1"
 
 # Libraries whose items need their metadata fetched again once the plugins
 # are loaded: a newly installed provider only reaches items added after it.
@@ -339,6 +345,11 @@ setup_plugins() {
     REFRESH_LIBRARIES+=("Books")
   fi
   if [[ -n "$IMVDB_API_KEY" ]] && install_plugin "IMVDb" "$IMVDB_GUID"; then
+    restarted=true
+  fi
+  # Jellyfin 10.9 moved DLNA out of the server into this plugin. The newest
+  # build the running Jellyfin accepts is the one installed.
+  if [[ "$DLNA_ENABLE" == 1 ]] && install_plugin "DLNA" "$DLNA_GUID"; then
     restarted=true
   fi
 
@@ -364,6 +375,39 @@ setup_plugins() {
     log "Jellyfin API did not accept authentication after plugin restart"
     return 1
   fi
+}
+
+# The DLNA plugin's two switches, by the names its configuration has always
+# used: EnablePlayTo (Jellyfin finds DLNA speakers and screens and plays to
+# them) and EnableServer (Jellyfin is a DLNA media server). A key the plugin's
+# configuration lacks is left alone, so a renamed one changes nothing.
+# $play and $server are JSON booleans.
+DLNA_JQ='
+  (if has("EnablePlayTo") then .EnablePlayTo = $play else . end)
+  | (if has("EnableServer") then .EnableServer = $server else . end)'
+
+# Sets them from DLNA_ENABLE and DLNA_SERVER once the plugin is loaded, and
+# turns them off again when DLNA is switched off (the plugin stays installed).
+configure_dlna() {
+  local id current desired play=false server=false
+  id="$(api_call "${JELLYFIN_URL}/Plugins" | jq -r '[.[] | select(.Name == "DLNA") | .Id][0] // empty')"
+  [[ -n "$id" ]] || return 0
+  [[ "$DLNA_ENABLE" == 1 ]] && play=true
+  [[ "$DLNA_ENABLE" == 1 && "$DLNA_SERVER" == 1 ]] && server=true
+  current="$(api_call "${JELLYFIN_URL}/Plugins/${id}/Configuration")"
+  if ! jq -e 'has("EnablePlayTo") or has("EnableServer")' <<<"$current" >/dev/null; then
+    log "the DLNA plugin's configuration has neither EnablePlayTo nor EnableServer; leaving it as it is"
+    return 0
+  fi
+  desired="$(jq --argjson play "$play" --argjson server "$server" "$DLNA_JQ" <<<"$current")"
+  if [[ "$(jq -S . <<<"$desired")" == "$(jq -S . <<<"$current")" ]]; then
+    return 0
+  fi
+  log "DLNA: play to devices ${play}, media server ${server}"
+  api_call -X POST "${JELLYFIN_URL}/Plugins/${id}/Configuration" \
+    -H 'Content-Type: application/json' \
+    -d "$desired" \
+    -o /dev/null
 }
 
 # IMVDb answers nothing without its API key. Setting or changing the key
@@ -621,6 +665,7 @@ run_configuration() {
   configure_scheduled_scan
   setup_plugins
   configure_imvdb
+  configure_dlna
   exclude_imvdb_from_music_artists
   configure_opensubtitles
   setup_sso
@@ -643,6 +688,7 @@ if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>
   # Plugins added to this script after the server was first set up.
   setup_plugins
   configure_imvdb
+  configure_dlna
   exclude_imvdb_from_music_artists
   configure_opensubtitles
   setup_branding

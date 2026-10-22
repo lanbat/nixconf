@@ -462,6 +462,12 @@ let
       };
       lanbat.services.llama-cpp.settings.model = "qwen3-4b";
       lanbat.services.assistant-router.settings.tap = false;
+      # DLNA on (the default) with a speaker besides the Echo Show, and the
+      # media server too.
+      lanbat.services.jellyfin.settings.dlna = {
+        renderers = [ "192.0.2.77" ];
+        server = true;
+      };
       lanbat.services.assistant-router.settings.unknownPeople = {
         enable = true;
         adjectives = [ "Wobbly" ];
@@ -569,7 +575,16 @@ let
   # ── Jellyfin ─────────────────────────────────────────────────────────────
   jellyfinBootstrap = config: config.systemd.services.jellyfin-bootstrap.script;
 
-  jellyfinImvdb = serverWith [ { lanbat.services.jellyfin.settings.imvdb = true; } ];
+  # Also DLNA turned off, with a renderer listed: no plugin, no firewall rule.
+  jellyfinImvdb = serverWith [
+    {
+      lanbat.services.jellyfin.settings = {
+        imvdb = true;
+        dlna.enable = false;
+        dlna.renderers = [ "192.0.2.77" ];
+      };
+    }
+  ];
 
   # ── Audiobookshelf ───────────────────────────────────────────────────────
   absEnv = config: config.systemd.services.audiobookshelf-bootstrap.environment;
@@ -2134,6 +2149,36 @@ let
       && kitchen.profiles.sam.reminders == "todo.sam_reminders"
       && kitchen.household.todo == ""
       && kitchen.household.reminders == ""
+    ))
+
+    (expect "jellyfin: DLNA plays to the Echo Shows and listed renderers, and to nothing else" (
+      let
+        rules = routerNoTap.networking.firewall.extraCommands;
+        script = jellyfinBootstrap routerNoTap;
+        kitchen = lib.findFirst (d: d.name == "kitchen") null (
+          (builtins.fromJSON (
+            builtins.unsafeDiscardStringContext (
+              builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
+            )
+          )).devices
+        );
+      in
+      lib.hasInfix "iptables -I INPUT -p udp -s 192.0.2.60 -j ACCEPT" rules
+      && lib.hasInfix "iptables -I INPUT -p tcp -s 192.0.2.60 --dport 8096 -j ACCEPT" rules
+      && lib.hasInfix "iptables -I INPUT -p udp -s 192.0.2.77 -j ACCEPT" rules
+      && lib.hasInfix "iptables -D INPUT -p udp -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraStopCommands
+      && lib.hasInfix "DLNA_ENABLE=\"1\"" script
+      && lib.hasInfix "DLNA_SERVER=\"1\"" script
+      && kitchen.settings.dlna == true
+      && kitchen.settings.video == true
+      && kitchen.settings.dlna_video == true
+      # On by default, the media server off, nobody allowed in without a device to name.
+      && lib.hasInfix "DLNA_ENABLE=\"1\"" (jellyfinBootstrap base)
+      && lib.hasInfix "DLNA_SERVER=\"0\"" (jellyfinBootstrap base)
+      && !lib.hasInfix "-p udp -s" base.networking.firewall.extraCommands
+      # Off: nothing opened, and the bootstrap told to switch it off.
+      && lib.hasInfix "DLNA_ENABLE=\"0\"" (jellyfinBootstrap jellyfinImvdb)
+      && !lib.hasInfix "192.0.2.77" jellyfinImvdb.networking.firewall.extraCommands
     ))
 
     (expect "techo5-bridge: a profile's todo must name a todo list" (

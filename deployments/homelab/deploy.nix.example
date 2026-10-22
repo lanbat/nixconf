@@ -60,6 +60,7 @@
     #     address = "10.0.0.x";
     #     room = "Kitchen";
     #     playerName = "Echo Show 8"; # its Music Assistant player
+    #     dlna = true; # Jellyfin and other DLNA apps can play to it (the default)
     #     profiles.alex = {
     #       glance = [ "sensor.washer_status" ];
     #       immichPerson = "Alex";
