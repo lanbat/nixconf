@@ -401,6 +401,56 @@ ensure_techo5() {
   done < <(jq -c '(.missing // [])[]' <<< "$wanted")
 }
 
+# Each Echo Show with dlna on is a DLNA renderer, which Jellyfin and other apps play to
+# (docs/techo5.md). Home Assistant's DLNA player for it (dlna_dmr) is added here from the
+# device's own description, http://<host>:8181/dlna/device.xml, so nobody confirms a
+# discovery by hand. A device that is off or has DLNA off answers nothing and is left for
+# the next run. The entry is Home Assistant's own: the manual flow's data (url, device_id
+# = the UDN, type, mac) and its option poll_availability. It is put in the device's room by
+# ensure_satellite_areas, once Home Assistant has loaded it.
+DLNA_PORT="${DLNA_PORT:-8181}"
+
+# The text of the first <tag> in an XML document on stdin, with its entities decoded.
+xml_tag() {
+  grep -o "<$1>[^<]*</$1>" | head -1 | sed -e "s:^<$1>::" -e "s:</$1>$::" \
+    -e 's/&lt;/</g' -e 's/&gt;/>/g' -e 's/&quot;/"/g' -e "s/&apos;/'/g" -e 's/&amp;/\&/g'
+}
+
+# {title, url, udn, type} of each device wanted whose entry is missing, and which answers.
+dlna_players_missing() {
+  local host description udn
+  while IFS= read -r host; do
+    [[ -n "$host" ]] || continue
+    description="$(curl -fsS --max-time 5 "http://${host}:${DLNA_PORT}/dlna/device.xml" 2>/dev/null)" || continue
+    udn="$(xml_tag UDN <<< "$description")"
+    [[ -n "$udn" ]] || continue
+    jq -e --arg udn "$udn" '[.data.entries[] | select(.domain == "dlna_dmr" and .unique_id == $udn)] | length > 0' \
+      "$CONFIG_ENTRIES" >/dev/null && continue
+    jq -n --arg title "$(xml_tag friendlyName <<< "$description")" \
+      --arg url "http://${host}:${DLNA_PORT}/dlna/device.xml" --arg udn "$udn" \
+      --arg type "$(xml_tag deviceType <<< "$description")" \
+      '{title: (if $title == "" then $url else $title end), url: $url, udn: $udn, type: $type}'
+  done < <(jq -r '.[] | select(.dlna == true) | .host' <<< "$TECHO5_DEVICES") | jq -s -c .
+}
+
+dlna_needed() {
+  [[ "$TECHO5_DEVICES" != "[]" && -f "$CONFIG_ENTRIES" ]] || return 1
+  [[ "$(dlna_players_missing)" != "[]" ]]
+}
+
+ensure_dlna_players() {
+  [[ "$TECHO5_DEVICES" != "[]" && -f "$CONFIG_ENTRIES" ]] || return 0
+  local missing p
+  missing="$(dlna_players_missing)"
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    log "adding the DLNA player $(jq -r .title <<< "$p")"
+    add_entry dlna_dmr "$(jq -r .title <<< "$p")" \
+      "$(jq -c '{url: .url, device_id: .udn, type: .type, mac: null}' <<< "$p")" \
+      1 '[]' "$(jq -r .udn <<< "$p")" user '{"poll_availability": true}'
+  done < <(jq -c '.[]' <<< "$missing")
+}
+
 TODO_LISTS_RECONCILE_JQ='
   reduce $want[] as $title (.;
     ([.data.entries | to_entries[]
@@ -470,7 +520,8 @@ satellite_areas_json() {
     # The TVs: every device under a Kodi or Android TV entry for that host.
     jq -c '.[] | select(.room != "") | {room, domain: "androidtv", host}' <<< "$ANDROID_TVS"
     # The Echo Shows, and their Music Assistant players by the device's own name.
-    jq -c '.[] | {title, room, hostname: (if .player == "" then null else .player end)}' <<< "$TECHO5_DEVICES"
+    jq -c '.[] | {title, room, hostname: (if .player == "" then null else .player end),
+                  dlna_host: (if .dlna == true then .host else null end)}' <<< "$TECHO5_DEVICES"
     while IFS='|' read -r hostKey host room hostname; do
       [[ -n "$hostKey" && -n "$room" ]] || continue
       jq -n --arg room "$room" --arg host "$host" '{room: $room, domain: "kodi", host: $host}'
@@ -490,9 +541,13 @@ SATELLITE_AREAS_JQ='
       | ($all | map(select(.domain == "esphome" and .title == ($w.title // null)) | .entry_id)) as $sat
       | ($all | map(select($w.domain != null and .domain == $w.domain and .data.host == $w.host)
           | .entry_id)) as $tv
+      | ($all | map(select($w.dlna_host != null and .domain == "dlna_dmr"
+                           and ((.data.url // "") | contains("//" + $w.dlna_host + ":")))
+          | .entry_id)) as $dlna
       | .data.devices |= map(
           if ((.config_entries | any(. as $e | $sat | index($e)))
               or (.config_entries | any(. as $e | $tv | index($e)))
+              or (.config_entries | any(. as $e | $dlna | index($e)))
               or ($w.hostname != null and .name == $w.hostname
                   and (.config_entries | any(. as $e | $ma | index($e)))))
           then .area_id = $area else . end))'
@@ -1325,6 +1380,7 @@ else
 fi
 if kodi_needed; then needs_work=true; fi
 if techo5_needed; then needs_work=true; fi
+if dlna_needed; then needs_work=true; fi
 if todo_lists_needed; then needs_work=true; fi
 if androidtv_needed; then needs_work=true; fi
 if satellite_areas_needed; then needs_work=true; fi
@@ -1368,6 +1424,7 @@ fi
 ensure_kodi
 ensure_androidtv
 ensure_techo5
+ensure_dlna_players
 ensure_todo_lists
 ensure_satellite_areas
 ensure_llm

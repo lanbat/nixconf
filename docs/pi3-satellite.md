@@ -233,6 +233,11 @@ dB per dB, at most `maxBoostDb` (8 dB), and never past full scale. So set the sa
 volume in Home Assistant for a **quiet** room: that's what replies use when it is quiet, and
 the room's noise only adds on top; around 50 % leaves the full 8 dB of headroom. Only the
 level is kept, never audio. The journal says what it did: `room -38 dBFS: voice +8.0 dB`.
+The boost comes off when the reply is over, but not in one step: the player's "finished" event
+arrives as the last word is still passing through the audio buffers, and taking the boost off
+then made the end of each reply drop several dB. It waits 0.8 s for the tail to play out and
+ramps down over 0.4 s (`VOICE_RELEASE_DELAY_S`, `VOICE_RELEASE_FADE_S` in the ducker's
+environment), and a follow-up reply that starts in that time keeps the boost.
 
 **Echo cancellation with the music (experiment).** `echoCancellation.includeMusic = true`
 (with `echoCancellation.enable`) plays Snapcast through the echo canceller's sink, so the music

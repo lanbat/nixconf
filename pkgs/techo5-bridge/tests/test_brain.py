@@ -458,6 +458,30 @@ def test_a_reminder_chimes_once_when_it_comes_due_with_its_person_alone():
     assert rings(b.items(150.0, reminder_data(due), for_person="alex"))
 
 
+def test_what_was_rung_is_kept_across_a_restart_and_forgotten_when_done():
+    tz = ZoneInfo("UTC")
+    due = datetime(2026, 10, 21, 17, 0, tzinfo=tz)
+    b = brain(people={"alex": "Alex"})
+    b.wall = lambda: datetime(2026, 10, 21, 17, 30, tzinfo=tz)
+    b.router({"here": [{"person": "alex"}]}, 0.0)
+    assert len(rings(b.items(1.0, reminder_data(due), for_person="alex"))) == 1
+    assert b.rung_changed and b.rung() == [["r0", due.isoformat()]]
+    again = brain(people={"alex": "Alex"})  # the bridge restarts
+    again.wall = b.wall
+    again.load_rung(b.rung())
+    again.router({"here": [{"person": "alex"}]}, 0.0)
+    assert not rings(again.items(1.0, reminder_data(due), for_person="alex"))
+    # The household's read says nothing of Alex's reminders: it forgets nothing.
+    again.rung_changed = False
+    again.items(2.0, {"reminders": [], "todos": [], "more": 0, "events": []}, for_person=None)
+    assert again.rung() == [["r0", due.isoformat()]] and not again.rung_changed
+    # Marked done: forgotten.
+    again.items(3.0, reminder_data(), for_person="alex")
+    assert again.rung() == [] and again.rung_changed
+    again.load_rung([["x"], "junk", ["a", "b"]])  # a damaged file is read as far as it makes sense
+    assert again.rung() == [["a", "b"]]
+
+
 def test_a_reminder_that_is_overdue_when_read_rings_at_once():
     tz = ZoneInfo("UTC")
     b = brain(people={"alex": "Alex"})

@@ -166,11 +166,22 @@ class Personal:
     """What a person's list command does, for the speaker `key`."""
 
     def __init__(self, hass: Hass, lists: Lists, people_names: dict[str, str],
-                 told: Callable[[str], Any] | None = None) -> None:
+                 told: Callable[[str], Any] | None = None, reminder_lists: dict[str, str] | None = None) -> None:
         self.hass = hass
         self.lists = lists
         self.names = people_names
         self.told = told  # called with the key after a change: their screen reads again
+        # A person's reminders list when their profile names one that isn't todo.<key>_reminders.
+        self.reminder_lists = {k: v for k, v in (reminder_lists or {}).items() if re.fullmatch(r"todo\.[a-z0-9_]+", v)}
+
+    def entity(self, key: str, which: str) -> str:
+        """The to-do list `which` of `key`: their reminders list may be one their profile names."""
+        if which == "reminders":
+            return self.reminder_lists.get(key, entity(key, which))
+        return entity(key, which)
+
+    def custom_reminders(self, key: str) -> bool:
+        return self.entity(key, "reminders") != entity(key, "reminders")
 
     async def exists(self, key: str, which: str) -> bool | None:
         """Whether Home Assistant has `key`'s list `which`; None when it can't be asked."""
@@ -178,16 +189,16 @@ class Personal:
             states = await self.hass.states("todo")
         except HassError:
             return None
-        return any(s["entity_id"] == entity(key, which) for s in states)
+        return any(s["entity_id"] == self.entity(key, which) for s in states)
 
     async def items(self, key: str, which: str) -> list[dict] | None:
         """The open items of `key`'s list, [{"uid", "summary"}]; None when it can't be read."""
         try:
-            got = await self.hass.call("todo", "get_items", {"entity_id": entity(key, which), "status": "needs_action"},
+            got = await self.hass.call("todo", "get_items", {"entity_id": self.entity(key, which), "status": "needs_action"},
                                        response=True)
         except HassError:
             return None
-        rows = (got.get(entity(key, which)) or {}).get("items") or []
+        rows = (got.get(self.entity(key, which)) or {}).get("items") or []
         return [{"uid": str(r.get("uid") or ""), "summary": str(r.get("summary") or ""),
                  "due": str(r.get("due") or "")}
                 for r in rows if isinstance(r, dict) and r.get("summary")]
@@ -225,7 +236,7 @@ class Personal:
             if not cmd.item:
                 return "What should I add?"
             try:
-                await self.hass.call("todo", "add_item", {"entity_id": entity(key, which), "item": cmd.item})
+                await self.hass.call("todo", "add_item", {"entity_id": self.entity(key, which), "item": cmd.item})
             except HassError:
                 return NO_HA
             self._told(key)
@@ -246,7 +257,7 @@ class Personal:
         if hit is None:
             return f"I can't find {cmd.item} on {label}."
         try:
-            await self.hass.call("todo", "remove_item", {"entity_id": entity(key, which), "item": hit["uid"] or hit["summary"]})
+            await self.hass.call("todo", "remove_item", {"entity_id": self.entity(key, which), "item": hit["uid"] or hit["summary"]})
         except HassError:
             return NO_HA
         self._told(key)
@@ -258,7 +269,7 @@ class Personal:
         if not item or which not in self.lists.slugs(key):
             return False
         try:
-            await self.hass.call("todo", "add_item", {"entity_id": entity(key, which), "item": item})
+            await self.hass.call("todo", "add_item", {"entity_id": self.entity(key, which), "item": item})
         except HassError:
             return False
         self._told(key)
@@ -270,7 +281,7 @@ class Personal:
                 or not any(r["uid"] == uid for r in await self.items(key, which) or []):
             return False
         try:
-            await self.hass.call("todo", service, {"entity_id": entity(key, which), "item": uid, **data})
+            await self.hass.call("todo", service, {"entity_id": self.entity(key, which), "item": uid, **data})
         except HassError:
             return False
         self._told(key)
@@ -289,11 +300,13 @@ class Personal:
         have = await self.exists(key, "reminders")
         if have is None:
             return NO_HA, False
+        if not have and self.custom_reminders(key):
+            return "I can't find your reminders list.", False  # one the profile names: not ours to make
         if not have:
             self.lists.add(key, "reminders")
             return "I'm setting up your reminders. It will be ready in a minute or two; ask me again then.", False
         try:
-            await self.hass.call("todo", "add_item", {"entity_id": entity(key, "reminders"), "item": what,
+            await self.hass.call("todo", "add_item", {"entity_id": self.entity(key, "reminders"), "item": what,
                                                        "due_datetime": item_due(due)})
         except HassError:
             return NO_HA, False

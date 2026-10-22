@@ -492,6 +492,9 @@ let
       };
       # Someone with no profile on the screen: the default lists all the same.
       lanbat.deployment.people.jo.name = "Jo";
+      # And someone whose profile names the list their reminders are in.
+      lanbat.deployment.people.kit.name = "Kit";
+      lanbat.deployment.techo5Devices.kitchen.profiles.kit.reminders = "todo.kit_nags";
     }
   ];
 
@@ -2203,18 +2206,48 @@ let
       && lib.hasInfix "iptables -I INPUT -p udp -s 192.0.2.77 -j ACCEPT" rules
       && lib.hasInfix "iptables -D INPUT -p udp -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraStopCommands
       && lib.hasInfix "DLNA_ENABLE=\"1\"" script
-      && lib.hasInfix "DLNA_SERVER=\"1\"" script
+      # The media-server side has no switch in the plugin: the firewall is what opens it to the LAN.
+      && lib.elem 1900 routerNoTap.networking.firewall.allowedUDPPorts
+      && lib.elem 8096 routerNoTap.networking.firewall.allowedTCPPorts
       && kitchen.settings.dlna == true
       && kitchen.settings.video == true
       && kitchen.settings.dlna_video == true
       # On by default, the media server off, nobody allowed in without a device to name.
       && lib.hasInfix "DLNA_ENABLE=\"1\"" (jellyfinBootstrap base)
-      && lib.hasInfix "DLNA_SERVER=\"0\"" (jellyfinBootstrap base)
+      && !lib.elem 1900 base.networking.firewall.allowedUDPPorts
+      && !lib.elem 8096 base.networking.firewall.allowedTCPPorts
       && !lib.hasInfix "-p udp -s" base.networking.firewall.extraCommands
       # Off: nothing opened, and the bootstrap told to switch it off.
       && lib.hasInfix "DLNA_ENABLE=\"0\"" (jellyfinBootstrap jellyfinImvdb)
       && !lib.hasInfix "192.0.2.77" jellyfinImvdb.networking.firewall.extraCommands
+      && !lib.elem 1900 jellyfinImvdb.networking.firewall.allowedUDPPorts
     ))
+
+    (expect
+      "assistant-router: a profile's reminders list is the router's too, and what was rung is kept"
+      (
+        let
+          exec = routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart;
+          file = lib.head (lib.match ".*--reminder-lists-file ([^ ]+).*" exec);
+          # The path came out of a string with its context; put the context back to read it.
+          lists = builtins.fromJSON (
+            builtins.unsafeDiscardStringContext (builtins.readFile (lib.strings.addContextFrom exec file))
+          );
+          cfg = builtins.fromJSON (
+            builtins.unsafeDiscardStringContext (
+              builtins.readFile routerNoTap.systemd.services.techo5-bridge.environment.CONFIG_FILE
+            )
+          );
+          kitchen = lib.findFirst (d: d.name == "kitchen") null cfg.devices;
+        in
+        lists == {
+          kit = "todo.kit_nags";
+        }
+        && lib.hasInfix "--rung-state /var/lib/assistant-router/rung.json" exec
+        && kitchen.rung_file == "/var/lib/techo5-bridge/rung-kitchen.json"
+        && kitchen.profiles.kit.reminders == "todo.kit_nags"
+      )
+    )
 
     (expect "techo5-bridge: a profile's todo must name a todo list" (
       !(builtins.tryEval (builtins.deepSeq techo5BadTodo.lanbat.deployment.techo5Devices.kitchen true))

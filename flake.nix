@@ -180,6 +180,9 @@
         };
         ha-oidc-secret = import ./tests/ha-oidc-secret.nix { inherit pkgs; };
         jellyfin-dlna = import ./tests/jellyfin-dlna.nix { inherit pkgs; };
+        home-assistant-post-setup-dlna = import ./tests/home-assistant-post-setup-dlna.nix {
+          inherit pkgs;
+        };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         satellite-camera = import ./tests/satellite-camera.nix { inherit pkgs; };

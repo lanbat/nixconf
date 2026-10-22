@@ -297,6 +297,16 @@ let
   # (services/home-assistant.nix reads it as root, from the dynamic user's
   # real state directory).
   routerListsFile = "/var/lib/assistant-router/lists.json";
+  # A person's reminders list, where a screen profile names one other than
+  # todo.<key>_reminders: spoken and who-page reminders go there too.
+  reminderLists = lib.mergeAttrsList (
+    lib.mapAttrsToList (
+      _: d: lib.mapAttrs (_: p: p.reminders) (lib.filterAttrs (_: p: p.reminders != null) d.profiles)
+    ) (config.lanbat.deployment.techo5Devices or { })
+  );
+  reminderListsFile = pkgs.writeText "assistant-router-reminder-lists.json" (
+    builtins.toJSON reminderLists
+  );
   # The voice satellites' token: this host's satellite's when it has one
   # (modules/core/voice-satellite.nix owns the name there), the router's
   # otherwise, for itself and for the Echo Shows' bridge
@@ -486,6 +496,8 @@ in
               "--ha-token-file %d/ha-voice-token"
               "--prefs-state /var/lib/assistant-router/prefs.json"
               "--lists-state ${routerListsFile}"
+              "--reminder-lists-file ${reminderListsFile}"
+              "--rung-state /var/lib/assistant-router/rung.json"
             ]
           );
           DynamicUser = true;

@@ -144,6 +144,8 @@ let
         profiles = lib.mapAttrs (person: profileJson person) d.profiles;
         household = profileJson null d.household;
         install_ca = d.installCa;
+        # The reminders it has rung, kept across restarts (StateDirectory).
+        rung_file = "/var/lib/${name}/rung-${key}.json";
       }) devices;
     }
   );

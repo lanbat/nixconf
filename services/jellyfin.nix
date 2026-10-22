@@ -123,16 +123,21 @@ let
         other renderer in dlna.renderers. jellyfin-bootstrap installs the DLNA
         plugin and turns on its play-to side; false turns it off again (the
         plugin stays installed). The firewall lets only the renderers' own
-        addresses reach Jellyfin's discovery and event ports.
+        addresses reach Jellyfin's discovery and HTTP ports, so the plugin's
+        media-server side (it has no switch of its own) is seen by them alone.
       '';
     };
     options.dlna.server = lib.mkOption {
       type = lib.types.bool;
       default = false;
       description = ''
-        Also be a DLNA media server: TVs, speakers and apps on the LAN browse
-        and play the libraries without signing in, since DLNA has no logins.
-        Off unless you want that; casting to a renderer does not need it.
+        Also be a DLNA media server for the whole LAN: opens discovery (UDP
+        1900) and Jellyfin's plain HTTP port (8096) to every address, so TVs,
+        speakers and apps browse and play the libraries without signing in
+        (DLNA has no logins; the plugin shows them DefaultUserId's, or the first
+        user's, libraries), and anyone on the LAN reaches Jellyfin over HTTP
+        without Caddy in front. Off unless you want that; casting to a renderer
+        needs none of it.
       '';
     };
     options.dlna.renderers = lib.mkOption {
@@ -239,7 +244,13 @@ in
     };
   };
 
-  networking.firewall.allowedUDPPorts = [ 7359 ];
+  networking.firewall.allowedUDPPorts = [
+    7359
+  ]
+  ++ lib.optional (cfg.dlna.enable && cfg.dlna.server) 1900;
+  networking.firewall.allowedTCPPorts = lib.optional (
+    cfg.dlna.enable && cfg.dlna.server
+  ) config.lanbat.services.jellyfin.port;
   networking.firewall.extraCommands = lib.concatLines (map (r: "iptables -I ${r}") dlnaRules);
   networking.firewall.extraStopCommands = lib.concatLines (
     map (r: "iptables -D ${r} 2>/dev/null || true") dlnaRules
@@ -272,7 +283,6 @@ in
       export EXTERNAL_URL="https://media.${domain}"
       export AUTH_DOMAIN="${domain}"
       export DLNA_ENABLE="${if cfg.dlna.enable then "1" else "0"}"
-      export DLNA_SERVER="${if cfg.dlna.server then "1" else "0"}"
       exec jellyfin-bootstrap
     '';
   };

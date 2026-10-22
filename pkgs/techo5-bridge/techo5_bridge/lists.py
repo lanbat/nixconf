@@ -233,9 +233,3 @@ class Ha:
             },
         )
 
-    async def complete(self, entity: str, uid: str) -> bool:
-        result = await self._post(
-            "todo/update_item",
-            {"entity_id": entity, "item": uid, "status": "completed"},
-        )
-        return result is not None

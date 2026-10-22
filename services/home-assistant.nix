@@ -209,6 +209,7 @@ let
       inherit (d) room;
       key_file = config.lanbat.secrets."techo5-${key}-api-key".path;
       player = if d.playerName == null then "" else d.playerName;
+      inherit (d) dlna;
     }) techo5Devices
   );
 
