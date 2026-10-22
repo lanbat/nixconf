@@ -348,8 +348,15 @@ let
         "systemd-user-sessions.service"
         "systemd-logind.service"
         "sound.target"
+        "pipewire.service"
       ]
       ++ extraAfter;
+      # Kodi's PipeWire output does not reconnect: after PipeWire restarted
+      # (any deploy that changes the audio setup does that) every film played
+      # in silence until Kodi was restarted too ("CActiveAESink::OpenSink - no
+      # sink was returned", silent from 2026-10-13 to 2026-10-22). The session
+      # restarts with PipeWire, so it comes back with sound.
+      partOf = [ "pipewire.service" ];
       # Emulators and tv-switch are looked up in the system profile.
       path = [ "/run/current-system/sw" ];
       startLimitBurst = 5;
