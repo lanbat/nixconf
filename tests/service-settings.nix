@@ -2086,10 +2086,14 @@ let
       script != null
       && script.mode == "single"
       && lib.hasInfix "todo.update_item" json
-      && lib.hasInfix "state_attr" json
-      && lib.hasInfix "uid" json
-      && lib.hasInfix "list" json
+      && lib.hasInfix ''"status":"completed"'' json
+      && lib.hasInfix "state_attr(sensor, 'uid')" json
+      && lib.hasInfix "state_attr(sensor, 'list')" json
       && lib.hasInfix "lanbat_screen_" json
+      && lib.hasInfix "regex_replace('[^a-z0-9]+', '_')" json
+      && lib.hasInfix "regex_replace('^_+|_+$', '')" json
+      && lib.hasInfix "slot | int(0) >= 1 and slot | int(0) <= 5" json
+      && lib.hasInfix "reminder_state not in ['none', 'unavailable', 'unknown', '']" json
       && !(haConfig base).script ? lanbat_complete_reminder
     ))
 
@@ -2103,6 +2107,12 @@ let
       && lib.hasInfix "sam_reminders" setup
       && !(lib.hasInfix "sam_chores" setup)
       && lib.hasInfix "ensure_todo_lists" (
+        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
+      )
+      && lib.hasInfix "todo_list_name" (
+        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
+      )
+      && lib.hasInfix "storage_key" (
         builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
       )
     ))

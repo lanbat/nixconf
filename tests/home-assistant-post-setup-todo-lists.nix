@@ -6,6 +6,7 @@ pkgs.runCommand "home-assistant-post-setup-todo-lists-check"
     nativeBuildInputs = [
       pkgs.bash
       pkgs.jq
+      pkgs.openssl
     ];
   }
   ''
@@ -23,42 +24,53 @@ pkgs.runCommand "home-assistant-post-setup-todo-lists-check"
     # shellcheck source=../pkgs/home-assistant-post-setup/setup-ha.sh
     source ${../pkgs/home-assistant-post-setup/setup-ha.sh}
 
+    install() {
+      local mode=0600
+      local args=()
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -o|-g) shift 2 ;;
+          -m) mode="$2"; shift 2 ;;
+          *) args+=("$1"); shift ;;
+        esac
+      done
+      command install -m "$mode" "''${args[@]}"
+    }
+
     missing="$(jq '(.missing // []) | length' <<< "$(todo_lists_reconciled)")"
     if [[ "$missing" != 4 ]]; then
       echo "expected 4 missing local_todo entries, got $missing" >&2
       exit 1
     fi
 
+    ensure_todo_lists
+    count="$(jq '[.data.entries[] | select(.domain == "local_todo")] | length' "$CONFIG_ENTRIES")"
+    if [[ "$count" != 4 ]]; then
+      echo "ensure_todo_lists: expected 4 local_todo entries, got $count" >&2
+      exit 1
+    fi
+
     for title in alex_todo alex_reminders sam_todo sam_reminders; do
-      jq --arg title "$title" \
-        '.data.entries += [{
-          created_at: "2026-01-01T00:00:00.000000+00:00",
-          data: {},
-          disabled_by: null,
-          discovery_keys: {},
-          domain: "local_todo",
-          entry_id: ("id-" + $title),
-          minor_version: 1,
-          modified_at: "2026-01-01T00:00:00.000000+00:00",
-          options: {},
-          pref_disable_new_entities: false,
-          pref_disable_polling: false,
-          source: "user",
-          subentries: [],
-          title: $title,
-          unique_id: null,
-          version: 1
-        }]' "$CONFIG_ENTRIES" > "$CONFIG_ENTRIES.new"
-      mv "$CONFIG_ENTRIES.new" "$CONFIG_ENTRIES"
+      if ! jq -e --arg title "$title" '
+        .data.entries[]
+        | select(.domain == "local_todo" and .title == $title)
+        | .data
+        | . == {todo_list_name: $title, storage_key: $title}
+      ' "$CONFIG_ENTRIES" >/dev/null; then
+        echo "local_todo entry for $title has wrong title or data" >&2
+        jq --arg title "$title" '.data.entries[] | select(.title == $title)' "$CONFIG_ENTRIES" >&2
+        exit 1
+      fi
     done
 
-    missing="$(jq '(.missing // []) | length' <<< "$(todo_lists_reconciled)")"
-    if [[ "$missing" != 0 ]]; then
-      echo "expected 0 missing after seeding entries, got $missing" >&2
+    ensure_todo_lists
+    count2="$(jq '[.data.entries[] | select(.domain == "local_todo")] | length' "$CONFIG_ENTRIES")"
+    if [[ "$count2" != 4 ]]; then
+      echo "second ensure_todo_lists: expected 4 entries, got $count2" >&2
       exit 1
     fi
     if todo_lists_needed; then
-      echo "todo_lists_needed should be false when every list exists" >&2
+      echo "todo_lists_needed should be false after ensure_todo_lists" >&2
       exit 1
     fi
 

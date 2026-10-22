@@ -415,6 +415,12 @@ todo_lists_needed() {
   jq -e '(.missing // []) | length > 0' <<< "$(todo_lists_reconciled)" >/dev/null
 }
 
+local_todo_entry_data() {
+  local title="$1"
+  jq -n --arg name "$title" --arg key "$title" \
+    '{todo_list_name: $name, storage_key: $key}'
+}
+
 ensure_todo_lists() {
   todo_lists_needed || return 0
   local wanted title
@@ -422,7 +428,7 @@ ensure_todo_lists() {
   while IFS= read -r title; do
     [[ -n "$title" ]] || continue
     log "adding local to-do list ${title}"
-    add_entry local_todo "$title" '{}'
+    add_entry local_todo "$title" "$(local_todo_entry_data "$title")"
   done < <(jq -r '(.missing // [])[]' <<< "$wanted")
 }
 
