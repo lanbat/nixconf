@@ -775,7 +775,6 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         if not is_admin(request):
             return admins_only()
         everyone = await household.everyone()
-        accounts = [p for p in everyone if p["label"] == "Account"]
         rows = []
         for p in everyone:
             label, name = p["label"], html.escape(p["name"])
@@ -783,25 +782,32 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
             where = " (the profile)" if p["profile"] else ""
             row = (f'<section class="person"><h2>{name}{tag}</h2>'
                    f'<p class="muted">{html.escape(", ".join(p["learned"]) or "nothing learned yet")}{where}</p>')
+            if p["pictures"] and household.frigate is not None:
+                row += (f'<p><a href="/admin/pictures/{urllib.parse.quote(p["key"], safe="")}">'
+                        f'Face pictures ({p["pictures"]})</a></p>')
             if p["editable"]:
                 row += (f'<form class="name" method="post" action="/admin/name">{field("key", p["key"])}'
                         f'<label>Fix the name <input name="name" maxlength="40" required '
                         f'value="{html.escape(p["name"], quote=True)}"></label><button>Save</button></form>')
-                others = [a for a in accounts if a["key"] != p["key"]]
+                others = [a for a in everyone if household.can_merge(p["key"], a["key"])]
                 if others:
                     options = "".join(f'<option value="{html.escape(a["key"], quote=True)}">'
-                                      f'{html.escape(a["name"])}</option>' for a in others)
+                                      f'{html.escape(a["name"])} ({a["label"]})</option>' for a in others)
                     row += (f'<form method="post" action="/admin/link">{field("key", p["key"])}'
-                            f'<select name="into" aria-label="Link to">{options}</select>'
-                            f'<button>Link to…</button></form>')
+                            f'<select name="into" aria-label="Merge into">{options}</select>'
+                            f'<button>Merge into…</button></form>')
                 row += (f'<form method="post" action="/admin/forget">{field("key", p["key"])}'
                         f'<button>Forget</button></form>')
             rows.append(row + "</section>")
         legend = ('<p class="muted"><b>Account</b>: signed in, or in the home\'s profile; the name comes from '
                   'there. <b>Guest</b>: a name typed on this page, with no account. <b>Heard</b>: met by '
                   'voice, the name as Nabu heard it: fix it if it is spelled wrong.</p>')
+        legend += ('<p class="muted"><b>Unknown</b>: a face that matched no one, with a name Nabu made up. '
+                   'Merge them into who they are, or give them their name.</p>')
         if household.sightings is not None:
             legend += '<p><a href="/admin/sightings">Sightings</a>: who was seen where, and when.</p>'
+        if household.frigate is not None and household.people.strangers:
+            legend += '<p><a href="/admin/duplicates">Find duplicates</a>: Unknowns who look like someone else.</p>'
         return page("People Nabu knows", legend + "".join(rows))
 
     async def admin_sightings(request: web.Request) -> web.Response:
@@ -826,6 +832,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                 f'</select> <select name="place" aria-label="Where">{place_opts}</select> '
                 f'<label>Last <input name="days" value="{days:g}" inputmode="numeric" style="width:4rem"> days</label>'
                 '<button>Search</button></form>')
+        move_opts = option("", "Nobody known", "_none") \
+            + "".join(option(k, n, "_none") for k, n in sorted(names.items(), key=lambda kv: kv[1].casefold()))
         rows = []
         for s in found:
             who = html.escape(names.get(s["person"] or "", "nobody known") if s["person"] else "nobody known")
@@ -833,8 +841,12 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
             img = (f'<img src="/admin/sightings/{s["id"]}/picture" alt="" loading="lazy" '
                    'style="width:4rem;height:4rem;object-fit:cover;border-radius:.5rem;float:left;margin-right:.75rem">'
                    if s["picture"] or s["event"] else "")
+            mover = (f'<form method="post" action="/admin/sightings/{s["id"]}/move">'
+                     f'<select name="person" aria-label="Was actually">{move_opts}</select>'
+                     '<label><input type="checkbox" name="add_picture" value="yes"> add this picture to them</label> '
+                     '<button>Move</button></form>')
             rows.append(f'<section class="person">{img}<h2>{who}</h2><p class="muted">{html.escape(s["place"])}, '
-                        f'{html.escape(s["when"])} ({html.escape(s["source"])}{sure})</p>'
+                        f'{html.escape(s["when"])} ({html.escape(s["source"])}{sure})</p>{mover}'
                         '<div style="clear:both"></div></section>')
         body = form + ("".join(rows) if rows else "<p>Nobody seen, for that.</p>")
         return page("Sightings", body + '<p><a href="/admin">Back</a></p>')
@@ -887,7 +899,7 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         if form.get("confirm") != "yes":
             return page("Link them?", (
                 f"<p>This moves everything Nabu learned about <b>{html.escape(names[key])}</b> (voice, face "
-                f"pictures, phones, cards) to <b>{html.escape(names[into])}</b>, and "
+                f"pictures, phones, cards, sightings) to <b>{html.escape(names[into])}</b>, and "
                 f"{html.escape(names[key])} goes. It can't be split apart again.</p>"
                 f'<form method="post" action="/admin/link">{field("key", key)}{field("into", into)}'
                 f'{field("confirm", "yes")}<button>Yes, they are the same person</button></form>'
@@ -898,6 +910,105 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         what = ", ".join(moved) or "nothing learned yet"
         return page("Done", f"<p>{html.escape(names.get(into, into))} has it all now: {html.escape(what)}.</p>"
                             '<p><a href="/admin">Back</a></p>')
+
+    def pictures_back(key: str) -> str:
+        return f'<p><a href="/admin/pictures/{urllib.parse.quote(key, safe="")}">Back</a></p>'
+
+    async def admin_pictures(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.frigate is None:
+            return admins_only()
+        key = request.match_info["key"]
+        if key not in taps.people.names:
+            return page("Nabu", "<p>Nabu doesn't know them.</p>", 404)
+        files = await household.pictures(key)
+        quoted = urllib.parse.quote(key, safe="")
+        rows = []
+        for file in files:
+            src = f"/admin/pictures/{quoted}/{urllib.parse.quote(file, safe='')}"
+            delete = ""
+            if household.editable(key):
+                delete = (f'<form method="post" action="/admin/pictures/delete">{field("key", key)}'
+                          f'{field("file", file)}<button>Delete</button></form>')
+            rows.append(f'<section class="person"><img src="{src}" alt="" loading="lazy" '
+                        'style="width:8rem;height:8rem;object-fit:cover;border-radius:.5rem">'
+                        f'<p class="muted">{html.escape(file)}</p>{delete}</section>')
+        body = "".join(rows) if rows else "<p>No face pictures.</p>"
+        return page(f"Face pictures of {html.escape(taps.people.names[key])}",
+                    body + '<p><a href="/admin">Back</a></p>')
+
+    async def admin_picture_file(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.frigate is None:
+            return admins_only()
+        key, file = request.match_info["key"], request.match_info["file"]
+        if file not in await household.pictures(key):  # only what the library lists for them
+            return web.Response(status=404)
+        try:
+            image = await household.frigate.image(key, file)
+        except Exception:  # pylint: disable=broad-except
+            return web.Response(status=404)
+        return web.Response(body=image, content_type="image/webp" if file.endswith(".webp") else "image/jpeg",
+                            headers={"Cache-Control": "private, max-age=600"})
+
+    async def admin_picture_delete(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request) or household.frigate is None:
+            return admins_only()
+        form = await request.post()
+        key, file = str(form.get("key", "")), str(form.get("file", ""))
+        if key not in taps.people.names or file not in await household.pictures(key):
+            return page("Nabu", "<p>Nabu doesn't have that picture.</p>", 400)
+        if form.get("confirm") != "yes":
+            quoted = urllib.parse.quote(key, safe="")
+            return page("Delete this picture?", (
+                f'<img src="/admin/pictures/{quoted}/{urllib.parse.quote(file, safe="")}" alt="" '
+                'style="width:8rem;height:8rem;object-fit:cover;border-radius:.5rem">'
+                f"<p>Nabu will stop using it to recognise <b>{html.escape(taps.people.names[key])}</b>.</p>"
+                f'<form method="post" action="/admin/pictures/delete">{field("key", key)}{field("file", file)}'
+                f'{field("confirm", "yes")}<button>Yes, delete it</button></form>'
+                f'{pictures_back(key)}'))
+        if not await household.remove_picture(key, file):
+            return page("Nabu", "<p>Nabu can't delete that picture.</p>", 400)
+        left = len(await household.pictures(key))
+        note = "" if left else (f"<p>That was their last picture, so Nabu can no longer recognise them. "
+                                'Forget them from <a href="/admin">the list</a> if they should go.</p>')
+        return page("Done", f"<p>Deleted.</p>{note}" + (pictures_back(key) if left else '<p><a href="/admin">Back</a></p>'))
+
+    async def admin_sighting_move(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request) or household.sightings is None:
+            return admins_only()
+        form = await request.post()
+        try:
+            sighting = int(request.match_info["id"])
+        except ValueError:
+            return web.Response(status=404)
+        person = str(form.get("person", ""))
+        if not await household.move_sighting(sighting, person or None, form.get("add_picture") == "yes"):
+            return page("Nabu", "<p>Nabu can't move that sighting.</p>", 400)
+        return go("/admin/sightings")
+
+    async def admin_duplicates(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.frigate is None or household.sightings is None:
+            return admins_only()
+        run = request.method == "POST"
+        if run and not same_site(request):
+            return admins_only()
+        names = taps.people.names
+        pairs = await household.duplicates(fresh=run)
+        rows = []
+        for d in pairs:
+            if d["key"] not in names or d["into"] not in names:
+                continue
+            rows.append(
+                f'<section class="person"><img src="/admin/sightings/{d["sighting"]}/picture" alt="" '
+                'style="width:4rem;height:4rem;object-fit:cover;border-radius:.5rem;float:left;margin-right:.75rem">'
+                f'<h2>{html.escape(names[d["key"]])} looks like {html.escape(names[d["into"]])}</h2>'
+                f'<p class="muted">{d["score"]:.2f}, seen at {html.escape(d["place"])}</p>'
+                f'<form method="post" action="/admin/link">{field("key", d["key"])}{field("into", d["into"])}'
+                '<button>Merge them…</button></form><div style="clear:both"></div></section>')
+        body = ('<form method="post" action="/admin/duplicates"><button>Find duplicates</button></form>'
+                '<p class="muted">Asks the face library who each Unknown\'s later pictures look like. It takes '
+                'a moment, and is only done when you press this.</p>')
+        body += "".join(rows) if rows else "<p>No likely duplicates.</p>"
+        return page("Duplicates", body + '<p><a href="/admin">Back</a></p>')
 
     async def forget_phone(request: web.Request) -> web.Response:
         s = session(request)
@@ -938,4 +1049,10 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/admin/link", admin_link)
     app.router.add_get("/admin/sightings", admin_sightings)
     app.router.add_get("/admin/sightings/{id}/picture", admin_picture)
+    app.router.add_post("/admin/sightings/{id}/move", admin_sighting_move)
+    app.router.add_get("/admin/pictures/{key}", admin_pictures)
+    app.router.add_get("/admin/pictures/{key}/{file}", admin_picture_file)
+    app.router.add_post("/admin/pictures/delete", admin_picture_delete)
+    app.router.add_get("/admin/duplicates", admin_duplicates)
+    app.router.add_post("/admin/duplicates", admin_duplicates)
     return app

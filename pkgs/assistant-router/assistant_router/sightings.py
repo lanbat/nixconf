@@ -138,6 +138,22 @@ class Sightings:
         row = self._db.execute("SELECT event FROM sightings WHERE id = ?", (int(sighting),)).fetchone()
         return row[0] if row else None
 
+    def get(self, sighting: int) -> dict | None:
+        """One sighting, as search() gives it."""
+        row = self._db.execute("SELECT id, at, place, person, source, confidence, picture, event FROM sightings "
+                               "WHERE id = ?", (int(sighting),)).fetchone()
+        if row is None:
+            return None
+        i, at, pl, pe, so, co, pi, ev = row
+        return {"id": i, "at": at, "place": pl, "person": pe, "source": so, "confidence": co,
+                "picture": pi is not None, "event": ev}
+
+    def reassign(self, sighting: int, person: str | None) -> bool:
+        """This one sighting is `person`'s (None: nobody known): an admin looked at the picture."""
+        cur = self._db.execute("UPDATE sightings SET person = ? WHERE id = ?", (person, int(sighting)))
+        self._db.commit()
+        return cur.rowcount > 0
+
     def forget(self, person: str) -> int:
         rows = self._db.execute("SELECT picture FROM sightings WHERE person = ?", (person,)).fetchall()
         for (picture,) in rows:

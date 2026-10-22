@@ -83,7 +83,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         if irks is not None:
             taps.forgetters.append(irks.forget)
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
-                              irks=irks, forget=forget, sightings=sightings,
+                              irks=irks, forget=forget, sightings=sightings, strangers=strangers,
                               prefs=prefs, lists=lists) if people_store is not None else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
