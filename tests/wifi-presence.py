@@ -14,6 +14,7 @@ import unittest
 sys.path.insert(0, sys.argv.pop(1))
 
 from wifi_presence import (  # noqa: E402
+    MAX_DEVICES,
     MAX_PHONES,
     Presence,
     Service,
@@ -60,10 +61,10 @@ class Addresses(unittest.TestCase):
 class KernelFilter(unittest.TestCase):
     """The BPF program, run by this machine's kernel."""
 
-    def passes(self, macs, frames):
+    def passes(self, macs, frames, arp_any=False):
         a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
         try:
-            attach_filter(b, bpf_source_macs(macs))
+            attach_filter(b, bpf_source_macs(macs, arp_any=arp_any))
             for f in frames:
                 a.send(f)
             b.setblocking(False)
@@ -87,6 +88,17 @@ class KernelFilter(unittest.TestCase):
         for mac in macs:
             self.assertEqual(len(self.passes(macs, [frame(mac)])), 1, mac)
         self.assertEqual(self.passes(macs, [frame("02:00:00:00:00:ff")]), [])
+
+    def test_arp_from_anyone_passes_when_asked_and_nothing_else_does(self):
+        arp = arp_reply(OTHER, "192.0.2.77")
+        ipv4 = frame(OTHER, 0x0800, b"x" * 40)
+        for macs in ([], [ALEX], [f"02:00:00:00:00:{i:02x}" for i in range(MAX_PHONES)]):
+            got = self.passes(macs, [arp, ipv4], arp_any=True)
+            self.assertEqual(got, [arp], len(macs))  # ARP, not the traffic of a device nobody listed
+            self.assertEqual(self.passes(macs, [arp, ipv4]), [])  # off by default
+        # The listed phones' own frames still pass, ARP or not.
+        got = self.passes([ALEX], [frame(ALEX, 0x0800, b"x" * 40), arp], arp_any=True)
+        self.assertEqual(len(got), 2)
 
     def test_nobody_listed_passes_nothing(self):
         self.assertEqual(self.passes([], [frame(ALEX)]), [])
@@ -137,6 +149,26 @@ class Home(unittest.TestCase):
         self.assertEqual(p.home(now=550.0), ["alex", "sam"])
         self.assertEqual(p.home(now=601.0), ["sam"])  # Alex's phone went quiet
         self.assertEqual(p.home(now=1101.0), [])
+
+    def test_other_devices_are_kept_only_when_asked(self):
+        off = Presence({ALEX: "alex"})
+        off.heard(OTHER, None, now=0.0)
+        self.assertEqual(off.devices(now=1.0), [])
+        p = Presence({ALEX: "alex"}, hold_s=600, others=True, own="02:aa:aa:aa:aa:aa")
+        p.heard(OTHER, "192.0.2.99", now=10.0)
+        p.heard(SAM, None, now=20.0)
+        p.heard(ALEX, None, now=30.0)                  # a household phone is not "other"
+        p.heard("02:aa:aa:aa:aa:aa", None, now=30.0)   # this host
+        p.heard("01:00:5e:00:00:fb", None, now=30.0)   # a multicast address is no device
+        self.assertEqual(p.devices(now=40.0), [SAM, OTHER])  # newest first
+        self.assertEqual(p.devices(now=700.0), [])           # gone quiet
+        self.assertEqual(p.home(now=40.0), ["alex"])
+
+    def test_devices_are_capped(self):
+        p = Presence({}, others=True)
+        for i in range(MAX_DEVICES + 50):
+            p.heard(f"02:00:00:00:{i // 256:02x}:{i % 256:02x}", None, now=float(i))
+        self.assertEqual(len(p.devices(now=float(MAX_DEVICES + 50))), MAX_DEVICES)
 
     def test_two_phones_one_person(self):
         p = Presence({ALEX: "alex", OTHER: "alex"})

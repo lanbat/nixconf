@@ -233,6 +233,46 @@ A kernel filter on the raw socket passes only the listed phones' frames, cut to 
 headers: nothing else on the network is read, and nothing is stored. Only person keys
 go to the router. Keep it a hint: a MAC address is easy to copy.
 
+## Devices nobody has claimed
+
+Off by default: `lanbat.services.assistant-router.settings.evidence.enable = true`. Phones are
+known by the addresses in the profile or learned from a tap; any other device on the home
+network (a visitor's phone, a new tablet, the TV) is on no one's list. With this on, the
+Wi-Fi sensor also tells the router the addresses of those devices (it hears the ARP every
+device sends anyway, and a sweep brings it out of all of them), and the router works out whose
+they probably are:
+
+- **From what arrives together.** A device *arrives* when it turns up after ten minutes away.
+  A person arrives when a face, a voice, a tap, a card or a Bluetooth phone identifies them
+  after the same absence (an Unknown, from the camera or a robot, arrives too). A device that
+  arrives within two minutes of the same person at least four times, and for 80% of its
+  arrivals, is probably theirs, provided nobody else is with it more than 30% of the time.
+  A device that arrives with different people (a family tablet, a visitor's phone) is never
+  suggested.
+- **You confirm.** *People Nabu knows → Devices* lists the devices with when they were first
+  and last seen and, where there is one, who they arrive with. *It is Alex's* teaches the
+  device like a tapped phone (so being home counts for them); *Ignore* hides it. Nothing is
+  claimed automatically. A device is claimable once it has been on the network since the router
+  last started (the router keeps no address it could read back).
+- **Merge hints.** An Unknown and someone else who arrive with the same device are suggested as
+  the same person on *Find duplicates*: probably one person met twice.
+- **What is kept.** A device nobody claimed is a keyed hash of its address (the key is
+  `evidence.key` in the router's state; a stolen `evidence.db` holds no address), arrival counts,
+  and who arrived with it. It is dropped after `evidence.days` (30) without being heard. A claimed
+  device's address stays, as a tapped phone's does. The admin page shows a short code, never an
+  address.
+- **What it does not do.** Nothing probes a device: no port scans, no extra traffic beyond the
+  sweep that was already there. A phone that uses a different private address on each
+  connection looks like a new device each time, and nothing tries to link them: the addresses
+  of phones that keep one per network (most Android and iOS defaults) are what this learns. A
+  GrapheneOS phone set to per-connection randomisation is learned by tapping it, pairing it
+  (Bluetooth key) or using the Home Assistant app's beacon, as before. Bluetooth addresses
+  that never change (headphones, watches) are the next step.
+
+It records, however pseudonymously, which devices visit your network, visitors' included:
+decide that for your household before turning it on, and it may need approval where your
+organisation's policy requires it.
+
 ## Tap your phone
 
 With a Stack-chan and Authentik, there is nothing to list: hold your phone, unlocked, flat

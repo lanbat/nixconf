@@ -873,6 +873,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                    'Merge them into who they are, or give them their name.</p>')
         if household.sightings is not None:
             legend += '<p><a href="/admin/sightings">Sightings</a>: who was seen where, and when.</p>'
+        if household.evidence is not None:
+            legend += '<p><a href="/admin/devices">Devices</a>: on the network, on no one\'s list.</p>'
         if household.frigate is not None and household.people.strangers:
             legend += '<p><a href="/admin/duplicates">Find duplicates</a>: Unknowns who look like someone else.</p>'
         return page("People Nabu knows", legend + "".join(rows))
@@ -1064,11 +1066,14 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         for d in pairs:
             if d["key"] not in names or d["into"] not in names:
                 continue
+            img = (f'<img src="/admin/sightings/{d["sighting"]}/picture" alt="" '
+                   'style="width:4rem;height:4rem;object-fit:cover;border-radius:.5rem;float:left;margin-right:.75rem">'
+                   if d.get("sighting") else "")
+            why = html.escape(d.get("why") or f"seen at {d['place']}")
             rows.append(
-                f'<section class="person"><img src="/admin/sightings/{d["sighting"]}/picture" alt="" '
-                'style="width:4rem;height:4rem;object-fit:cover;border-radius:.5rem;float:left;margin-right:.75rem">'
+                f'<section class="person">{img}'
                 f'<h2>{html.escape(names[d["key"]])} looks like {html.escape(names[d["into"]])}</h2>'
-                f'<p class="muted">{d["score"]:.2f}, seen at {html.escape(d["place"])}</p>'
+                f'<p class="muted">{d["score"]:.2f}, {why}</p>'
                 f'<form method="post" action="/admin/link">{field("key", d["key"])}{field("into", d["into"])}'
                 '<button>Merge them…</button></form><div style="clear:both"></div></section>')
         body = ('<form method="post" action="/admin/duplicates"><button>Find duplicates</button></form>'
@@ -1076,6 +1081,56 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                 'a moment, and is only done when you press this.</p>')
         body += "".join(rows) if rows else "<p>No likely duplicates.</p>"
         return page("Duplicates", body + '<p><a href="/admin">Back</a></p>')
+
+    async def admin_devices(request: web.Request) -> web.Response:
+        if not is_admin(request) or household.evidence is None:
+            return admins_only()
+        names = taps.people.names
+        rows = []
+        for d in household.evidence.devices():
+            if d["ignored"]:
+                continue
+            when = datetime.datetime.fromtimestamp(d["last"]).strftime("%Y-%m-%d %H:%M")
+            first = datetime.datetime.fromtimestamp(d["first"]).strftime("%Y-%m-%d")
+            hint = " (a private address: it changes with each network)" if d["private"] else ""
+            line = (f'<p class="muted">First seen {first}, last {when}; arrived {d["arrivals"]} time'
+                    f'{"s" if d["arrivals"] != 1 else ""}{"; on the network now" if d["present"] else ""}{hint}</p>')
+            likely, form = d["likely"], ""
+            if likely and likely["person"] in names:
+                who = html.escape(names[likely["person"]])
+                line += (f'<p>Arrives with <b>{who}</b>: {likely["together"]} of {d["arrivals"]} times '
+                         f'({likely["score"]:.0%}).</p>')
+                if d["known_address"]:
+                    form += (f'<form method="post" action="/admin/devices/claim">{field("device", d["id"])}'
+                             f'{field("person", likely["person"])}<button>It is {who}\'s</button></form>')
+                else:
+                    line += '<p class="muted">Seen again on the network, it can be claimed.</p>'
+            form += (f'<form method="post" action="/admin/devices/ignore">{field("device", d["id"])}'
+                     '<button>Ignore</button></form>')
+            rows.append(f'<section class="person"><h2>Device {html.escape(d["short"])}</h2>{line}{form}</section>')
+        legend = ('<p class="muted">Devices on the home network that are on no one\'s list. Nabu learns whose '
+                  'one is from who arrives with it, and only suggests: you confirm. The address is never shown, '
+                  'and one nobody claims is forgotten after a while.</p>')
+        return page("Devices", legend + ("".join(rows) if rows else "<p>No devices yet.</p>")
+                    + '<p><a href="/admin">Back</a></p>')
+
+    async def admin_device_claim(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request) or household.evidence is None:
+            return admins_only()
+        form = await request.post()
+        person = str(form.get("person", ""))
+        if not household.claim_device(str(form.get("device", "")), person):
+            return page("Nabu", "<p>Nabu can't claim that device now: it has to be on the network.</p>", 400)
+        return page("Done", f"<p>It is {html.escape(taps.people.names.get(person, person))}'s now: their "
+                            'phone counts for them being home.</p><p><a href="/admin/devices">Back</a></p>')
+
+    async def admin_device_ignore(request: web.Request) -> web.Response:
+        if not is_admin(request) or not same_site(request) or household.evidence is None:
+            return admins_only()
+        form = await request.post()
+        if not household.evidence.ignore(str(form.get("device", ""))):
+            return page("Nabu", "<p>Nabu doesn't know that device.</p>", 400)
+        return go("/admin/devices")
 
     async def forget_phone(request: web.Request) -> web.Response:
         s = session(request)
@@ -1122,6 +1177,9 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_get("/admin/pictures/{key}", admin_pictures)
     app.router.add_get("/admin/pictures/{key}/{file}", admin_picture_file)
     app.router.add_post("/admin/pictures/delete", admin_picture_delete)
+    app.router.add_get("/admin/devices", admin_devices)
+    app.router.add_post("/admin/devices/claim", admin_device_claim)
+    app.router.add_post("/admin/devices/ignore", admin_device_ignore)
     app.router.add_get("/admin/duplicates", admin_duplicates)
     app.router.add_post("/admin/duplicates", admin_duplicates)
     return app

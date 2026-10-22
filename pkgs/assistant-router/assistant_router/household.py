@@ -52,7 +52,8 @@ DUP_CACHE_S = 600.0  # a search's answer is kept this long, so reloading the pag
 class Household:
     def __init__(self, people, store, taps=None, voice=None, frigate=None, cards=None, irks=None,
                  forget: Callable[[str], Awaitable[bool]] | None = None, sightings=None,
-                 prefs=None, lists=None, strangers=None, clock: Callable[[], float] = time.monotonic) -> None:
+                 prefs=None, lists=None, strangers=None, evidence=None,
+                 clock: Callable[[], float] = time.monotonic) -> None:
         self.people = people
         self.store = store  # people_store.PeopleStore
         self.taps = taps
@@ -65,6 +66,7 @@ class Household:
         self.prefs = prefs  # prefs.Prefs: their own screen settings, which follow a link
         self.lists = lists  # lists.Lists: the lists they asked for, likewise
         self.strangers = strangers  # unknowns.Strangers: told when an Unknown goes
+        self.evidence = evidence  # evidence.Evidence: devices nobody has claimed, and whose they probably are
         self._clock = clock
         self._duplicates: tuple[float, list[dict]] | None = None  # (when, the last search's pairs)
 
@@ -126,6 +128,8 @@ class Household:
         LOG.info(json.dumps({"forgotten": key, "by": "admin"}))
         if self.strangers is not None:
             self.strangers.rekey(key)
+        if self.evidence is not None:
+            self.evidence.forget_person(key)
         self._duplicates = None
         return await self._forget(key)
 
@@ -165,6 +169,8 @@ class Household:
         self.store.remove(key)
         if self.strangers is not None:
             self.strangers.rekey(key, into)
+        if self.evidence is not None:
+            self.evidence.rekey(key, into)
         self._duplicates = None
         LOG.info(json.dumps({"linked": key, "into": into, "moved": moved, "by": "admin"}))
         return moved
@@ -220,6 +226,20 @@ class Household:
         LOG.info(json.dumps({"sighting_moved": int(sighting), "to": person, "by": "admin"}))
         return ok
 
+    # -- devices nobody has claimed ---------------------------------------------
+
+    def claim_device(self, device: str, person: str) -> bool:
+        """An admin said the device is `person`'s: it is taught like a tapped phone, so the Wi-Fi
+        sensor counts it as theirs from now on."""
+        if self.evidence is None or self.taps is None or person not in self.people.names:
+            return False
+        mac = self.evidence.claimable(device)
+        if mac is None or not self.taps.learn(mac, person) or self.evidence.claim(device, person) is None:
+            return False
+        self._duplicates = None
+        LOG.info(json.dumps({"device": "claimed", "for": person, "by": "admin"}))
+        return True
+
     # -- duplicates ------------------------------------------------------------
 
     async def duplicates(self, fresh: bool = False) -> list[dict]:
@@ -251,6 +271,15 @@ class Household:
                     if best is None or score > best["score"]:
                         found[(key, other)] = {"key": key, "into": other, "score": round(float(score), 2),
                                                "sighting": s["id"], "place": s["place"]}
+        if self.evidence is not None:
+            # Two people that the same device arrives with: probably one person met twice.
+            for shared in self.evidence.shared():
+                a, b = shared["a"], shared["b"]
+                for key, other in ((a, b), (b, a)):
+                    if (key, other) not in found and self.can_merge(key, other):
+                        found[(key, other)] = {"key": key, "into": other, "score": shared["score"],
+                                               "sighting": None, "place": "", "why": "shares a device"}
+                        break
         pairs = sorted((p for p in found.values() if self.can_merge(p["key"], p["into"])),
                        key=lambda p: -p["score"])
         self._duplicates = (now, pairs)
