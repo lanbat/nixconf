@@ -83,6 +83,12 @@ let
       ssh = device.installCa;
       remote_api = false;
     }
+    # Jellyfin and other DLNA apps play to it: the renderer, and video through it.
+    // lib.optionalAttrs device.dlna {
+      dlna = true;
+      video = true;
+      dlna_video = true;
+    }
     // lib.optionalAttrs hasHa {
       screen_dashboard = "Drawn on the device";
       screen_dashboard_kiosk = true;

@@ -41,6 +41,9 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
   - the household's phones in its Bluetooth adverts, as a room sensor.
 - **Dashboards**: `lanbat-screen-<room>`, drawn by the device, a view per person.
 - `script.lanbat_notify_person` sends a message to the body beside a person.
+- **Jellyfin can play to it** (`techo5Devices.<room>.dlna`, on by default): the bridge turns
+  on the device's DLNA, Video and DLNA video switches, and Jellyfin's firewall lets its
+  address reach Jellyfin's discovery and event ports. See "Playing Jellyfin on the screen".
 
 ## What the person's screen shows
 
@@ -92,6 +95,37 @@ stay empty until Home Assistant answers again.
   `pkgs/home-assistant-post-setup/setup-ha.sh`).
 - That `local_todo` lists are created as expected on a live Home Assistant (not only in
   the post-setup script tests).
+
+## Playing Jellyfin on the screen
+
+Jellyfin's DLNA plugin (`lanbat.services.jellyfin.settings.dlna.enable`, on by default;
+`jellyfin-bootstrap` installs it) finds DLNA speakers and screens on the LAN, and the Echo
+Show is one: in Jellyfin's web or phone app, choose **Play on** and pick the device by its
+name. Music and video both work.
+
+- **First cast from Jellyfin.** The device asks on its screen to allow a video from a new
+  address (the server's); allow it once. Home Assistant's own `Video` switch also turns on.
+- **Video.** The device plays H.264 up to 720p best. In Jellyfin, a client that asks for a
+  lower quality makes the server transcode to that.
+- **The address Jellyfin gives the device** is its public one, `https://media.<domain>`, so
+  the device must resolve that name and trust the CA, which the bridge installs
+  (`installCa`). A device with `installCa = false` can't play from Jellyfin.
+- **Firewall.** Jellyfin accepts UDP (discovery) and its HTTP port (the device's progress
+  reports) from the Echo Shows' addresses and from `settings.dlna.renderers`, and from no
+  other address. `settings.dlna.server` (off) would also share the libraries with every DLNA
+  client on the LAN, which asks for no login: casting doesn't need it.
+- **On the dashboard.** The device's own music page shows what is playing, with the controls,
+  for a DLNA stream as for any other. Home Assistant finds the device as a DLNA media
+  player (Settings → Devices → Discovered → DLNA Digital Media Renderer; confirm it once); put it
+  in the room's area and the screen's Home section lists it with the room's other devices.
+- `dlna = false` on a device leaves its three switches as they are; `settings.dlna.enable =
+  false` turns the plugin's play-to off and opens no ports.
+
+### Not yet verified on a live system
+
+- That the plugin's configuration has the keys `EnablePlayTo` and `EnableServer` (the
+  bootstrap leaves a configuration alone that lacks them, and logs it).
+- That Jellyfin finds the device and plays to it with the stream address above.
 
 ## Trusting Home Assistant's certificate
 

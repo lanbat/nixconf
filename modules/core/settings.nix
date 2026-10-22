@@ -570,6 +570,20 @@ in
                     It doesn't cover a drawn dashboard's websocket (docs/techo5.md).
                   '';
                 };
+                dlna = mkOption {
+                  type = types.bool;
+                  default = true;
+                  description = ''
+                    Make the device a DLNA speaker and screen that Jellyfin (and
+                    other DLNA apps) can play to: the bridge turns on its DLNA,
+                    Video and DLNA video switches, and Jellyfin's firewall lets the
+                    device's address reach its discovery and event ports
+                    (services/jellyfin.nix). Video plays best as H.264 at 720p; a
+                    cast from a new address asks on the screen first. False leaves
+                    the three switches as the device has them, on or off, whichever
+                    way they were set.
+                  '';
+                };
                 screenOffAfter = mkOption {
                   type = types.ints.between 0 120;
                   default = 5;

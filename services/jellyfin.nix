@@ -113,7 +113,53 @@ let
         automatically.
       '';
     };
+    options.dlna.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Let Jellyfin play to DLNA speakers and screens on the LAN: "Play on"
+        in Jellyfin's apps lists them, and a movie or song starts on the Echo
+        Shows (techo5Devices, which switch their DLNA renderer on), or on any
+        other renderer in dlna.renderers. jellyfin-bootstrap installs the DLNA
+        plugin and turns on its play-to side; false turns it off again (the
+        plugin stays installed). The firewall lets only the renderers' own
+        addresses reach Jellyfin's discovery and event ports.
+      '';
+    };
+    options.dlna.server = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Also be a DLNA media server: TVs, speakers and apps on the LAN browse
+        and play the libraries without signing in, since DLNA has no logins.
+        Off unless you want that; casting to a renderer does not need it.
+      '';
+    };
+    options.dlna.renderers = lib.mkOption {
+      type = lib.types.listOf (lib.types.strMatching "[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+");
+      default = [ ];
+      example = [ "192.168.1.60" ];
+      description = ''
+        IPv4 addresses of DLNA renderers other than the Echo Shows, which are
+        taken from techo5Devices. Jellyfin's discovery and event ports are open
+        to these addresses and no others.
+      '';
+    };
   };
+
+  # The DLNA renderers: the Echo Shows that take part, and any listed.
+  dlnaRenderers = lib.unique (
+    lib.mapAttrsToList (_: d: d.address) (
+      lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { })
+    )
+    ++ cfg.dlna.renderers
+  );
+  # Discovery is SSDP (UDP, multicast and the answers to it), and a renderer
+  # reports what it is doing to Jellyfin's own port.
+  dlnaRules = lib.concatMap (ip: [
+    "INPUT -p udp -s ${ip} -j ACCEPT"
+    "INPUT -p tcp -s ${ip} --dport ${toString config.lanbat.services.jellyfin.port} -j ACCEPT"
+  ]) (lib.optionals cfg.dlna.enable dlnaRenderers);
 in
 {
   # The schema is merged into lanbat.services.jellyfin.settings; checks.nix
@@ -194,6 +240,10 @@ in
   };
 
   networking.firewall.allowedUDPPorts = [ 7359 ];
+  networking.firewall.extraCommands = lib.concatLines (map (r: "iptables -I ${r}") dlnaRules);
+  networking.firewall.extraStopCommands = lib.concatLines (
+    map (r: "iptables -D ${r} 2>/dev/null || true") dlnaRules
+  );
 
   systemd.services.jellyfin-bootstrap = lib.mkIf integrates {
     description = "Complete Jellyfin setup (wizard, libraries, plugins, SSO)";
@@ -221,6 +271,8 @@ in
       export JELLYFIN_URL="http://127.0.0.1:8096"
       export EXTERNAL_URL="https://media.${domain}"
       export AUTH_DOMAIN="${domain}"
+      export DLNA_ENABLE="${if cfg.dlna.enable then "1" else "0"}"
+      export DLNA_SERVER="${if cfg.dlna.server then "1" else "0"}"
       exec jellyfin-bootstrap
     '';
   };
