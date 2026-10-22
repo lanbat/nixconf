@@ -343,6 +343,43 @@ let
   voicePlayWords = lib.concatStringsSep "|" (lib.attrNames voicePlayKinds);
   voicePlayLeadingWords = "podcast|audiobook|album|artist|playlist";
 
+  # Satellite device name -> the host name its Music Assistant player carries
+  # (the player is the Snapcast client of the same host). Two satellites can
+  # share a room (the server's and a Pi's in the Office), and each room has
+  # one player per host, so "the room's player" alone picked the same one for
+  # both: a command to the Pi 3 changed the server's volume.
+  satellitePlayerHosts = builtins.toJSON (
+    lib.listToAttrs (
+      map (hostKey: {
+        name = (voiceSatelliteRegistrations.${hostKey} or { displayName = hostKey; }).displayName;
+        value = config.lanbat.hosts.${hostKey}.networking.hostname or hostKey;
+      }) voiceSatelliteHosts
+    )
+  );
+
+  # The host name of the satellite that heard the request, "" when it is not
+  # one of ours (typed in the UI) or has no player.
+  ownHostTemplate = ''
+    {%- set m = satellite_hosts | from_json -%}
+    {%- set d = trigger.device_id -%}
+    {{ m.get(device_attr(d, 'name_by_user') or "", "") or m.get(device_attr(d, 'name') or "", "") }}'';
+
+  # The Music Assistant player to use in the area: the one of the satellite's
+  # own host when it is in the area, else the first one there (a room named in
+  # the request, or a satellite whose host has no player).
+  roomPlayerTemplate = ''
+    {%- set room = area_entities(area) if area else [] -%}
+    {%- set ma = integration_entities('music_assistant')
+                 | select('match', 'media_player\\.') | select('in', room) | list -%}
+    {%- set ns = namespace(own="") -%}
+    {%- for p in ma -%}
+      {%- if not ns.own and own_host
+            and own_host in [device_attr(p, 'name_by_user'), device_attr(p, 'name')] -%}
+        {%- set ns.own = p -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{ ns.own or (ma | first | default("")) }}'';
+
   # The request with any room named at the end taken off, the area (named or
   # the satellite's), the kind of media and the bare name to search for. Each
   # uses the ones before it, and Home Assistant evaluates them in order, which
@@ -402,11 +439,9 @@ let
       {%- else -%}{{ kind }}{%- endif -%}'';
     play_id = "{{ by_artist if (by_artist and play_type == 'artist') else (by_title if by_artist else query) }}";
     play_artist = "{{ by_artist if play_type == 'track' else \"\" }}";
-    player = ''
-      {{ integration_entities('music_assistant')
-         | select('match', 'media_player\\.')
-         | select('in', area_entities(area) if area else [])
-         | first | default("") }}'';
+    satellite_hosts = satellitePlayerHosts;
+    own_host = ownHostTemplate;
+    player = roomPlayerTemplate;
     place = "{{ 'in the ' ~ area_name(area) if named_area else 'in here' }}";
   };
 
@@ -435,15 +470,17 @@ let
       named_area
       area
       place
+      satellite_hosts
+      own_host
       ;
     # Kodi's own volume while it has something on (a film paused for the
-    # question counts), else the room's music player.
+    # question counts), else the music player of the satellite that heard it,
+    # else the room's first.
     player = ''
       {%- set room = area_entities(area) if area else [] -%}
-      {{ integration_entities('kodi') | select('match', 'media_player\\.') | select('in', room)
-         | select('is_state', ['playing', 'paused']) | first
-         | default(integration_entities('music_assistant') | select('match', 'media_player\\.')
-                   | select('in', room) | first | default(""), true) }}'';
+      {%- set kodi = integration_entities('kodi') | select('match', 'media_player\\.') | select('in', room)
+                     | select('is_state', ['playing', 'paused']) | first | default("", true) -%}
+      {%- if kodi -%}{{ kodi }}{%- else -%}${roomPlayerTemplate}{%- endif -%}'';
     raw = "{{ \"\" }}";
     level = "{{ (trigger.slots.level | default(\"\") | regex_findall('\\d+') | first | default(\"\")) }}";
   };
@@ -453,6 +490,8 @@ let
     "sentence"
     "named_area"
     "area"
+    "satellite_hosts"
+    "own_host"
     "request"
     "kinds"
     "kind"
