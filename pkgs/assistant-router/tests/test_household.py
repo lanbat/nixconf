@@ -125,12 +125,14 @@ async def test_linking_moves_everything_learned_to_the_account(home):
     assert taps.phones == {"02:00:00:00:00:01": "akadmin"} and cards.cards == {"04A1B2C3": "akadmin"}
     assert irks.all() == {"akadmin": [IRK]}
     assert "jaine" not in people.names and store.resolve("jdoe") == "akadmin"
-    # Into the profile's person too; never an account away, nor into a guest.
+    # Into the profile's person too; never an account away, nor into oneself.
     assert await household.link("carol", "kiril") == []
     assert await household.link("akadmin", "kiril") is None
     assert await household.link("guest_jane", "guest_jane") is None
+    # Anyone may be merged into someone else who is not an Unknown (test_duplicates.py).
     store.add("bob", "Bob")
-    assert await household.link("bob", "guest_jane") is None
+    assert await household.link("bob", "guest_jane") == []
+    assert "bob" not in people.names
 
 
 async def test_the_admins_page(aiohttp_client, home):

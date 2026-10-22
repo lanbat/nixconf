@@ -104,6 +104,41 @@ detector sees someone, every 20 s until the router names them, and its frame is 
 "remember me" enrols. Frames leave it only for those two, and go no further than the
 router and Frigate ([techo5.md](techo5.md)).
 
+## The satellite's camera
+
+The PlayStation Eye that is a voice satellite's microphone array also has a camera, and the
+`lanbat-satellite-camera` plugin (`modules/pi/satellite-camera.nix`, `pkgs/satellite-camera`)
+uses it as a face source for the router. Enable it on a host with a satellite room and the
+router, like room-presence:
+
+```nix
+plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-camera ];
+```
+
+- **Only when something moves.** Every few seconds (`sampleSeconds`, 3) it opens the camera
+  for one small grey frame and closes it again; if the picture changed by more than `motion`
+  it sends a 320x240 JPEG to the router, at most every `gapSeconds` (20), and every
+  `againSeconds` (60) once the router named someone or kept finding nobody it knows. Nothing
+  streams and nothing is kept on the Pi. There is no face detector on the Pi (a Pi 3 has no
+  room for one): a frame with no face is answered "no face found" by the face library and
+  costs nothing else.
+- **Always "seen".** The camera is fixed, not aimed at whoever is talking, so what it sees
+  is who is in the room (the same evidence as a room's camera), never who is speaking.
+- **What it is used for.** Naming who is in the room, sightings (source *satellite*, with
+  the picture, on the admin page), Unknown people (a stranger it sees gets a name of their
+  own, above), and enrolment: *"remember me"*, and the three frames after a tap or a card,
+  ask the camera for a face when the room has no robot or screen to ask.
+- **Not a body.** It is its own kind of router client, so a Stack-chan or an Echo Show in
+  the same room stays; a robot that can capture is asked first. A room with only a camera
+  has no Home Assistant device: its sightings are on the admin page.
+- **Where it runs.** The camera is the first video node of USB `1415:2000` (`usbId`, for another
+  camera), readable by the `video` group; the unit starts when it is plugged in and stops
+  when it is unplugged. Check that the host's kernel has the driver (`gspca_ov534`: `modinfo
+  gspca_ov534`), and on a Pi 3 that its single USB port budget (the Ethernet, the microphone
+  and now the camera share it) still holds; an under-voltage Pi will show it.
+- **Privacy.** A frame of whoever walks past is sent to the router and the face library, so
+  it is the same decision as any room camera. Frames go to the router only.
+
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
@@ -357,14 +392,32 @@ pictures, Wi-Fi, Bluetooth, card):
   there, so it isn't changed here.
 - **Guest:** a name typed on the who page, with no account (or fixed by an admin).
 - **Heard:** met by voice, the name as Nabu heard it.
+- **Unknown:** a face that matched no one, with a name Nabu made up (below).
 
-For guests and names heard, an admin can:
+For guests, names heard and Unknowns, an admin can:
 
 - **fix the name** (a heard name is then confirmed, a guest);
 - **forget** them: voice, faces, cards and phones;
-- **link them to an account**, when they turn out to be the same person: their voice,
-  face pictures, phones and cards move to the account, and the entry goes. It can't be
-  split apart again, so the page asks first.
+- **merge them into someone else**, when they turn out to be the same person: their voice,
+  face pictures, phones, cards, sightings and settings move to that person, and the entry
+  goes. The other can be an account, a guest, a heard name or another Unknown, but an
+  Unknown never absorbs someone who has been identified. It can't be split apart again,
+  so the page asks first.
+
+Anyone with face pictures also has a **Face pictures** page: each picture the library
+holds for them, with a delete button (it asks first). Deleting one stops Nabu using it to
+recognise them; deleting the last means it can't recognise them at all. Frigate's own
+`train` folder of unclassified attempts is never a person, and `train` can't be a name.
+
+**Find duplicates** (shown while there are Unknowns) asks the face library who each
+Unknown's later pictures look like, up to 12 Unknowns and 3 pictures each, and lists the
+pairs it is at least 0.6 sure of, with the picture and a *Merge them…* button. It runs
+only when you press the button (every picture is a call to Frigate), and the answer is kept
+ten minutes. The picture an Unknown was first enrolled with isn't tried: it would only say it
+is itself. It is a suggestion: look at the faces before merging.
+
+On **Sightings**, each row can be moved to someone else (*"that wasn't them"*), or to *Nobody
+known*; *add this picture to them* also teaches the library that face under the new person.
 
 Nobody else sees the list: the page is behind the login, and checks the groups the
 provider passes on.

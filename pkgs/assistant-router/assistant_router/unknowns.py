@@ -195,6 +195,17 @@ class Strangers:
             self.sightings.record(room, key, "camera", None, event=event)
         return key
 
+    def rekey(self, key: str, into: str | None = None) -> None:
+        """`key` was merged into `into` (or forgotten, None): the rooms where they were last
+        met and their picture counts follow, so nothing points at someone who is gone."""
+        self._images.pop(key, None)
+        for room, (who, when) in list(self._last.items()):
+            if who == key:
+                if into is None:
+                    del self._last[room]
+                else:
+                    self._last[room] = (into, when)
+
     def identify(self, key: str, name: str, kind: str) -> None:
         """The stranger `key` said who they are (kind "heard") or signed in
         ("account"): their name and kind change, and nothing else moves."""

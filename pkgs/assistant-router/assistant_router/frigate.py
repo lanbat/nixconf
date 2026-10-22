@@ -20,6 +20,8 @@ import aiohttp
 
 # A library name is a person key: letters, digits, underscore, hyphen.
 _NAME = re.compile(r"^[A-Za-z0-9_-]+$")
+# Frigate's own folder of recognition attempts nobody has classified: never a person.
+RESERVED = "train"
 # A face image's file name, as Frigate lists it (akadmin_1792518459.451025.webp).
 _FILE = re.compile(r"[A-Za-z0-9_.-]{1,120}")
 # An event's id (1792518459.451025-ab12cd).
@@ -37,7 +39,7 @@ class FrigateError(Exception):
 def safe_name(name: str) -> str:
     """A face-library name: the person key, or a FrigateError if it is not one."""
     n = (name or "").strip()
-    if not _NAME.match(n):
+    if not _NAME.match(n) or n == RESERVED:
         raise FrigateError(f"bad face name {name!r}")
     return n
 
@@ -85,7 +87,7 @@ class Frigate:
     async def list(self) -> dict[str, list[str]]:
         """Every registered face and the image files under its name."""
         data = await self._call("GET", "/api/faces")
-        return {k: list(v) for k, v in data.items() if isinstance(v, list)}
+        return {k: list(v) for k, v in data.items() if isinstance(v, list) and k != RESERVED}
 
     async def create(self, name: str) -> dict:
         """Make a person's folder. Idempotent; the body's success flag is not reliable."""

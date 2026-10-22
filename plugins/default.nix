@@ -11,4 +11,5 @@
   dns = import ./dns;
   stackchan = import ./stackchan;
   room-presence = import ./room-presence;
+  satellite-camera = import ./satellite-camera;
 }

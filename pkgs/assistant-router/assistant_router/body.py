@@ -213,6 +213,7 @@ class Bodies:
         self._can: dict[str, frozenset[str] | None] = {}  # room key -> what it can do; None: a robot
         self._states: dict[str, BodyState] = {}
         self._captures: dict[str, Any] = {}  # room key -> a face in flight (enrolment)
+        self._cameras: dict[str, Any] = {}  # room key -> a satellite's camera (not a body: it only sees)
         self._names: dict[str, str] = {}  # room key -> the room as the body named it
         self._face_checks: dict[str, dict[str, Any]] = {}  # room key -> its last face check
         self._screen_items: dict[str, dict[str, Any]] = {}  # room key -> last items from a screen body
@@ -225,6 +226,26 @@ class Bodies:
         self._kinds[_key(room)] = kind if isinstance(kind, str) and re.fullmatch(r"[a-z0-9-]{1,32}", kind) \
             else "stackchan"
         self._can[_key(room)] = parse_can(can)
+
+    def connect_camera(self, room: str, socket: Any) -> None:
+        """A satellite's camera (pkgs/satellite-camera): not a body, so a robot or screen in the
+        same room stays; it is asked for a face when there is no body to ask."""
+        self._cameras[_key(room)] = socket
+
+    def disconnect_camera(self, room: str, socket: Any) -> None:
+        if self._cameras.get(_key(room)) is socket:
+            del self._cameras[_key(room)]
+            if not self.has(room):
+                fut = self._captures.pop(_key(room), None)
+                if fut is not None and not fut.done():
+                    fut.set_result(None)
+
+    def has_camera(self, room: str) -> bool:
+        return bool(room) and _key(room) in self._cameras
+
+    def can_capture(self, room: str) -> bool:
+        """A face can be had in `room`: a body that can capture, or a satellite's camera."""
+        return self.can(room, "capture") or self.has_camera(room)
 
     def kind(self, room: str) -> str | None:
         return self._kinds.get(_key(room)) if self.has(room) else None
@@ -439,11 +460,11 @@ class Bodies:
         return True
 
     async def capture(self, room: str, timeout: float = CAPTURE_TIMEOUT_S) -> bytes | None:
-        """Ask the room's body for a face and wait for it. None when there is
-        no body, a capture is already in flight, or no face arrives in time."""
+        """Ask the room's body for a face, or else its satellite's camera, and wait for it. None
+        when there is neither, a capture is already in flight, or no face arrives in time."""
         key = _key(room)
-        socket = self._sockets.get(key)
-        if socket is None or key in self._captures or not self.can(room, "capture"):
+        socket = self._sockets.get(key) if self.can(room, "capture") else self._cameras.get(key)
+        if socket is None or key in self._captures:
             return None
         fut = asyncio.get_running_loop().create_future()
         self._captures[key] = fut

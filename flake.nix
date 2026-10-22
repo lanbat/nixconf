@@ -182,6 +182,7 @@
         jellyfin-dlna = import ./tests/jellyfin-dlna.nix { inherit pkgs; };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
+        satellite-camera = import ./tests/satellite-camera.nix { inherit pkgs; };
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };
         lva-snapcast-duck = import ./tests/lva-snapcast-duck.nix { inherit pkgs; };
         mic-watchdog = import ./tests/mic-watchdog.nix { inherit pkgs; };
