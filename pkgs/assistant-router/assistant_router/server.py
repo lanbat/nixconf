@@ -22,7 +22,8 @@ from typing import Awaitable, Callable
 import aiohttp
 from aiohttp import web
 
-from . import actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity, lists as lists_mod, triage
+from . import (actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity,
+               lists as lists_mod, reminders as reminders_mod, triage)
 from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
@@ -90,6 +91,7 @@ FORGET_TOOL = {
 
 SPEAKER_SECONDS = 300.0   # the speaker of a device's conversation, carried this long
 MEET_SECONDS = 60.0       # an answer to "What's your name?" is taken this long
+REMIND_WHEN_SECONDS = 60.0  # an answer to "When should I remind you?" is taken this long
 ENROL_SECONDS = 120.0     # a voice enrolment waits this long for the next sentence
 # After a tap or a card on a robot (two minutes, People.bound), the face in
 # front of it is learned as theirs: this many frames, this far apart.
@@ -243,6 +245,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     enrolling: dict[str, tuple[str, str, float]] = {}  # device -> (key, name, when)
     meeting: dict[str, tuple[str, float]] = {}  # device -> (room, when Nabu asked a name)
     asked_again: set[str] = set()  # devices asked their name a second time (only ever once)
+    remind_when: dict[str, tuple[str | None, str, float]] = {}  # device -> (who, what, when asked): "When?"
 
     def _short_reply(text: str) -> bool:
         """A word or two, not a request: worth asking the name again."""
@@ -629,6 +632,31 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             log({"conv": conv, "device": device, "room": room, "text": text, "tier": "identity", "route": said[0],
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(resp)
+
+        if personal is not None:
+            wall = datetime.datetime.now().astimezone()
+            ask = remind_when.pop(device, None)
+            reply = None
+            if ask is not None and now - ask[2] <= REMIND_WHEN_SECONDS:
+                due = reminders_mod.parse_when(text, wall)
+                if due is not None:
+                    reply = await personal.remind(ask[0], ask[1], due, wall)
+                elif len(text.split()) <= 4 and lists_mod.command(text) is None \
+                        and reminders_mod.parse(text, wall) is None:
+                    reply = (reminders_mod.NO_TIME, False)  # a short answer that is no time
+            said_reminder = reminders_mod.parse(text, wall) if reply is None else None
+            if said_reminder is not None:
+                if said_reminder.due is not None:
+                    reply = await personal.remind(last, said_reminder.what, said_reminder.due, wall)
+                elif last is None or last not in people.names:
+                    reply = (lists_mod.NOT_SURE, False)
+                else:
+                    remind_when[device] = (last, said_reminder.what, now)
+                    reply = (reminders_mod.ASK_WHEN, False)
+            if reply is not None:
+                log({"conv": conv, "device": device, "room": room, "text": text, "tier": "reminders",
+                     "route": "set" if reply[1] else "ask", "ms": int((time.monotonic() - started) * 1000)})
+                return web.json_response(finish(device, reply[0], ["Success"] if reply[1] else []))
 
         listed = lists_mod.command(text) if personal is not None else None
         if listed is not None:

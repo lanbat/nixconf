@@ -429,6 +429,61 @@ def test_items_message_shape():
     }
 
 
+def reminder_data(*due_times):
+    return {"reminders": [Item(f"r{i}", f"Call {i}", due, "todo.alex_reminders") for i, due in enumerate(due_times)],
+            "todos": [], "more": 0, "events": []}
+
+
+def rings(outs):
+    return [o for o in outs if o[0] == "call" and o[1] == "notify" and o[2]["title"] == "Reminder"]
+
+
+def test_a_reminder_chimes_once_when_it_comes_due_with_its_person_alone():
+    tz = ZoneInfo("UTC")
+    clock = {"now": datetime(2026, 10, 21, 16, 59, 0, tzinfo=tz)}
+    b = brain(people={"alex": "Alex"})
+    b.wall = lambda: clock["now"]
+    b.router({"here": [{"person": "alex", "name": "Alex"}]}, 0.0)
+    due = datetime(2026, 10, 21, 17, 0, tzinfo=tz)
+    assert not rings(b.items(1.0, reminder_data(due), for_person="alex"))  # not yet
+    assert not rings(b.tick(30.0))
+    clock["now"] = datetime(2026, 10, 21, 17, 0, 1, tzinfo=tz)
+    (ring,) = rings(b.tick(31.0))
+    assert ring[2]["message"] == "Call 0" and ring[2]["chime"] == "on" and ring[2]["speak"] == ""
+    assert ring[2]["seconds"] > 0 and ring[2]["tag"] != "lanbat"  # not the greeting's, nor the sign-in code's
+    assert not rings(b.tick(32.0))  # once
+    # The same reminder read again a minute later does not ring again, until it is gone and back.
+    assert not rings(b.items(90.0, reminder_data(due), for_person="alex"))
+    b.items(120.0, reminder_data(), for_person="alex")
+    assert rings(b.items(150.0, reminder_data(due), for_person="alex"))
+
+
+def test_a_reminder_that_is_overdue_when_read_rings_at_once():
+    tz = ZoneInfo("UTC")
+    b = brain(people={"alex": "Alex"})
+    b.wall = lambda: datetime(2026, 10, 21, 17, 30, tzinfo=tz)
+    b.router({"here": [{"person": "alex"}]}, 0.0)
+    got = b.items(1.0, reminder_data(datetime(2026, 10, 21, 17, 0, tzinfo=tz)), for_person="alex")
+    assert len(rings(got)) == 1
+
+
+def test_a_reminder_never_chimes_for_a_bystander_or_with_nobody_there():
+    tz = ZoneInfo("UTC")
+    b = brain(people={"alex": "Alex", "sam": "Sam"})
+    b.wall = lambda: datetime(2026, 10, 21, 17, 30, tzinfo=tz)
+    b.router({"here": [{"person": "alex"}]}, 0.0)
+    due = datetime(2026, 10, 21, 17, 0, tzinfo=tz)
+    b._remember_due("alex", reminder_data(due)["reminders"])  # pylint: disable=protected-access
+    b.router({"here": [{"person": "alex"}, {"person": "sam"}]}, 1.0)
+    assert not rings(b.tick(2.0))
+    b.router({"here": [{"person": "sam"}]}, 3.0)  # someone else alone
+    assert not rings(b.tick(4.0))
+    b.router({"here": []}, 5.0)
+    assert not rings(b.tick(6.0))
+    b.router({"here": [{"person": "alex"}]}, 7.0)  # Alex alone again: it waited for them
+    assert len(rings(b.tick(8.0))) == 1
+
+
 def test_items_message_names_the_person():
     b = brain(people={"alex": "Alex"})
     (msg,) = to_router(b.items(0.0, {"reminders": [], "todos": [], "more": 0, "events": []}, for_person="alex"))

@@ -247,6 +247,23 @@ every connection to it, Home Assistant's included, whenever those change, so the
 change per person. "Forget me" removes the settings too. The router reads Home Assistant
 with the voice satellites' token, an ordinary user's (`settings.personal`, on by default).
 
+### Reminders
+
+"Okay Nabu, remind me to call mum at 5pm" adds a reminder for the person Nabu is sure is
+speaking: an item with a due time in their `todo.<key>_reminders` list. It hears "at 5pm",
+"at 17:30", "in 10 minutes", "in an hour", "tomorrow at 9", "tonight at 8", "on Monday at
+3pm", and the time first ("remind me at 5pm to call mum"). With no time it asks "When should I
+remind you?" once; a time it can't read is asked for, never guessed. Without am or pm, today's
+time is the next time that hour comes round, and tomorrow's or a named day's is 7 to 11 as
+morning, 12 as noon and 1 to 6 as afternoon. Times are the server's time zone. Accounts also
+have **My reminders** on the who page: add one with a date and time, mark one done, or remove it.
+
+The reminder shows on that person's screen, and **chimes there when it comes due, if they are
+alone in front of it** (docs/techo5.md). Nothing is ever spoken, and a reminder is never shown
+to a bystander: it waits until its person is alone in front of a screen again. A robot has no
+screen, so a reminder does not ring there. The reminders go to `todo.<key>_reminders`: a profile
+that points `reminders` at another list won't show them, so leave it at the default.
+
 ### Your own lists
 
 Everyone Nabu knows has a to-do list of their own in Home Assistant (`todo.<key>_todo`, a

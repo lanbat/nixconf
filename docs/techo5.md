@@ -59,6 +59,12 @@ get the household view instead, with no reminders or to-dos.
 do not exist yet, for each profile's person and each person in `deployment.people`. You may
 point a profile at an existing `todo.*` entity instead.
 
+A reminder **chimes** (with the reminder as a notification, for half an hour) when it comes
+due while its person is alone in front of the screen, once per bridge run; one that is already
+due when they are next seen alone chimes then. It is never spoken, and never rung for a
+bystander ([people.md](people.md#reminders)). A reminder made by voice shows within seconds,
+as lists do.
+
 Each person adds to and reads their own lists by voice, and on the who page
 ([people.md](people.md#your-own-lists)); the screen reads them again within a few seconds of a
 change (the router tells the bridge, `items_stale`) instead of waiting for the minute's refresh.

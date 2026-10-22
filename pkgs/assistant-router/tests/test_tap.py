@@ -565,3 +565,41 @@ async def test_my_lists_are_for_accounts_from_this_page(aiohttp_client, stored, 
     assert (await c.get("/lists", headers=with_cookie(guest))).status == 403
     assert "/lists" not in await (await c.get("/", headers=with_cookie(guest))).text()
     assert not [c_ for c_ in ha.calls if c_[0] == "add_item"]
+
+
+async def test_my_reminders(aiohttp_client, stored, tmp_path):
+    from assistant_router.lists import Lists, Personal
+    taps, people, _, _, _ = stored
+    people.add("maria", "Maria")
+    ha = ListsHass()
+    ha.items["todo.kiril_reminders"] = [
+        {"uid": "r2", "summary": "Later <b>", "status": "needs_action", "due": "2026-10-23T09:00:00"},
+        {"uid": "r1", "summary": "Call mum", "status": "needs_action", "due": "2026-10-22T17:00:00"}]
+    ha.items["todo.maria_reminders"] = [{"uid": "m1", "summary": "Secret", "status": "needs_action", "due": ""}]
+    told = []
+    personal = Personal(ha, Lists(str(tmp_path / "lists.json")), people.names, told.append)
+    c = await aiohttp_client(make_tap_app(taps, lambda: ["Kitchen"], personal=personal))
+    account = await sign_in(c)
+    me = with_cookie(account)
+    assert "/reminders" in await (await c.get("/", headers=me)).text()
+    text = await (await c.get("/reminders", headers=me)).text()
+    assert text.index("Call mum") < text.index("Later &lt;b&gt;")  # soonest first, escaped
+    assert "2026-10-22 17:00" in text and "Secret" not in text
+    token = form_token(text)
+    post = lambda action, **f: c.post(f"/reminders/{action}", data={"token": token, **f},  # noqa: E731
+                                      headers=with_cookie(account, Origin=BASE))
+    await post("done", item="r1")
+    assert ha.items["todo.kiril_reminders"][1]["status"] == "completed"
+    await post("remove", item="r2")
+    assert [r["uid"] for r in ha.items["todo.kiril_reminders"]] == ["r1"]
+    await post("add", item="Water plants", when="2026-10-25T08:30")
+    added = [c_ for c_ in ha.calls if c_[0] == "add_item"][-1][1]
+    assert added["entity_id"] == "todo.kiril_reminders" and added["item"] == "Water plants"
+    assert added["due_datetime"] == "2026-10-25 08:30:00"
+    assert "didn" in await (await post("add", item="x", when="soon")).text()
+    n = len(ha.calls)
+    await post("remove", item="m1")  # someone else's item: nothing
+    assert not [c_ for c_ in ha.calls[n:] if c_[0] == "remove_item"]
+    assert (await c.post("/reminders/add", data={"token": token, "item": "x", "when": "2026-10-25T08:30"},
+                         headers=with_cookie(account, Origin="https://evil.example"))).status == 403
+    assert (await c.get("/reminders")).status == 403

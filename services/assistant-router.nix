@@ -28,7 +28,8 @@
 # settings" lets each person choose their screen's calendars, to-do list and
 # photos from Home Assistant's, read with the voice satellites' token
 # (ha-voice-token, an ordinary user's); "My lists" and spoken list commands
-# ("add milk to my list") keep each person's own to-do lists in Home Assistant.
+# ("add milk to my list") keep each person's own to-do lists in Home Assistant,
+# and "remind me to call mum at 5pm" adds a reminder to theirs.
 #
 # Always-on: it is in the voice path. Home Assistant's side is loopback only.
 {
@@ -364,6 +365,8 @@ in
           "/settings"
           "/lists"
           "/lists/*"
+          "/reminders"
+          "/reminders/*"
         ];
       };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];

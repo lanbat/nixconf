@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -174,3 +175,36 @@ async def test_when_home_assistant_is_down_it_says_so_and_changes_nothing(tmp_pa
     assert await say(p, "kiril", "add bread to my list") == "I can't reach your lists right now."
     assert told == [] and lists.lists == {}
     assert entity("kiril", "todo") == "todo.kiril_todo"
+
+
+NOW = datetime(2026, 10, 22, 14, 0, tzinfo=timezone(timedelta(hours=1)))
+
+
+async def test_a_reminder_goes_in_the_speakers_reminders_list_with_its_time(tmp_path):
+    p, ha, _, told = personal(tmp_path, lists=("todo.kiril_todo", "todo.kiril_reminders"))
+    got = await p.remind("kiril", "call mum", NOW.replace(hour=17), NOW)
+    assert got == ("OK, I'll remind you to call mum at 5 PM.", True)
+    assert ha.calls[-1] == ("todo", "add_item", {"entity_id": "todo.kiril_reminders", "item": "call mum",
+                                                  "due_datetime": "2026-10-22 17:00:00"})
+    assert told == ["kiril"]
+    assert (await p.remind(None, "x", NOW, NOW))[1] is False
+    assert (await p.remind("stranger", "x", NOW, NOW))[0] == NOT_SURE
+
+
+async def test_a_reminders_list_that_does_not_exist_yet_is_asked_for_and_never_listed_as_a_list(tmp_path):
+    p, ha, lists, _ = personal(tmp_path, lists=("todo.kiril_todo",))
+    said, done = await p.remind("kiril", "call mum", NOW.replace(hour=17), NOW)
+    assert not done and "setting up" in said and ha.calls == []
+    assert lists.lists == {"kiril": ["reminders"]}  # post-setup makes todo.kiril_reminders from this
+    assert lists.slugs("kiril") == [DEFAULT]          # but it is not a list to add to by name
+
+
+async def test_reminders_can_be_completed_and_dropped_but_not_added_to_by_name(tmp_path):
+    rows = [{"uid": "r1", "summary": "call mum", "status": "needs_action", "due": "2026-10-22T17:00:00"}]
+    p, ha, _, _ = personal(tmp_path, lists=("todo.kiril_todo", "todo.kiril_reminders"), items=rows)
+    assert (await p.items("kiril", "reminders"))[0]["due"] == "2026-10-22T17:00:00"
+    assert await p.complete("kiril", "reminders", "r1")
+    assert ha.calls[-1][1] == "update_item" and ha.calls[-1][2]["entity_id"] == "todo.kiril_reminders"
+    assert not await p.put("kiril", "reminders", "buy milk")
+    assert not await p.complete("kiril", "reminders", "someone-elses")
+    assert not await p.complete("maria", "reminders", "r1") or ha.calls[-1][2]["entity_id"] != "todo.kiril_reminders"

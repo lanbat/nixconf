@@ -632,6 +632,42 @@ async def test_a_list_command_is_the_speakers_own_and_never_reaches_a_model(aioh
     assert not seen["cloud"] and not seen["local"]
 
 
+async def test_a_spoken_reminder_is_set_for_the_speaker_and_asks_when_it_must(aiohttp_client, fakes, tmp_path):
+    from assistant_router.lists import Lists, Personal
+    seen, _, _, base = fakes
+    cfg = Config(local_url=f"{base}/local/v1/chat/completions", local_model="qwen3-4b",
+                 cloud_url=f"{base}/cloud/v1/chat/completions", cloud_model="smart", mode="local-first")
+    people = People({"kiril": "Kiril", "maria": "Maria"})
+    people.observe("Bedroom 1", "card", "kiril", 1.0, now=0.0)
+    added = []
+
+    class Ha:
+        async def states(self, domain=None):
+            return [{"entity_id": "todo.kiril_reminders", "name": "x", "state": "0"}]
+
+        async def call(self, domain, service, data, response=False):
+            added.append((service, data))
+            return {}
+
+    personal = Personal(Ha(), Lists(str(tmp_path / "lists.json")), people.names)
+    c = await aiohttp_client(make_app(cfg, State(), people=people, clock=lambda: 10.0, personal=personal))
+    got = await post(c, req("Remind me to call mum in 10 minutes"))
+    assert got["message"]["content"].startswith("OK, I'll remind you to call mum")
+    assert added[-1][0] == "add_item" and added[-1][1]["entity_id"] == "todo.kiril_reminders"
+    assert added[-1][1]["item"] == "call mum" and "due_datetime" in added[-1][1]
+    # With no time it asks, and the next sentence is the answer.
+    assert (await post(c, req("Remind me to water the plants")))["message"]["content"] == "When should I remind you?"
+    n = len(added)
+    got = await post(c, req("in two hours", conv="c1"))
+    assert got["message"]["content"].startswith("OK, I'll remind you to water the plants")
+    assert len(added) == n + 1
+    # An answer that is no time is said so, once, and nothing is set.
+    await post(c, req("Remind me to feed the cat"))
+    assert (await post(c, req("pardon")))["message"]["content"] == "I didn't catch a time, so I didn't set that."
+    assert len(added) == n + 1
+    assert not seen["cloud"] and not seen["local"]
+
+
 async def test_who_is_there_never_changes_a_device_action(aiohttp_client, fakes):
     seen, _, _, base = fakes
     cfg = Config(local_url=f"{base}/local/v1/chat/completions", local_model="qwen3-4b",

@@ -23,9 +23,11 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable
 
 from .hass import Hass, HassError
+from .reminders import describe, item_due
 
 DEFAULT = "todo"          # the slug of a person's own list: todo.<key>_todo
 RESERVED = ("reminders",)  # the reminders list: items with a due time, never "a list"
@@ -83,8 +85,9 @@ class Lists:
             listener(key)
 
     def slugs(self, key: str) -> list[str]:
-        """`key`'s lists: their own first, then the ones they asked for."""
-        return [DEFAULT] + [s for s in self.lists.get(key, []) if s != DEFAULT]
+        """`key`'s lists: their own first, then the ones they asked for (never the reminders
+        list, which is made the same way but is not a list to add to by name)."""
+        return [DEFAULT] + [s for s in self.lists.get(key, []) if s != DEFAULT and s not in RESERVED]
 
     def add(self, key: str, which: str) -> bool:
         """`key` has a list `which`: True when it is new here (and so to be made).
@@ -185,7 +188,8 @@ class Personal:
         except HassError:
             return None
         rows = (got.get(entity(key, which)) or {}).get("items") or []
-        return [{"uid": str(r.get("uid") or ""), "summary": str(r.get("summary") or "")}
+        return [{"uid": str(r.get("uid") or ""), "summary": str(r.get("summary") or ""),
+                 "due": str(r.get("due") or "")}
                 for r in rows if isinstance(r, dict) and r.get("summary")]
 
     def find(self, key: str, said: str | None) -> str | None:
@@ -262,7 +266,8 @@ class Personal:
 
     async def _on_list(self, key: str, which: str, uid: str, service: str, data: dict) -> bool:
         """`service` on the open item `uid` of the person's list, when it is one."""
-        if which not in self.lists.slugs(key) or not any(r["uid"] == uid for r in await self.items(key, which) or []):
+        if which not in (*self.lists.slugs(key), "reminders") \
+                or not any(r["uid"] == uid for r in await self.items(key, which) or []):
             return False
         try:
             await self.hass.call("todo", service, {"entity_id": entity(key, which), "item": uid, **data})
@@ -276,6 +281,24 @@ class Personal:
 
     async def drop(self, key: str, which: str, uid: str) -> bool:
         return await self._on_list(key, which, uid, "remove_item", {})
+
+    async def remind(self, key: str | None, what: str, due: datetime, now: datetime) -> tuple[str, bool]:
+        """(the spoken reply, whether it was set): `what` at `due` in `key`'s reminders list."""
+        if key is None or key not in self.names:
+            return NOT_SURE, False
+        have = await self.exists(key, "reminders")
+        if have is None:
+            return NO_HA, False
+        if not have:
+            self.lists.add(key, "reminders")
+            return "I'm setting up your reminders. It will be ready in a minute or two; ask me again then.", False
+        try:
+            await self.hass.call("todo", "add_item", {"entity_id": entity(key, "reminders"), "item": what,
+                                                       "due_datetime": item_due(due)})
+        except HassError:
+            return NO_HA, False
+        self._told(key)
+        return f"OK, I'll remind you to {what} {describe(due, now)}.", True
 
     def make(self, key: str, said: str) -> str:
         wanted = slug(said)

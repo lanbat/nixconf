@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from room_presence import REPORT_SECONDS, Recogniser, Tracker
@@ -52,6 +53,7 @@ ITEMS_REFRESH_S = 60.0   # reminders, to-dos and events while a screen view is s
 CA_RETRY_S = 60.0        # an install of the CA that failed is tried again after this
 SETTING_RETRY_S = 60.0   # a setting the device didn't take is sent again after this
 _ITEMS_NEVER = object()  # _items_for before the first fetch is scheduled
+REMINDER_SECONDS = 1800  # how long a reminder that came due stays up
 GREET_SECONDS = 10       # how long a greeting stays up
 THANKS_SECONDS = 5       # and the thanks that takes the sign-in code down
 CODE_SECONDS = 60        # and the sign-in code
@@ -163,6 +165,12 @@ class Brain:
         self._next_items: float = 0.0
         self._last_items: dict | None = None
         self._fetch_gen: int = 0
+        # Reminders last read for the person in front, with when they are due, and the ones
+        # already rung: a reminder chimes once, when it comes due while they are alone here.
+        self.wall = lambda: datetime.now().astimezone()
+        self._due: list[tuple[str, str, datetime]] = []   # (uid, title, due)
+        self._due_for: str | None = None
+        self._rung: set[tuple[str, str]] = set()          # (uid, due) rung
 
     def note(self, **what: Any) -> None:
         self.notes.append(what)
@@ -391,6 +399,29 @@ class Brain:
     def _empty_items(self, person: str | None = None) -> dict:
         return {"items": {"person": person, "reminders": [], "todos": [], "more": 0, "events": []}}
 
+    def _ring(self) -> list:
+        """A chime and the reminder, for each one of the person in front that has come due.
+        Only while they are the one person here: a reminder is never shown to a bystander."""
+        if not self._due or len(self.here) != 1 or self.here[0]["person"] != self._due_for:
+            return []
+        now = self.wall()
+        out: list = []
+        for uid, title, due in self._due:
+            key = (uid, due.isoformat())
+            if due <= now and key not in self._rung:
+                self._rung.add(key)
+                self.note(reminder=title[:40], for_=self._due_for)
+                out.append(("call", "notify", {"message": title, "title": "Reminder", "icon": "mdi:bell-ring",
+                                               "chime": "on", "speak": "", "tag": f"{NOTIFY_TAG}-reminder",
+                                               "seconds": REMINDER_SECONDS}))
+        return out
+
+    def _remember_due(self, person: str | None, reminders: list) -> None:
+        self._due = [(r.uid, r.title, r.due) for r in reminders if r.due is not None and person is not None]
+        self._due_for = person
+        live = {(uid, due.isoformat()) for uid, _, due in self._due}
+        self._rung &= live  # one that was done or removed is forgotten, and rings again if it returns
+
     def _send_items(self, msg: dict, *, force: bool = False) -> list:
         if not force and msg == self._last_items:
             return []
@@ -401,7 +432,9 @@ class Brain:
         from . import lists
 
         if data is None:
+            self._remember_due(None, [])
             return self._send_items(self._empty_items(for_person))
+        self._remember_due(for_person, data["reminders"])
         payload = {
             "person": for_person,
             "reminders": [{"uid": r.uid, "title": lists.clean(r.title), "due": r.due.isoformat() if r.due else None,
@@ -412,7 +445,7 @@ class Brain:
             "events": [{"title": lists.clean(e.title), "start": e.start.isoformat(), "all_day": e.all_day}
                        for e in data["events"]],
         }
-        return self._send_items({"items": payload})
+        return self._send_items({"items": payload}) + self._ring()
 
     def merge_fetch(self, rem_raw: dict | None, todo_raw: dict | None, ev_raw: dict | None,
                     *, now=None) -> dict | None:
@@ -580,7 +613,7 @@ class Brain:
         self._ca = "done" if ok else now + CA_RETRY_S
 
     def tick(self, now: float) -> list:
-        out = self._probe(now) + self._screen(now) + self._install_ca(now) + self._items_tick(now)
+        out = self._probe(now) + self._screen(now) + self._install_ca(now) + self._items_tick(now) + self._ring()
         if now - self._reported >= REPORT_SECONDS:
             self._reported = now
             seen = self.tracker.report(now)

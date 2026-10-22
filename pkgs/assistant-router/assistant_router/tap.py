@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import datetime
 import hashlib
 import hmac
 import html
@@ -592,7 +593,7 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         if key and s["kind"] == "account" and prefs is not None and hass is not None:
             body += '<p><a href="/settings">My settings</a> <span class="muted">(your screen)</span></p>'
         if key and s["kind"] == "account" and personal is not None:
-            body += '<p><a href="/lists">My lists</a></p>'
+            body += '<p><a href="/lists">My lists</a> · <a href="/reminders">My reminders</a></p>'
         if s["kind"] == "account":
             body += account_note()
             if household is not None and taps.admins:
@@ -753,6 +754,72 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
             said = personal.make(key, str(form.get("name", "")))
             return await my_lists(request, f"<p>{html.escape(said)}</p>")
         return await my_lists(request, "" if ok else "<p>That didn't work. Try again.</p>")
+
+    # ── My reminders: accounts, their own reminders list only ─────────────────
+
+    def when_text(due: str) -> str:
+        """A due time as Home Assistant gave it ("2026-10-22T17:00:00"), as the page shows it."""
+        return due.replace("T", " ")[:16]
+
+    async def my_reminders(request: web.Request, note: str = "") -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or personal is None:
+            return page("Nabu", "<p>My reminders are for people who sign in with an account.</p>", 403)
+        have = await personal.exists(key, "reminders")
+        if have is None:
+            return page("My reminders", "<p>Home Assistant isn't answering right now. Try again later.</p>", 503)
+        esc = lambda v: html.escape(v, quote=True)  # noqa: E731
+        token = form_token(request)
+
+        def form(action: str, fields: str, button: str) -> str:
+            return (f'<form method="post" action="/reminders/{action}"><input type="hidden" name="token" '
+                    f'value="{esc(token)}">{fields}<button>{button}</button></form>')
+
+        out = [note]
+        rows = (await personal.items(key, "reminders") or []) if have else []
+        if not have:
+            out.append('<p class="muted">Your reminders are being set up: they appear in a minute or two.</p>')
+        for r in sorted(rows, key=lambda r: (r["due"] == "", r["due"])):
+            when = f'<span class="muted">{html.escape(when_text(r["due"]))}</span> ' if r["due"] else ""
+            item = f'<input type="hidden" name="item" value="{esc(r["uid"])}">'
+            out.append(f'<p>{when}{html.escape(r["summary"])} {form("done", item, "Done")}'
+                       f'{form("remove", item, "Remove")}</p>')
+        if have and not rows:
+            out.append('<p class="muted">No reminders.</p>')
+        out.append('<h2>A new reminder</h2>' + form(
+            "add", '<label>To <input name="item" maxlength="100" required></label>'
+                   '<label>When <input type="datetime-local" name="when" required></label>', "Remind me"))
+        out.append('<p class="muted">Or say "Okay Nabu, remind me to call mum at 5pm". A reminder chimes on '
+                   'your screen when it is due and you are alone in front of it, and waits for you if you are '
+                   'not.</p><p><a href="/">Back</a></p>')
+        return page("My reminders", "".join(out))
+
+    async def reminders_get(request: web.Request) -> web.Response:
+        return await my_reminders(request)
+
+    async def reminders_post(request: web.Request) -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or personal is None or not same_site(request):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        form = await request.post()
+        if not hmac.compare_digest(str(form.get("token", "")), form_token(request)):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        action, item, ok = request.match_info["action"], str(form.get("item", "")), False
+        if action == "add":
+            try:
+                due = datetime.datetime.strptime(str(form.get("when", "")), "%Y-%m-%dT%H:%M").astimezone()
+            except ValueError:
+                return await my_reminders(request, "<p>That time didn't make sense. Try again.</p>")
+            said, ok = await personal.remind(key, " ".join(item.split())[:100], due,
+                                             datetime.datetime.now().astimezone())
+            return await my_reminders(request, f"<p>{html.escape(said)}</p>" if not ok else "")
+        if action == "done":
+            ok = await personal.complete(key, "reminders", item)
+        elif action == "remove":
+            ok = await personal.drop(key, "reminders", item)
+        return await my_reminders(request, "" if ok else "<p>That didn't work. Try again.</p>")
 
     # ── People Nabu knows: the home's admins only ─────────────────────────────
     # Behind the provider's login (never an open path), so its headers are its own.
@@ -928,6 +995,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/name", name)
     app.router.add_post("/forget-phone", forget_phone)
     app.router.add_post("/forget-me", forget_me)
+    app.router.add_get("/reminders", reminders_get)
+    app.router.add_post("/reminders/{action:add|done|remove}", reminders_post)
     app.router.add_get("/lists", lists_get)
     app.router.add_post("/lists/{action:add|done|remove|new}", lists_post)
     app.router.add_get("/settings", settings)
