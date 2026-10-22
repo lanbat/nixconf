@@ -24,6 +24,11 @@
 # phone it is, and the router counts them in that room and learns the
 # phone's Wi-Fi address for wifi-presence (pkgs/assistant-router tap.py).
 #
+# With Home Assistant on this host (settings.personal), the who page's "My
+# settings" lets each person choose their screen's calendars, to-do list and
+# photos from Home Assistant's, read with the voice satellites' token
+# (ha-voice-token, an ordinary user's).
+#
 # Always-on: it is in the voice path. Home Assistant's side is loopback only.
 {
   config,
@@ -149,6 +154,18 @@ let
       phone must trust the site's certificate.
     '';
   };
+  routerSettings.options.personal = mkOption {
+    type = types.bool;
+    default = true;
+    description = ''
+      People's own settings for their screen, on the who page ("My
+      settings"): the calendars of its "Next up", its to-do list, its photos
+      and the calendar their reminders go in, chosen from what Home Assistant
+      has (pkgs/assistant-router prefs.py). Needs Home Assistant on this host;
+      the router reads it with the voice satellites' token (ha-voice-token),
+      an ordinary user's.
+    '';
+  };
   routerSettings.options.tapAdmins = mkOption {
     type = types.listOf types.str;
     default = [ "authentik Admins" ];
@@ -193,6 +210,14 @@ let
   tapping = cfg.tap && provider != null && provider.userHeader != null;
   # Mosquitto beside it, and Home Assistant wanted: the MQTT publisher.
   mqttHere = cfg.homeAssistant && config.lanbat.hasService "mosquitto";
+  hasHa = config.lanbat.hasService "home-assistant";
+  haHere = cfg.personal && hasHa;
+  # The voice satellites' token: this host's satellite's when it has one
+  # (modules/core/voice-satellite.nix owns the name there), the router's
+  # otherwise, for itself and for the Echo Shows' bridge
+  # (services/techo5-bridge.nix), which reads it.
+  satelliteDeclares = config.lanbat.voiceSatellite.enable;
+  tokenWanted = hasHa && (haHere || (config.lanbat.deployment.techo5Devices or { }) != { });
   routerSettings.options.body.persona = mkOption {
     type = types.str;
     default = ''
@@ -244,7 +269,15 @@ in
           port = bodyPort;
         };
         extraPorts = [ bodyPort ];
-        readsSecrets = lib.optional mqttHere "mosquitto-assistant-router-pass";
+        readsSecrets =
+          lib.optional mqttHere "mosquitto-assistant-router-pass"
+          ++ lib.optional (haHere && satelliteDeclares) "ha-voice-token";
+        secrets = lib.optionalAttrs (!satelliteDeclares) {
+          ha-voice-token = {
+            enable = tokenWanted;
+            owner = "root";
+          };
+        };
         # Always-on, and fine without it while the layer is locked: the
         # sightings are kept then, with no pictures.
         workloadDirs."assistant-router" = {
@@ -253,6 +286,7 @@ in
           mode = "2770";
         };
       };
+      lanbat.voiceSatellite.haTokenWanted = lib.mkIf (haHere && satelliteDeclares) true;
       users.groups.${sightingsGroup} = { };
       # The page a phone held to a robot opens. Declared with the router, and
       # given a host name only with tapping: whether a provider runs here is
@@ -269,6 +303,7 @@ in
           "/name"
           "/forget-phone"
           "/forget-me"
+          "/settings"
         ];
       };
       networking.firewall.allowedTCPPorts = lib.mkIf (bodyHosts != [ ]) [ bodyPort ];
@@ -347,6 +382,11 @@ in
               "--mqtt-password-file %d/mosquitto-assistant-router-pass"
               "--screen-rooms-file ${screenRoomsFile}"
             ]
+            ++ lib.optionals haHere [
+              "--ha-url http://127.0.0.1:${toString config.lanbat.services.home-assistant.port}"
+              "--ha-token-file %d/ha-voice-token"
+              "--prefs-state /var/lib/assistant-router/prefs.json"
+            ]
           );
           DynamicUser = true;
           StateDirectory = "assistant-router";
@@ -358,8 +398,10 @@ in
           RestartSec = 2;
           IPAddressDeny = "any";
           IPAddressAllow = [ "localhost" ] ++ bodyAddresses;
-          # The broker password, root-owned, for a dynamic user.
-          LoadCredential = lib.optional mqttHere "mosquitto-assistant-router-pass:${config.lanbat.secrets.mosquitto-assistant-router-pass.path}";
+          # The broker password and Home Assistant's token, root-owned, for a dynamic user.
+          LoadCredential =
+            lib.optional mqttHere "mosquitto-assistant-router-pass:${config.lanbat.secrets.mosquitto-assistant-router-pass.path}"
+            ++ lib.optional haHere "ha-voice-token:${config.lanbat.secrets.ha-voice-token.path}";
         };
       };
       # The pictures' directory appears when the workload layer is unlocked; a

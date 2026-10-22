@@ -118,6 +118,31 @@ def test_a_person_without_a_profile_sees_where_the_others_are():
     assert ("call", "home_glance", {"entities": "sensor.lanbat_people_where_kiril"}) in outs
 
 
+def test_what_a_person_chose_on_the_who_page_wins_over_the_profile():
+    b = brain(profiles={"kiril": Profile(glance=["sensor.washer"], calendars=["calendar.work"])},
+              household=Profile(calendars=["calendar.family"]), ha_url="https://ha.example.org", ha_token="t")
+    prefs = {"calendars": ["calendar.kiril", "sensor.nope"], "todo": "todo.shopping_list", "immich_person": "K"}
+    outs = b.router({"here": [{"person": "kiril", "name": "Kiril", "prefs": prefs}]}, 0.0)
+    _, p = b.wants_items()
+    assert p.next_up == ["calendar.kiril"] and p.todo == "todo.shopping_list"
+    assert p.reminders == "todo.kiril_reminders"  # never chosen: the person's own
+    assert ("set", "immich_person", "K") in outs
+    # The device's own glance chips and calendars stay the profile's: changing
+    # them makes it drop every connection.
+    assert ("call", "home_glance", {"entities": "sensor.washer"}) in outs
+    assert ("call", "calendar_sources", {"calendars": "calendar.work"}) in outs
+    assert fetches(outs)[0][2].todo == "todo.shopping_list"
+
+
+def test_new_choices_are_read_at_once():
+    b = brain(ha_url="https://ha.example.org", ha_token="t")
+    b.router({"here": [{"person": "kiril"}]}, 0.0)
+    assert not fetches(b.tick(5.0))  # read when they came; next in a minute
+    b.router({"here": [{"person": "kiril", "prefs": {"todo": "todo.shopping_list"}}]}, 6.0)
+    (fetch,) = fetches(b.tick(7.0))
+    assert fetch[2].todo == "todo.shopping_list"
+
+
 def test_someone_it_cant_name_is_shown_the_sign_in_code_once():
     b = brain()
     b.router({"tap": {"url": "https://who.example.org/tap/Kitchen?n=abc"}}, 0.0)

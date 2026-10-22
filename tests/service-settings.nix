@@ -471,6 +471,8 @@ let
         profiles.sam.todo = "todo.sam_chores";
         household.calendars = [ "calendar.family" ];
       };
+      # Someone with no profile on the screen: the default lists all the same.
+      lanbat.deployment.people.jo.name = "Jo";
     }
   ];
 
@@ -1034,10 +1036,7 @@ let
         in
         lib.hasInfix "--mqtt-host 127.0.0.1" unit.ExecStart
         && lib.hasInfix "--mqtt-password-file %d/mosquitto-assistant-router-pass" unit.ExecStart
-        &&
-          unit.LoadCredential == [
-            "mosquitto-assistant-router-pass:${routerServer.lanbat.secrets.mosquitto-assistant-router-pass.path}"
-          ]
+        && lib.elem "mosquitto-assistant-router-pass:${routerServer.lanbat.secrets.mosquitto-assistant-router-pass.path}" unit.LoadCredential
         && lib.elem "mosquitto-assistant-router-pass" routerServer.lanbat.services.assistant-router.readsSecrets
         && lib.elem "readwrite lanbat/#" broker.acl
         && !(lib.elem "readwrite #" broker.acl)
@@ -2124,11 +2123,32 @@ let
       && lib.hasInfix "alex_reminders" setup
       && lib.hasInfix "sam_reminders" setup
       && !(lib.hasInfix "sam_chores" setup)
+      && lib.hasInfix "jo_todo" setup
+      && lib.hasInfix "jo_reminders" setup
       && lib.hasInfix "ensure_todo_lists" (
         builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
       )
       && lib.hasInfix "todo_list_name" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
       && lib.hasInfix "storage_key" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
+    ))
+
+    (expect "assistant-router: reads Home Assistant with the satellites' token, for My settings" (
+      let
+        unit = routerServer.systemd.services.assistant-router.serviceConfig;
+        svc = routerServer.lanbat.services.assistant-router;
+        satellite = routerServer.lanbat.voiceSatellite.enable;
+      in
+      lib.hasInfix "--ha-url http://127.0.0.1:" unit.ExecStart
+      && lib.hasInfix "--ha-token-file %d/ha-voice-token" unit.ExecStart
+      && lib.hasInfix "--prefs-state /var/lib/assistant-router/prefs.json" unit.ExecStart
+      && lib.elem "ha-voice-token:${routerServer.lanbat.secrets.ha-voice-token.path}" unit.LoadCredential
+      && (
+        if satellite then
+          lib.elem "ha-voice-token" svc.readsSecrets && routerServer.lanbat.voiceSatellite.haTokenWanted
+        else
+          svc.secrets.ha-voice-token.enable
+      )
+      && lib.elem "/settings" routerServer.lanbat.services.who.caddy.authBypassPaths
     ))
 
     (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"

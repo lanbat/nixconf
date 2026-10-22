@@ -3,7 +3,7 @@
 Each robot is an NFC tag holding a link to this page (firmware nfc.h), a new
 one every minute: https://who.<domain>/tap/<room>?n=<nonce>. A phone held to
 the robot opens it. The page is open to anyone, accounts or not (Caddy lets /,
-/tap/*, /name and /forget-* through without a login); who the browser is comes
+/tap/*, /name, /forget-* and /settings through without a login); who the browser is comes
 from the page's own signed cookie, never from a header a client could send:
 
 - an account: /signin, behind the forward-auth provider's login (Authentik),
@@ -33,6 +33,11 @@ A link older than two minutes, or one for a room without a robot, only shows
 the page. The page offers to forget the phone, or the person (one added here,
 not one the profile declares). Learned phones are kept in a small JSON file
 in the router's state directory: {mac: key}; the cookies' key next to them.
+
+With Home Assistant (hass.py) and a settings store (prefs.py), "My settings"
+(/settings) lets each person with an account (never a guest: they could pick
+someone else's lists and calendars to show) choose their screen's calendars, to-do list and
+photos, and the calendar their reminders go in, from what Home Assistant has.
 """
 from __future__ import annotations
 
@@ -52,6 +57,7 @@ from typing import Any, Awaitable, Callable
 
 from aiohttp import web
 
+from .hass import HassError
 from .people import People
 
 LOG = logging.getLogger("assistant_router")
@@ -173,6 +179,10 @@ class Sessions:
     def fresh(self, session: dict) -> bool:
         """Whether the cookie may name them without asking the provider again."""
         return session["kind"] != "account" or self.clock() - session["at"] <= ACCOUNT_RECHECK_S
+
+    def form_token(self, cookie: str | None) -> str:
+        """A form's hidden token, for this cookie alone: another site can't read it."""
+        return self._sign("form:" + (cookie or ""))
 
 
 class Taps:
@@ -406,8 +416,12 @@ section.person h2 {{ font-size: 1.15rem; margin: 0; }}
 .tag-heard, .tag-not-recorded {{ background: #b8892c; border-color: #b8892c; color: #fff; }}
 select {{ font: inherit; padding: .4rem; border-radius: .5rem; background: transparent; color: var(--fg); }}
 form {{ display: inline-block; margin: 1rem .5rem 0 0; }}
-form.name {{ display: block; }}
+form.name, form.settings {{ display: block; }}
+fieldset {{ border: 1px solid var(--muted); border-radius: .5rem; margin: 1rem 0; padding: .5rem .75rem; }}
+legend {{ padding: 0 .25rem; }}
 label {{ display: block; margin-bottom: .5rem; }}
+label.check {{ display: flex; gap: .5rem; align-items: center; }}
+label.check input {{ width: auto; }}
 input {{ font: inherit; padding: .5rem; border-radius: .5rem; border: 1px solid var(--muted);
         background: transparent; color: var(--fg); width: 100%; box-sizing: border-box; }}
 button {{ font: inherit; padding: .5rem 1rem; border-radius: .5rem; border: 1px solid var(--muted);
@@ -432,9 +446,10 @@ def safe_next(target: str) -> str:
 
 def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
                  forget_person: Callable[[str], Awaitable[bool]] | None = None,
-                 household=None) -> web.Application:
+                 household=None, prefs=None, hass=None) -> web.Application:
     """The page behind https://who.<domain>, on the loopback for Caddy; with
-    `household` (household.Household), "People Nabu knows" for admins."""
+    `household` (household.Household), "People Nabu knows" for admins; with
+    `prefs` (prefs.Prefs) and `hass` (hass.Hass), "My settings"."""
 
     def ip_of(request: web.Request) -> str:
         return request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
@@ -564,11 +579,94 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
         key = key_of(s)
         shown = taps.people.names.get(key or "") or display_name(s.get("name", ""), "")
         body = "<p>Hold your phone to Nabu's head to say hello.</p>"
+        if key and s["kind"] == "account" and prefs is not None and hass is not None:
+            body += '<p><a href="/settings">My settings</a> <span class="muted">(your screen)</span></p>'
         if s["kind"] == "account":
             body += account_note()
             if household is not None and taps.admins:
                 body += '<p><a href="/admin">People Nabu knows</a> <span class="muted">(the home\'s admins)</span></p>'
         return page(f"Hi {shown}!" if shown else "Hi!", body + buttons(key or "", s["kind"] == "guest"))
+
+    # ── My settings: anyone the page knows, for themselves ───────────────────
+
+    async def choices(key: str) -> tuple[list[dict], list[dict]]:
+        """(calendars, to-do lists) Home Assistant has, to choose from; a
+        reminders list is shown by itself, never as the to-do list."""
+        entities = await hass.states()
+        cals = [e for e in entities if e["entity_id"].startswith("calendar.")]
+        # Not a reminders list, and not another person's own lists (todo.<key>_...).
+        others = tuple(f"todo.{k}_" for k in taps.people.names if k != key)
+        todos = [e for e in entities if e["entity_id"].startswith("todo.")
+                 and not e["entity_id"].endswith("_reminders") and not e["entity_id"].startswith(others)]
+        return cals, todos
+
+    def settings_form(request: web.Request, mine: dict, cals: list[dict], todos: list[dict]) -> str:
+        esc = lambda v: html.escape(v, quote=True)  # noqa: E731
+        token = taps.sessions.form_token(request.cookies.get(SESSION_COOKIE))
+        chosen = set(mine.get("calendars", []))
+        boxes = "".join(
+            f'<label class="check"><input type="checkbox" name="calendar" value="{esc(c["entity_id"])}"'
+            f'{" checked" if c["entity_id"] in chosen else ""}> {html.escape(c["name"])}</label>'
+            for c in cals) or '<p class="muted">Home Assistant has no calendars yet.</p>'
+
+        def select(name: str, options: list[dict], current: str, none: str) -> str:
+            opts = [f'<option value="">{html.escape(none)}</option>'] + [
+                f'<option value="{esc(o["entity_id"])}"{" selected" if o["entity_id"] == current else ""}>'
+                f'{html.escape(o["name"])}</option>' for o in options]
+            return f'<select name="{name}">{"".join(opts)}</select>'
+
+        return (f'<form class="settings" method="post" action="/settings">'
+                f'<input type="hidden" name="token" value="{esc(token)}">'
+                f'<fieldset><legend>Next up on your screen</legend>{boxes}</fieldset>'
+                f'<fieldset><legend>Your reminders also go in</legend>'
+                f'{select("reminder_calendar", cals, mine.get("reminder_calendar", ""), "No calendar")}</fieldset>'
+                f'<fieldset><legend>The to-do list your screen shows</legend>'
+                f'{select("todo", todos, mine.get("todo", ""), "Your own to-do list")}</fieldset>'
+                f'<fieldset><legend>Photos</legend><label>Whose, as Immich names them '
+                f'<input name="immich_person" maxlength="60" value="{esc(mine.get("immich_person", ""))}">'
+                f'</label></fieldset>'
+                f'<button>Save</button></form>'
+                '<p class="muted">Your screen uses these while you are alone in front of it. '
+                'Anyone with a Home Assistant login can see the calendars and lists there.</p>'
+                '<p><a href="/">Back</a></p>')
+
+    async def settings(request: web.Request) -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or prefs is None or hass is None:
+            return page("Nabu", "<p>My settings are for people who sign in with an account.</p>", 403)
+        try:
+            cals, todos = await choices(key)
+        except HassError:
+            return page("My settings", "<p>Home Assistant isn't answering right now. Try again later.</p>", 503)
+        return page("My settings", settings_form(request, prefs.get(key), cals, todos))
+
+    async def save_settings(request: web.Request) -> web.Response:
+        s = session(request)
+        key = key_of(s) if s is not None and s["kind"] == "account" else None
+        if key is None or prefs is None or hass is None or not same_site(request):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        form = await request.post()
+        want = taps.sessions.form_token(request.cookies.get(SESSION_COOKIE))
+        if not hmac.compare_digest(str(form.get("token", "")), want):
+            return page("Nabu", "<p>Not from here.</p>", 403)
+        try:
+            cals, todos = await choices(key)
+        except HassError:
+            return page("My settings", "<p>Home Assistant isn't answering right now, so nothing was "
+                                       "saved. Try again later.</p>", 503)
+        known_cals = {c["entity_id"] for c in cals}
+        known_todos = {t["entity_id"] for t in todos}
+        chosen = {
+            "calendars": [c for c in form.getall("calendar", []) if c in known_cals],
+            "reminder_calendar": next((c for c in [form.get("reminder_calendar", "")] if c in known_cals), ""),
+            "todo": next((t for t in [form.get("todo", "")] if t in known_todos), ""),
+            "immich_person": str(form.get("immich_person", "")),
+        }
+        mine = prefs.set(key, chosen)
+        LOG.info(json.dumps({"settings": key, "chose": sorted(mine)}))
+        return page("Saved", "<p>Your screen uses them the next time it sees you alone.</p>"
+                             + settings_form(request, mine, cals, todos))
 
     # ── People Nabu knows: the home's admins only ─────────────────────────────
     # Behind the provider's login (never an open path), so its headers are its own.
@@ -744,6 +842,8 @@ def make_tap_app(taps: Taps, rooms: Callable[[], list[str]],
     app.router.add_post("/name", name)
     app.router.add_post("/forget-phone", forget_phone)
     app.router.add_post("/forget-me", forget_me)
+    app.router.add_get("/settings", settings)
+    app.router.add_post("/settings", save_settings)
     app.router.add_get("/admin", admin)
     app.router.add_post("/admin/name", admin_name)
     app.router.add_post("/admin/forget", admin_forget)
