@@ -98,21 +98,6 @@ class Echo:
         if outs:
             await self.carry(outs)
 
-
-async def fetch_items_from_ha(brain: Brain, ha: Ha | None, for_person: str | None, profile, gen: int) -> list:
-    if ha is None:
-        return []
-    now = datetime.now().astimezone()
-    rem = todo = ev = None
-    if profile.reminders:
-        rem = await ha.todo_items(profile.reminders)
-    if profile.todo:
-        todo = await ha.todo_items(profile.todo)
-    cals = profile.calendars or brain.cfg.household.calendars
-    if cals:
-        ev = await ha.events(cals)
-    return brain.apply_fetch(for_person, gen, rem, todo, ev, now=now, mono=time.monotonic())
-
     def _set(self, object_id: str, value) -> None:
         info = self.entities.get(object_id)
         if info is None or self.client is None:
@@ -247,6 +232,21 @@ async def fetch_items_from_ha(brain: Brain, ha: Ha | None, for_person: str | Non
         if self.code_for != self.brain.link:
             self.code_png, self.code_for = qr.png(self.brain.link), self.brain.link
         return self.code_png
+
+
+async def fetch_items_from_ha(brain: Brain, ha: Ha | None, for_person: str | None, profile, gen: int) -> list:
+    if ha is None:
+        return []
+    now = datetime.now().astimezone()
+    rem = todo = ev = None
+    if profile.reminders:
+        rem = await ha.todo_items(profile.reminders)
+    if profile.todo:
+        todo = await ha.todo_items(profile.todo)
+    cals = profile.calendars or brain.cfg.household.calendars
+    if cals:
+        ev = await ha.events(cals)
+    return brain.apply_fetch(for_person, gen, rem, todo, ev, now=now, mono=time.monotonic())
 
 
 def trust_from(cfg: dict) -> dict | None:
