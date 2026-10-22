@@ -4,7 +4,7 @@ Frigate tracks a face per camera per event: it emits a `tracked_object_update`
 while the face is present (name = the best face-library match, or none) and an
 `events` `end` when it leaves. A room's people are the distinct named people
 with a live face in that room's camera; a face with no match is counted as
-unknown but never named. When the last live event for a person ends, that
+unknown, and its event is passed on so the router can give it a name. When the last live event for a person ends, that
 person falls out of the room on their own.
 
 Who may be named: a registry of person keys, or, without one (None), anyone
@@ -33,6 +33,7 @@ class RoomSnapshot:
     unknown: int  # live faces with no match
     camera_online: bool
     events: dict = field(default_factory=dict, compare=False)  # person -> the event of their best face
+    unknown_events: tuple = ()  # the Frigate events of those faces, for the router to name
 
 
 class PersonState:
@@ -75,16 +76,19 @@ class PersonState:
         best: dict[str, float] = {}
         events: dict[str, str] = {}
         unknown = 0
+        unknown_events: list[str] = []
         for cam in self._room_cameras(room):
             for event_id, act in self._active.get(cam, {}).items():
                 if act.person is None:
                     unknown += 1
+                    unknown_events.append(event_id)
                 elif act.score >= best.get(act.person, -1.0):
                     best[act.person] = act.score
                     events[act.person] = event_id
         faces = tuple((p, round(s, 3)) for p, s in sorted(best.items()))
         online = any(self._online.get(c, False) for c in self._room_cameras(room))
-        return RoomSnapshot(faces=faces, unknown=unknown, camera_online=online, events=events)
+        return RoomSnapshot(faces=faces, unknown=unknown, unknown_events=tuple(sorted(unknown_events)[:8]),
+                            camera_online=online, events=events)
 
     def all_snapshots(self) -> dict[str, RoomSnapshot]:
         return {room: self.snapshot(room) for room in self.rooms}

@@ -202,6 +202,59 @@ let
       '';
     };
   };
+  routerSettings.options.unknownPeople = {
+    enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Give each face matched to no one a person of its own, "Unknown
+        Wobbly Noodle", instead of "nobody known": it is enrolled into
+        Frigate's face library under a generated key, so the next time that
+        face turns up (a robot's or screen's frame, or a Frigate camera) the
+        library names them, and they are a person on the who page, in
+        sightings and in Home Assistant. They stay until they say who they
+        are or sign in, when their name changes and the key stays. Nothing
+        deletes them but an explicit "forget" (pkgs/assistant-router
+        unknowns.py, docs/people.md).
+
+        Off by default: it keeps the faces of people who never agreed to it,
+        the opposite of "a decline keeps nothing" in Meeting Nabu. Needs
+        Frigate and the who page's runtime people.
+      '';
+    };
+    adjectives = mkOption {
+      type = types.listOf (types.strMatching "[A-Za-z]{2,14}");
+      default = [ ];
+      example = [
+        "wobbly"
+        "sneaky"
+      ];
+      description = ''
+        The first word of an Unknown's name, one chosen at random. Empty: the
+        router's own (mild) list.
+      '';
+    };
+    nouns = mkOption {
+      type = types.listOf (types.strMatching "[A-Za-z]{2,14}");
+      default = [ ];
+      example = [
+        "noodle"
+        "biscuit"
+      ];
+      description = "The second word of an Unknown's name. Empty: the router's own list.";
+    };
+    maxPeople = mkOption {
+      type = types.ints.positive;
+      default = 500;
+      description = ''
+        No new Unknowns past this many: none are dropped, so the face
+        library and the people list cannot grow without bound.
+      '';
+    };
+  };
+  unknownWordsFile = pkgs.writeText "assistant-router-unknown-words.json" (
+    builtins.toJSON { inherit (cfg.unknownPeople) adjectives nouns; }
+  );
   # Indoor sightings' frames: personal data, so on the encrypted layer. The
   # router runs as a dynamic user, so a static group owns the directory and
   # the router joins it.
@@ -349,6 +402,11 @@ in
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
             ++ lib.optionals (!cfg.offerToMeet) [ "--no-offer-to-meet" ]
             ++ lib.optionals (!cfg.greet) [ "--no-greet" ]
+            ++ lib.optionals cfg.unknownPeople.enable [
+              "--unknown-people"
+              "--unknown-words-file ${unknownWordsFile}"
+              "--unknown-max ${toString cfg.unknownPeople.maxPeople}"
+            ]
             ++ lib.optionals tapping (
               [
                 "--tap-url https://who.${config.lanbat.deployment.domain}"

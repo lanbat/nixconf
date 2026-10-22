@@ -18,6 +18,7 @@ from .greet import Greeter
 from .hass import Hass
 from .household import Household
 from .sightings import Sightings
+from .unknowns import Strangers, load_words
 from .irks import Irks
 from .lists import Lists, Personal
 from .people import People
@@ -49,6 +50,11 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     irks = Irks(a.irks_state) if a.irks_state else None
     sightings = Sightings(a.sightings_db, a.sightings_pictures, days=a.sightings_days,
                           picture_days=a.sightings_picture_days) if a.sightings_db else None
+    strangers = None
+    if a.unknown_people and people_store is not None and frigate is not None:
+        adjectives, nouns = load_words(a.unknown_words_file)
+        strangers = Strangers(people, people_store, frigate, sightings, adjectives=adjectives, nouns=nouns,
+                              max_people=a.unknown_max)
     prefs = Prefs(a.prefs_state) if a.prefs_state else None
     hass = None
     if a.ha_url and a.ha_token_file:
@@ -73,6 +79,7 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                     learns=tuple(w for w, on in (("voice", voice), ("face", frigate)) if on is not None),
                     sessions=Sessions(session_secret(a.tap_session_key)), account_url=a.tap_account_url,
                     groups_header=a.tap_groups_header, admins=tuple(a.tap_admin_group or ()))
+        taps.strangers = strangers
         if irks is not None:
             taps.forgetters.append(irks.forget)
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
@@ -81,13 +88,13 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None,
-                                      sightings=sightings, personal=personal))]
+                                      sightings=sightings, strangers=strangers, personal=personal))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
         runners.append(web.AppRunner(make_body_app(bodies, people=people, frigate=frigate, voice=voice,
                                                    cards=cards, taps=taps, irks=irks, sightings=sightings,
-                                                   prefs=prefs)))
+                                                   strangers=strangers, prefs=prefs)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], a.body_host, a.body_port).start()
     if taps is not None:
@@ -168,6 +175,10 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--sightings-db", help="SQLite in the state dir: who was seen where (sightings.py); unset: none")
     p.add_argument("--sightings-pictures", help="where an indoor sighting's frame is kept: a directory on the "
                    "encrypted workload layer; while it is absent, none are kept")
+    p.add_argument("--unknown-people", action="store_true",
+                   help="give each face matched to no one a person of its own, Unknown <Word> <Word> (unknowns.py)")
+    p.add_argument("--unknown-words-file", help="JSON {\"adjectives\": [...], \"nouns\": [...]} replacing the built-in words")
+    p.add_argument("--unknown-max", type=int, default=500, help="no new Unknowns past this many (none are dropped)")
     p.add_argument("--sightings-days", type=float, default=30.0, help="how long sightings are kept")
     p.add_argument("--sightings-picture-days", type=float, default=7.0, help="how long their pictures are kept")
     p.add_argument("--mqtt-host", help="the MQTT broker: publish the robots and who is around to Home Assistant (mqtt.py)")

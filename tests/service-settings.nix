@@ -461,6 +461,12 @@ let
       };
       lanbat.services.llama-cpp.settings.model = "qwen3-4b";
       lanbat.services.assistant-router.settings.tap = false;
+      lanbat.services.assistant-router.settings.unknownPeople = {
+        enable = true;
+        adjectives = [ "Wobbly" ];
+        nouns = [ "noodle" ];
+        maxPeople = 50;
+      };
       # An Echo Show on TECHO5 in the Kitchen (services/techo5-bridge.nix): here
       # rather than in a variant of its own, which would cost the check another
       # whole profile evaluation.
@@ -1126,6 +1132,20 @@ let
         && !(lib.hasInfix "--tap-url" routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart)
         && failedAssertions routerServer == [ ]
         && failedAssertions routerNoTap == [ ]
+      )
+    )
+
+    (expect
+      "assistant-router: unknown people are off unless a profile turns them on, with its own words"
+      (
+        let
+          off = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;
+          on = routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart;
+        in
+        !(lib.hasInfix "--unknown-people" off)
+        && lib.hasInfix "--unknown-people" on
+        && lib.hasInfix "--unknown-max 50" on
+        && lib.hasInfix "--unknown-words-file" on
       )
     )
 

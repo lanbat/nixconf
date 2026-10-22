@@ -10,6 +10,9 @@ One list of everyone, each labelled with how Nabu knows their name
   fixed a name Nabu heard.
 - "Heard": met by voice ("remember me", or Nabu asking), the name as heard:
   speech-to-text spells names its own way, so it waits for an admin.
+- "Unknown": a face that matched no one, with a name Nabu made up
+  (unknowns.py). An admin may give them their real name, or link them to an
+  account; they also fix themselves by saying who they are or signing in.
 - "Not recorded": met before kinds were kept; treated like a guest here.
 
 For everyone but accounts, an admin may fix the name, forget them, or link
@@ -28,8 +31,8 @@ from .tap import display_name
 
 LOG = logging.getLogger("assistant_router")
 
-LABELS = {"account": "Account", "guest": "Guest", "heard": "Heard"}
-ORDER = {"Account": 0, "Guest": 1, "Not recorded": 2, "Heard": 3}
+LABELS = {"account": "Account", "guest": "Guest", "heard": "Heard", "unknown": "Unknown"}
+ORDER = {"Account": 0, "Guest": 1, "Not recorded": 2, "Heard": 3, "Unknown": 4}
 
 
 class Household:

@@ -346,7 +346,7 @@ provider passes on.
 
 ## Sightings
 
-Every face a camera sees becomes a **sighting**: who (or nobody known), where, when, by
+Every face a camera sees becomes a **sighting**: who (or nobody known, or an Unknown, below), where, when, by
 what and how sure. That covers a robot's or an Echo Show's frame with a face in it, and a
 face a Frigate camera names as it comes into view (through the person mapper). The admins
 search them from **People Nabu knows → Sightings**, by person, place and the last days,
@@ -361,6 +361,38 @@ also appears in Home Assistant's logbook, as the robot's or screen's **Sighting*
 "Forget me" and an admin's "Forget" delete a person's sightings and pictures, and "Link
 to…" moves them. Settings: `lanbat.services.assistant-router.settings.sightings = { days =
 30; pictureDays = 7; }`.
+
+## Unknown people
+
+Off by default. With `lanbat.services.assistant-router.settings.unknownPeople.enable = true`,
+a face the library matches to no one is no longer "nobody known": each distinct one gets a
+name of their own, **Unknown Wobbly Noodle** (always "Unknown", then two random, mild words),
+and is a person like any other: on the who page, in sightings and in Home Assistant.
+
+- **How they are told apart.** The router enrols the face into Frigate's face library under a
+  generated key (`unknown_wobbly_noodle`), so the next time that face turns up (a robot's or
+  screen's frame, or a Frigate camera) the library names them. Pictures seen in the same room
+  in the following minutes are added to that person (up to 8) rather than starting another.
+  A camera's face is enrolled from the thumbnail of its Frigate event, once per event; this
+  needs the person mapper (`person-mapper.settings.cameras`), which passes them on.
+- **They are strangers, not household.** An Unknown is never greeted by name, never counted as
+  present, never in the assistant's idea of who is in the room, and a robot is told nobody it
+  knows. They show on the admin page as **Unknown**, where an admin can give them a real
+  name, link them to an account, or forget them.
+- **Until they identify themselves.** Saying who they are in the room where they were seen
+  (*"I'm Jane"*, *"remember me as Jane"*) or tapping a phone signed in to an account there makes
+  that Unknown *them*: the name and kind change (Heard, Account), and the key stays, so their
+  face pictures, sightings and Home Assistant entities stay where they are.
+- **Nothing is deleted.** An Unknown is kept with its sightings until someone says "forget me"
+  or an admin forgets them. Past `unknownPeople.maxPeople` (500) no new ones are made; none are
+  dropped. They are kept on the host root with the other face pictures (Frigate's library),
+  not on the encrypted layer.
+- **The words** are the router's own list. A site replaces them with `unknownPeople.adjectives`
+  and `unknownPeople.nouns` (letters only, 2 to 14 each).
+
+This keeps the face of anyone a camera or robot sees, including visitors who never agreed to
+it, the opposite of Meeting Nabu's *"a decline keeps nothing"*. Decide that for your household
+before turning it on; it may also need approval where your organisation's policy requires it.
 
 ## Voices
 
