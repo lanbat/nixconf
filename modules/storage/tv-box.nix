@@ -149,6 +149,19 @@ let
           once after Kodi starts if Kodi has never scanned it.
         '';
       };
+      resumeRewindSeconds = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        default = 3;
+        example = 0;
+        description = ''
+          How far back a film paused for a question resumes, in seconds; 0
+          resumes where it stopped. Kodi seeks to the keyframe at or before that
+          point, so a file with few keyframes replays more than asked: 6 to 10
+          seconds on a 1080p H.264 file with a keyframe every ten seconds
+          (measured on a Pi 5, 2026-10-22). Needs a satellite on the same host
+          (the voice plugin).
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -489,7 +502,7 @@ in
           LVA_PERIPHERAL_URL = "ws://127.0.0.1:${toString satellite.lva.peripheralPort}";
           KODI_PORT = toString kodiEventsPort;
           # A film paused for a question resumes this far back.
-          RESUME_REWIND_SECONDS = "3";
+          RESUME_REWIND_SECONDS = toString kodiCfg.resumeRewindSeconds;
         };
         serviceConfig = {
           ExecStart = lib.getExe lvaKodiCompanion;
