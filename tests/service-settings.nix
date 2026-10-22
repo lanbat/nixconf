@@ -2109,12 +2109,8 @@ let
       && lib.hasInfix "ensure_todo_lists" (
         builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
       )
-      && lib.hasInfix "todo_list_name" (
-        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
-      )
-      && lib.hasInfix "storage_key" (
-        builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh
-      )
+      && lib.hasInfix "todo_list_name" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
+      && lib.hasInfix "storage_key" (builtins.readFile ../pkgs/home-assistant-post-setup/setup-ha.sh)
     ))
 
     (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"

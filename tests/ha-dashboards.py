@@ -210,6 +210,13 @@ with tempfile.TemporaryDirectory() as tmp:
             "device_class": None, "original_device_class": None, "unit_of_measurement": None,
             "entity_category": None, "area_id": None, "disabled_by": None, "hidden_by": None,
             "unique_id": f"lanbat_people_where_{key}"})
+    for suffix in ([f"reminder_{i}" for i in range(1, 6)] + [f"todo_{i}" for i in range(1, 6)]
+                   + ["todo_more"] + [f"event_{i}" for i in range(1, 4)]):
+        eid = f"sensor.lanbat_screen_office_{suffix}"
+        reg["data"]["entities"].append({
+            "entity_id": eid, "platform": "mqtt", "device_id": None, "device_class": None,
+            "original_device_class": None, "unit_of_measurement": None, "entity_category": None,
+            "area_id": None, "disabled_by": None, "hidden_by": None, "unique_id": eid})
     json.dump(reg, open(os.path.join(screens, "core.entity_registry"), "w"))
     out = os.path.join(tmp, "s")
     subprocess.run([GEN, "--storage", screens, "--out", out,
@@ -220,6 +227,62 @@ with tempfile.TemporaryDirectory() as tmp:
     paths = [v["path"] for v in screen.get("views", [])]
     expect("a screen's dashboard has a home view and one per person", paths == ["home", "alex", "sam"])
     alex = json.dumps(screen["views"][1]) if len(paths) == 3 else ""
+    def view_by_path(path):
+        return next(v for v in screen["views"] if v["path"] == path)
+
+    def section_titles(view):
+        titles = []
+        for section in view.get("sections", []):
+            for card in section.get("cards", []):
+                if card.get("type") == "heading" and card.get("heading_style") == "title":
+                    titles.append(card["heading"])
+                    break
+        return titles
+
+    def all_strings(node):
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            for v in node.values():
+                yield from all_strings(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from all_strings(v)
+
+    alex_view = view_by_path("alex")
+    home_view = view_by_path("home")
+    alex = json.dumps(alex_view)
+    expect("test_person_view_section_order",
+           section_titles(alex_view) == ["Reminders", "Next up", "To-do", "Hi Alex"])
+    reminder_2 = next(c for _, c in walk(alex_view)
+                      if c.get("entity") == "sensor.lanbat_screen_office_reminder_2")
+    expect("test_reminder_tiles_complete_through_the_script",
+           reminder_2.get("tap_action") == {"action": "perform-action",
+                                            "perform_action": "script.lanbat_complete_reminder",
+                                            "data": {"room": "Office", "slot": 2}})
+    reminders_sec = alex_view["sections"][0]
+    expect("test_reminders_hide_with_no_reminder",
+           reminders_sec.get("visibility") == [{"condition": "state",
+                                                "entity": "sensor.lanbat_screen_office_reminder_1",
+                                                "state_not": ["none", "unavailable", "unknown"]}])
+    expect("test_household_view_has_no_personal_section",
+           "Reminders" not in json.dumps(home_view) and "To-do" not in json.dumps(home_view)
+           and section_titles(home_view)[0] == "Next up")
+    expect("test_no_separate_who_is_where_section_for_a_person",
+           "Who's where" not in alex and "sensor.lanbat_people_where_sam" in alex)
+    home_sec = alex_view["sections"][-1]
+    expect("test_home_hides_on_a_narrow_screen",
+           home_sec.get("visibility") == [{"condition": "screen", "media_query": "(min-width: 600px)"}])
+    expect("test_no_templates_in_screen_views",
+           not any("{{" in s for s in all_strings(screen)))
+    slug_out = os.path.join(tmp, "slug")
+    write_fixture(slug_out)
+    subprocess.run([GEN, "--storage", slug_out, "--out", os.path.join(tmp, "slug-out"),
+                    "--screens", json.dumps([{"room": "Bedroom 1", "path": "lanbat-screen-bedroom-1"}]),
+                    "--people", json.dumps({"alex": "Alex"})], check=True)
+    slug_screen = json.load(open(os.path.join(tmp, "slug-out", "lovelace.lanbat-screen-bedroom-1")))
+    expect("test_room_names_slug_like_the_router",
+           "sensor.lanbat_screen_bedroom_1_reminder_1" in json.dumps(slug_screen))
     expect("a person's view greets them and shows where the others are, not themselves",
            '"Hi Alex"' in alex and "sensor.lanbat_people_where_sam" in alex
            and "sensor.lanbat_people_where_alex" not in alex)
