@@ -295,9 +295,17 @@ have **My reminders** on the who page: add one with a date and time, mark one do
 
 The reminder shows on that person's screen, and **chimes there when it comes due, if they are
 alone in front of it** (docs/techo5.md). Nothing is ever spoken, and a reminder is never shown
-to a bystander: it waits until its person is alone in front of a screen again. A Stack-chan's
-screen does not show reminders yet: only an Echo Show rings. The reminders go to `todo.<key>_reminders`: a profile
-that points `reminders` at another list won't show them, so leave it at the default.
+to a bystander: it waits until its person is alone in front of a screen again.
+
+A **Stack-chan** has no chime, so the router does the equivalent: when exactly one person, surely
+recognised, is in a room with a robot that is awake and not in a conversation, a reminder of theirs
+that has come due is shown as the robot's caption, with a happy mood, a perk and the amber
+notification light. The caption stays 15 seconds, so it is shown again two minutes later, three
+times in all, while they stay alone; marking it done (on the Echo, on the who page, or in Home
+Assistant) stops it. What was shown is kept (`rung.json`), so a restart doesn't begin again.
+
+Reminders go to the person's reminders list: `todo.<key>_reminders`, or the one their screen
+profile names (`techo5Devices.<room>.profiles.<person>.reminders`), by voice and on the who page.
 
 ### Your own lists
 
