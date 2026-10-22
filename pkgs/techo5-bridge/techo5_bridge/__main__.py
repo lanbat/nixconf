@@ -14,13 +14,16 @@ import json
 import logging
 import os
 import secrets
+import ssl
 import time
+from datetime import datetime
 
 import aiohttp
 from aiohttp import web
 
 from . import ca, qr
 from .brain import Brain, DeviceConfig
+from .lists import Ha
 
 LOG = logging.getLogger("techo5-bridge")
 IMAGE_TIMEOUT_S = 8.0
@@ -30,7 +33,8 @@ class Echo:
     """One device: its ESPHome connection and its router socket."""
 
     def __init__(self, data: dict, people: dict[str, str], beacons: dict[str, str], router_url: str,
-                 token: str, codes: dict[str, "Echo"], code_base: str, trust: dict | None = None) -> None:
+                 token: str, codes: dict[str, "Echo"], code_base: str, trust: dict | None = None,
+                 ha: Ha | None = None) -> None:
         self.address = data["address"]
         self.key = open(data["key_file"], encoding="utf-8").read().strip()
         self.code_id = secrets.token_urlsafe(16)
@@ -39,6 +43,7 @@ class Echo:
             data = dict(data, code_url=f"{code_base}/code/{self.code_id}.png")
         self.trust = trust or {}  # the CA, and SSH to put it on the device (ca.py)
         self.brain = Brain(DeviceConfig.from_json(data, token, self.trust.get("keys", "")), people, beacons)
+        self.ha = ha
         self.router_url = router_url
         self.client = None
         self.entities: dict[str, object] = {}   # object_id -> its info
@@ -85,6 +90,25 @@ class Echo:
             self.images.append(out[1])
             self.client.request_single_image()
             asyncio.get_running_loop().call_later(IMAGE_TIMEOUT_S, self._image_timeout, out[1])
+        elif kind == "fetch":
+            await self._fetch_items(out[1], out[2])
+
+    async def _fetch_items(self, _person: str | None, profile) -> None:
+        if self.ha is None:
+            return
+        now = datetime.now().astimezone()
+        rem = todo = ev = None
+        if profile.reminders:
+            rem = await self.ha.todo_items(profile.reminders)
+        if profile.todo:
+            todo = await self.ha.todo_items(profile.todo)
+        cals = profile.calendars or self.brain.cfg.household.calendars
+        if cals:
+            ev = await self.ha.events(cals)
+        data = self.brain.merge_fetch(rem, todo, ev, now=now)
+        if data is None:
+            return
+        await self.carry(self.brain.items(time.monotonic(), data))
 
     def _set(self, object_id: str, value) -> None:
         info = self.entities.get(object_id)
@@ -184,6 +208,7 @@ class Echo:
             try:
                 async with session.ws_connect(self.router_url, heartbeat=20) as ws:
                     self.ws = ws
+                    self.brain.router_connected()
                     delay = 1
                     await ws.send_json(self.brain.hello())
                     await ws.send_json({"state": self.brain._state(time.monotonic())})  # pylint: disable=protected-access
@@ -263,16 +288,23 @@ async def run(cfg: dict) -> None:
     trust = None
     if cfg.get("ca_file") and cfg.get("ssh_key_file"):
         trust = trust_from(cfg)
+    ssl_context = ssl.create_default_context(cafile=cfg["ca_file"]) if cfg.get("ca_file") else None
     codes: dict[str, Echo] = {}
     base = cfg.get("code_base") or ""
-    echoes = [Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
-                   trust) for d in cfg["devices"]]
+    async with aiohttp.ClientSession() as session:
+        def echo_for(d: dict) -> Echo:
+            ha = None
+            if token and d.get("ha_url"):
+                ha = Ha(d["ha_url"], token, session, ssl_context)
+            return Echo(d, cfg.get("people") or {}, cfg.get("beacons") or {}, cfg["router_url"], token, codes, base,
+                        trust, ha)
+
+        echoes = [echo_for(d) for d in cfg["devices"]]
     runner = None
     if base and cfg.get("code_port"):
         runner = web.AppRunner(code_app(codes))
         await runner.setup()
         await web.TCPSite(runner, cfg.get("code_host") or "0.0.0.0", int(cfg["code_port"])).start()
-    async with aiohttp.ClientSession() as session:
         tasks = [t for e in echoes for t in (asyncio.create_task(e.device_loop()),
                                               asyncio.create_task(e.router_loop(session)),
                                               asyncio.create_task(e.tick_loop()))]
