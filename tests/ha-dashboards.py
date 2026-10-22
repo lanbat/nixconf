@@ -249,25 +249,41 @@ with tempfile.TemporaryDirectory() as tmp:
             for v in node:
                 yield from all_strings(v)
 
+    def entities_in_view(view):
+        return {c.get("entity") for _, c in walk(view) if c.get("entity")}
+
+    def home_section_entities(view):
+        return {c.get("entity") for _, c in walk(view["sections"][-1]) if c.get("entity")}
+
     alex_view = view_by_path("alex")
     home_view = view_by_path("home")
     alex = json.dumps(alex_view)
     expect("test_person_view_section_order",
-           section_titles(alex_view) == ["Reminders", "Next up", "To-do", "Hi Alex"])
+           section_titles(alex_view) == ["Hi Alex", "Reminders", "Next up", "To-do"]
+           and len(alex_view["sections"]) == 5)
+    expect("test_greeting_never_hides",
+           "visibility" not in alex_view["sections"][0]
+           and "visibility" not in home_view["sections"][0])
     reminder_2 = next(c for _, c in walk(alex_view)
                       if c.get("entity") == "sensor.lanbat_screen_office_reminder_2")
     expect("test_reminder_tiles_complete_through_the_script",
            reminder_2.get("tap_action") == {"action": "perform-action",
                                             "perform_action": "script.lanbat_complete_reminder",
                                             "data": {"room": "Office", "slot": 2}})
-    reminders_sec = alex_view["sections"][0]
+    reminders_sec = alex_view["sections"][1]
     expect("test_reminders_hide_with_no_reminder",
            reminders_sec.get("visibility") == [{"condition": "state",
                                                 "entity": "sensor.lanbat_screen_office_reminder_1",
                                                 "state_not": ["none", "unavailable", "unknown"]}])
+    personal = entities_in_view(home_view)
     expect("test_household_view_has_no_personal_section",
-           "Reminders" not in json.dumps(home_view) and "To-do" not in json.dumps(home_view)
-           and section_titles(home_view)[0] == "Next up")
+           section_titles(home_view) == ["Office", "Next up"]
+           and not any(h in section_titles(home_view) for h in ("Reminders", "To-do"))
+           and not any("_reminder_" in (e or "") or "_todo_" in (e or "") for e in personal))
+    expect("test_where_tiles_in_home",
+           {"sensor.lanbat_people_where_alex", "sensor.lanbat_people_where_sam"} <= home_section_entities(home_view)
+           and "sensor.lanbat_people_where_sam" in home_section_entities(alex_view)
+           and "sensor.lanbat_people_where_alex" not in home_section_entities(alex_view))
     expect("test_no_separate_who_is_where_section_for_a_person",
            "Who's where" not in alex and "sensor.lanbat_people_where_sam" in alex)
     home_sec = alex_view["sections"][-1]

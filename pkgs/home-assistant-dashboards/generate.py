@@ -655,11 +655,16 @@ def todo_section(room: str) -> dict:
     return {"type": "grid", "cards": cards}
 
 
+def greeting_section(room: str, area: dict | None, people: dict[str, str], person: str | None) -> dict:
+    first = people.get(person, "").split()[0] if person and people.get(person, "").split() else ""
+    return {"type": "grid", "cards": [heading(f"Hi {first}" if first else room,
+                                            "mdi:hand-wave" if first else
+                                            (area_icon(area) if area else "mdi:home-outline"))]}
+
+
 def home_section(home: Home, room: str, area: dict | None, people: dict[str, str],
                  person: str | None, weather: str) -> dict:
-    first = people.get(person, "").split()[0] if person and people.get(person, "").split() else ""
-    cards = [heading(f"Hi {first}" if first else room, "mdi:hand-wave" if first else
-                     (area_icon(area) if area else "mdi:home-outline"))]
+    cards: list[dict] = []
     if weather:
         cards.append(tile(weather, grid_options={"columns": 12}))
     room_lights = [e for e in home.lights() if area and home.area_of(e) == area["id"]]
@@ -680,7 +685,7 @@ def home_section(home: Home, room: str, area: dict | None, people: dict[str, str
 def screen_sections(home: Home, room: str, people: dict[str, str], person: str | None) -> list[dict]:
     area = next((a for a in home.areas if a["name"].casefold() == room.casefold()), None)
     weather = next((e["id"] for e in home.primary if e["domain"] == "weather"), "")
-    sections: list[dict] = []
+    sections: list[dict] = [greeting_section(room, area, people, person)]
     if person:
         sections.append(reminders_section(room))
     sections.append(next_up_section(room))
