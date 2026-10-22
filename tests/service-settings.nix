@@ -2254,6 +2254,7 @@ let
         && path.pathConfig.Unit == "home-assistant-post-setup.service"
         && lib.hasInfix "LISTS_FILE=\"/var/lib/private/assistant-router/lists.json\"" setup
         && lib.elem "/lists/*" routerServer.lanbat.services.who.caddy.authBypassPaths
+        && lib.elem "/reminders/*" routerServer.lanbat.services.who.caddy.authBypassPaths
       )
     )
 
