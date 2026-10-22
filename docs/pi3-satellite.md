@@ -23,7 +23,9 @@ used.
   reads 1 while the supply is too weak. The USB ports draw from the same supply (1.2 A for
   all four), so give a USB hub a power supply of its own. A crash shows up as a short boot in
   `journalctl --list-boots`: the hardware watchdog restarts a Pi that has stopped within
-  15 s. `journalctl -k -g Undervoltage` lists the warnings that reached the card, and one
+  15 s. If the card stops completing writes instead, the Pi keeps running and answering
+  pings, but its log just ends. The kernel restarts it once a task has waited 5 minutes on
+  the card. `journalctl -k -g Undervoltage` lists the warnings that reached the card, and one
   just before a crash points at the supply. A crash in the middle of a deploy can leave
   empty files in the Nix store, though not since `hosts/pi3/hardware.nix` flushes each
   path before registering it. `sudo nix-store --verify --check-contents` finds them. It
@@ -235,6 +237,14 @@ It costs CPU for every second of music; measure it on a Pi 3 before leaving it o
 **Wake words.** `lva.wakeModels` lists one or two (LVA listens for at most two at once).
 They are written into LVA's `prefs.json` every time it starts, so the Nix setting wins over a
 choice made in Home Assistant's "Wake word" selects, which lasts until the next restart.
+
+**False wakes.** `lva.wakeThreshold` is the probability the model must reach
+before it counts. Home Assistant shows the same number as Wake Word sensitivity:
+higher wakes less often. `okay_nabu` ships at 0.85, which a busy room (speech, a
+radio, a keyboard beside the PlayStation Eye) clears often. About a tenth more,
+0.95, is the step that quiets that; a quiet room can leave the option unset and
+keep the model's own cutoff. The value is written into `prefs.json` on every
+start, so it wins over the Home Assistant control.
 
 The default is "okay nabu", Home Assistant's own wake word. "Hey nabu", which the Wyoming
 pipeline uses, exists only as an openWakeWord model, which runs several neural networks on every

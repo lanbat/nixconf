@@ -251,6 +251,7 @@ let
     ];
   };
   lvaOldOption = lvaServerWith { lva.wakeModel = "hey_jarvis"; };
+  lvaWakeThreshold = lvaServerWith { lva.wakeThreshold = 0.95; };
   lvaThreeWords = lvaServerWith {
     lva.wakeModels = [
       "okay_nabu"
@@ -1343,6 +1344,9 @@ let
       lib.any (lib.hasInfix "lva-set-prefs 0.4") lvaTvBox.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
       && lib.any (lib.hasInfix "lva-set-prefs") lvaPi3Aec.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
       && !lib.any (lib.hasInfix "lva-set-prefs ") lvaPi3Aec.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
+      # A cutoff with no volume still passes an empty first argument, so the
+      # probability stays the second argument of lva-set-prefs.
+      && lib.any (lib.hasInfix ''lva-set-prefs "" 0.95'') lvaWakeThreshold.systemd.services.linux-voice-assistant.serviceConfig.ExecStartPre
     ))
 
     # They stop with LVA (partOf); starting LVA again (a restart by hand, the
@@ -1567,6 +1571,26 @@ let
           "lanbat_kodi_power"
         ]
       && !(haYamlDashboard base)
+    ))
+
+    # Two satellites in one room (the server's and a Pi's in the Office) each
+    # have a Music Assistant player there; "the room's player" alone chose the
+    # same one for both, so a volume command to the Pi changed the server's.
+    (expect "voice: play and volume prefer the player of the satellite that heard the request" (
+      let
+        vars = id: lib.foldl' (acc: s: acc // (s.variables or { })) { } (automationById base id).action;
+        volume = vars "lanbat_voice_volume";
+        play = vars "lanbat_voice_play";
+        hosts = builtins.fromJSON volume.satellite_hosts;
+      in
+      hosts."Pi 3 Satellite" == "pi3"
+      && hosts."Server Satellite" == "server"
+      && volume.satellite_hosts == play.satellite_hosts
+      && lib.hasInfix "device_attr(d, 'name')" volume.own_host
+      && lib.hasInfix "own_host in [device_attr(p, 'name_by_user'), device_attr(p, 'name')]" volume.player
+      && lib.hasInfix "own_host in [device_attr(p, 'name_by_user'), device_attr(p, 'name')]" play.player
+      # Kodi still wins the volume while it has something on.
+      && lib.hasInfix "integration_entities('kodi')" volume.player
     ))
 
     (expect "home assistant: dashboards generated from the registries, rooms from deviceAreas" (
@@ -2151,9 +2175,12 @@ let
       && lib.elem "/settings" routerServer.lanbat.services.who.caddy.authBypassPaths
     ))
 
-    (expect "pi3: the watchdog restarts a Pi that stops; store paths are on the card before they count"
+    (expect
+      "pi3: the watchdog restarts a Pi that stops, or whose card stops; store paths are on the card before they count"
       (
         lvaPi3Aec.systemd.settings.Manager.RuntimeWatchdogSec == "15s"
+        && lvaPi3Aec.boot.kernel.sysctl."kernel.hung_task_panic" == 1
+        && lvaPi3Aec.boot.kernel.sysctl."kernel.hung_task_timeout_secs" == 300
         && lvaPi3Aec.nix.settings.fsync-store-paths
       )
     )

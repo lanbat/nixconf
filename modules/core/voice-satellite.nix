@@ -117,6 +117,23 @@ in
         '';
       };
 
+      wakeThreshold = mkOption {
+        type = types.nullOr (types.numbers.between 0 1);
+        default = null;
+        example = 0.95;
+        description = ''
+          Probability a wake word must reach before it counts. Higher wakes
+          less often. Written into LVA's prefs.json on every start
+          (``wake_word_1_sensitivity``, and ``wake_word_2_sensitivity`` when
+          two models are active), which Home Assistant shows as Wake Word
+          sensitivity, so this wins over a value set there.
+
+          Null leaves the model's own cutoff, and a value chosen in Home
+          Assistant, in place across restarts. ``okay_nabu`` ships at 0.85;
+          a busy room that false-wakes wants about a tenth more.
+        '';
+      };
+
       wakeModel = mkOption {
         type = types.nullOr types.str;
         default = null;
