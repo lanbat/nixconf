@@ -59,6 +59,10 @@ get the household view instead, with no reminders or to-dos.
 do not exist yet, for each profile's person and each person in `deployment.people`. You may
 point a profile at an existing `todo.*` entity instead.
 
+Each person adds to and reads their own lists by voice, and on the who page
+([people.md](people.md#your-own-lists)); the screen reads them again within a few seconds of a
+change (the router tells the bridge, `items_stale`) instead of waiting for the minute's refresh.
+
 Each person may also choose their screen's **Next up** calendars, to-do list and photos on
 the who page (**My settings**, [people.md](people.md#tap-your-phone)); those choices win over
 the profile. The device's own glance chips and calendar page keep the profile's values

@@ -247,6 +247,30 @@ every connection to it, Home Assistant's included, whenever those change, so the
 change per person. "Forget me" removes the settings too. The router reads Home Assistant
 with the voice satellites' token, an ordinary user's (`settings.personal`, on by default).
 
+### Your own lists
+
+Everyone Nabu knows has a to-do list of their own in Home Assistant (`todo.<key>_todo`, a
+`local_todo` list; the profile's people and everyone in `deployment.people` get theirs when
+Home Assistant is set up, anyone else's is made the first time they use it), and may have more.
+By voice, to whoever Nabu is sure is speaking:
+
+- "add milk to my list", "put batteries on my hardware store list";
+- "take milk off my list";
+- "what's on my list";
+- "make a list called hardware".
+
+Nabu only ever touches the speaker's own lists, never one named by what was said, and says
+"I'm not sure who you are" rather than guess. Accounts also have **My lists** on the who page:
+the items (add, done, remove) and **A new list**. A new list is written to the router's
+`lists.json`; `home-assistant-post-setup` runs when that file changes and makes it, so it
+appears in about a minute, after Home Assistant's brief restart. Nothing deletes a list, here
+or in Home Assistant: an administrator does, in Home Assistant. An Echo Show reads the lists
+again at once when its person changes one. Lists are ordinary Home Assistant entities, so anyone
+with a login can open anyone's; the screen shows only the person in front of it. "Forget me"
+drops the requests (`lists.json`), not the lists. Home Assistant answers "add milk to my
+shopping list" itself when a list has that name (`prefer_local_intents`); these commands
+cover "my list" and a list Nabu made for you.
+
 The phone has to trust the site's certificate: install the home CA from
 `https://ca.<domain>` first ([deployment checklist](deployment-checklist.md)). Turn it
 off with `lanbat.services.assistant-router.settings.tap = false`.

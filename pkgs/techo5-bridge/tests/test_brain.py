@@ -143,6 +143,15 @@ def test_new_choices_are_read_at_once():
     assert fetch[2].todo == "todo.shopping_list"
 
 
+def test_a_changed_list_is_read_at_once():
+    b = brain(ha_url="https://ha.example.org", ha_token="t")
+    b.router({"here": [{"person": "kiril"}]}, 0.0)
+    assert not fetches(b.tick(5.0))  # read when they came; the next in a minute
+    b.router({"items_stale": {"person": "kiril"}}, 6.0)
+    assert fetches(b.tick(6.5))
+    assert "items" in CAN
+
+
 def test_someone_it_cant_name_is_shown_the_sign_in_code_once():
     b = brain()
     b.router({"tap": {"url": "https://who.example.org/tap/Kitchen?n=abc"}}, 0.0)

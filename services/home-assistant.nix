@@ -250,6 +250,14 @@ let
     )
   );
 
+  # The assistant router's lists.json (pkgs/assistant-router lists.py): where
+  # root reads the lists people asked for, in the router's real state directory.
+  personalLists =
+    config.lanbat.hasService "assistant-router"
+    && config.lanbat.services.assistant-router.settings.personal
+    && hostLib.haLlmIsRouter (config.lanbat.deployment.haLlm or null);
+  routerListsPath = "/var/lib/private/assistant-router/lists.json";
+
   hasLvaSatellite = lib.any (
     hostKey: (voiceSatelliteRegistrations.${hostKey}.backend or "wyoming") == "lva"
   ) voiceSatelliteHosts;
@@ -1729,6 +1737,9 @@ in
           export TECHO5_DEVICES=${lib.escapeShellArg techo5Json}
           export TECHO5_TODO_LISTS=${lib.escapeShellArg (builtins.toJSON techo5TodoLists)}
         ''}
+        ${lib.optionalString personalLists ''
+          export LISTS_FILE="${routerListsPath}"
+        ''}
         ${lib.optionalString xiaomiBle ''
           export XIAOMI_BLE_KEYS_FILE="${config.lanbat.secrets.ha-xiaomi-ble.path}"
         ''}
@@ -1757,6 +1768,17 @@ in
         ''}
         exec home-assistant-post-setup
       '';
+    };
+
+    # The lists people ask the assistant router for (by voice, or on the who
+    # page) are made as soon as it writes them: post-setup runs again, which
+    # restarts Home Assistant briefly when a list is new.
+    systemd.paths.home-assistant-post-setup-lists = lib.mkIf personalLists {
+      wantedBy = [ "multi-user.target" ];
+      pathConfig = {
+        PathChanged = routerListsPath;
+        Unit = "home-assistant-post-setup.service";
+      };
     };
 
     # Devices paired since the last deploy reach the dashboards overnight;

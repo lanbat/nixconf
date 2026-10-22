@@ -2240,6 +2240,21 @@ let
       && lib.elem "/settings" routerServer.lanbat.services.who.caddy.authBypassPaths
     ))
 
+    (expect "assistant-router: personal lists are kept for post-setup, which runs when the file changes"
+      (
+        let
+          unit = routerServer.systemd.services.assistant-router.serviceConfig;
+          path = routerServer.systemd.paths.home-assistant-post-setup-lists;
+          setup = postSetup routerServer;
+        in
+        lib.hasInfix "--lists-state /var/lib/assistant-router/lists.json" unit.ExecStart
+        && path.pathConfig.PathChanged == "/var/lib/private/assistant-router/lists.json"
+        && path.pathConfig.Unit == "home-assistant-post-setup.service"
+        && lib.hasInfix "LISTS_FILE=\"/var/lib/private/assistant-router/lists.json\"" setup
+        && lib.elem "/lists/*" routerServer.lanbat.services.who.caddy.authBypassPaths
+      )
+    )
+
     (expect
       "pi3: the watchdog restarts a Pi that stops, or whose card stops; store paths are on the card before they count"
       (
