@@ -159,6 +159,40 @@ def _key(room: str) -> str:
     return (room or "").strip().casefold()
 
 
+def normalize_items_payload(raw: dict) -> dict[str, Any]:
+    """Sanitize an items message from the techo5 bridge (shared with mqtt.py)."""
+    person = raw.get("person")
+    if not isinstance(person, str) or not person.strip():
+        person = None
+    else:
+        person = person.strip()[:64]
+    reminders = raw.get("reminders") if isinstance(raw.get("reminders"), list) else []
+    todos = raw.get("todos") if isinstance(raw.get("todos"), list) else []
+    events = raw.get("events") if isinstance(raw.get("events"), list) else []
+    more = raw.get("more") if type(raw.get("more")) is int and raw["more"] >= 0 else 0
+    clean_reminders = []
+    for row in reminders[:5]:
+        if not isinstance(row, dict) or not isinstance(row.get("title"), str):
+            continue
+        rem = {"title": row["title"][:200]}
+        for field in ("uid", "list", "due"):
+            if isinstance(row.get(field), str):
+                rem[field] = row[field][:200]
+        clean_reminders.append(rem)
+    clean_todos = [{"title": row["title"][:200]} for row in todos[:5]
+                   if isinstance(row, dict) and isinstance(row.get("title"), str)]
+    clean_events = []
+    for row in events[:3]:
+        if not isinstance(row, dict) or not isinstance(row.get("title"), str):
+            continue
+        ev = {"title": row["title"][:200], "all_day": row.get("all_day") is True}
+        if isinstance(row.get("start"), str):
+            ev["start"] = row["start"][:64]
+        clean_events.append(ev)
+    return {"person": person, "reminders": clean_reminders, "todos": clean_todos,
+            "more": more, "events": clean_events}
+
+
 def parse_can(value: Any) -> frozenset[str] | None:
     """A hello's "can": the known capabilities it names, or None (a robot)
     when it names none."""
@@ -266,38 +300,34 @@ class Bodies:
     def face_check(self, room: str) -> dict[str, Any] | None:
         return self._face_checks.get(_key(room))
 
-    def receive_items(self, room: str, items: Any, *, people_here: int) -> None:
+    def receive_items(self, room: str, items: Any, *, people_here: int,
+                      sole_person: str | None = None) -> None:
         """The techo5 bridge's reminders, to-dos and events for the room's
-        screen; kept only from a screen while exactly one person is here."""
+        screen; kept only from a screen while exactly one person is here and
+        the message names that person (or is a household/events-only clear)."""
         if not self.has(room) or self.kind(room) != "screen" or people_here != 1:
             return
         if not isinstance(items, dict):
             return
-        reminders = items.get("reminders") if isinstance(items.get("reminders"), list) else []
-        todos = items.get("todos") if isinstance(items.get("todos"), list) else []
-        events = items.get("events") if isinstance(items.get("events"), list) else []
-        more = items.get("more") if type(items.get("more")) is int and items["more"] >= 0 else 0
-        clean_reminders = []
-        for row in reminders[:5]:
-            if not isinstance(row, dict) or not isinstance(row.get("title"), str):
-                continue
-            rem = {"title": row["title"][:200]}
-            for field in ("uid", "list", "due"):
-                if isinstance(row.get(field), str):
-                    rem[field] = row[field][:200]
-            clean_reminders.append(rem)
-        clean_todos = [{"title": row["title"][:200]} for row in todos[:5]
-                       if isinstance(row, dict) and isinstance(row.get("title"), str)]
-        clean_events = []
-        for row in events[:3]:
-            if not isinstance(row, dict) or not isinstance(row.get("title"), str):
-                continue
-            ev = {"title": row["title"][:200], "all_day": row.get("all_day") is True}
-            if isinstance(row.get("start"), str):
-                ev["start"] = row["start"][:64]
-            clean_events.append(ev)
-        self._screen_items[_key(room)] = {"reminders": clean_reminders, "todos": clean_todos,
-                                          "more": more, "events": clean_events}
+        parsed = normalize_items_payload(items)
+        msg_person = parsed["person"]
+        if msg_person is not None and msg_person != sole_person:
+            return
+        self._screen_items[_key(room)] = parsed
+
+    def reconcile_screen_items(self, room: str, here: dict[str, tuple[float, list[str]]]) -> None:
+        """Drop stored items when occupancy is not exactly the person they belong to."""
+        key = _key(room)
+        stored = self._screen_items.get(key)
+        if stored is None:
+            return
+        if len(here) != 1:
+            del self._screen_items[key]
+            return
+        sole = next(iter(here))
+        person = stored.get("person")
+        if person is not None and person != sole:
+            del self._screen_items[key]
 
     def screen_items(self, room: str) -> dict[str, Any] | None:
         """The last items a screen in `room` sent; None when it sent none yet."""

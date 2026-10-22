@@ -296,32 +296,41 @@ def test_a_disconnect_forgets_what_it_could_do():
     assert bodies.kind("Kitchen") is None and not bodies.can("Kitchen", "here")
 
 
-ITEMS = {"reminders": [{"uid": "r1", "title": "Pay bill", "due": "2026-10-21T09:00:00+00:00",
-                        "list": "todo.alex_reminders"}], "todos": [], "more": 0, "events": []}
+ITEMS = {"person": "alex", "reminders": [{"uid": "r1", "title": "Pay bill", "due": "2026-10-21T09:00:00+00:00",
+                                          "list": "todo.alex_reminders"}], "todos": [], "more": 0, "events": []}
 
 
 def test_items_from_a_robot_are_ignored():
     bodies = Bodies("You are Nabu.")
     bodies.connect("Office", Sock())
-    bodies.receive_items("Office", ITEMS, people_here=1)
+    bodies.receive_items("Office", ITEMS, people_here=1, sole_person="alex")
     assert bodies.screen_items("Office") is None
 
 
-def test_a_screen_keeps_items_only_while_one_person_is_here():
+def test_a_screen_keeps_items_only_for_the_person_named():
     bodies = Bodies("You are Nabu.")
     bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
-    bodies.receive_items("Kitchen", ITEMS, people_here=1)
-    assert bodies.screen_items("Kitchen") == ITEMS
-    bodies.receive_items("Kitchen", ITEMS, people_here=2)
-    assert bodies.screen_items("Kitchen") == ITEMS
-    bodies.receive_items("Kitchen", {"reminders": [], "todos": [], "more": 0, "events": []}, people_here=1)
-    assert bodies.screen_items("Kitchen") == {"reminders": [], "todos": [], "more": 0, "events": []}
+    bodies.receive_items("Kitchen", ITEMS, people_here=1, sole_person="alex")
+    assert bodies.screen_items("Kitchen")["person"] == "alex"
+    bodies.receive_items("Kitchen", ITEMS, people_here=1, sole_person="maria")
+    assert bodies.screen_items("Kitchen")["person"] == "alex"
+    bodies.receive_items("Kitchen", {"person": None, "reminders": [], "todos": [], "more": 0, "events": []},
+                          people_here=1, sole_person="alex")
+    assert bodies.screen_items("Kitchen")["person"] is None
+
+
+def test_reconcile_drops_items_for_the_wrong_lone_occupant():
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
+    bodies.receive_items("Kitchen", ITEMS, people_here=1, sole_person="alex")
+    bodies.reconcile_screen_items("Kitchen", {"maria": (1.0, ["tap"])})
+    assert bodies.screen_items("Kitchen") is None
 
 
 def test_disconnect_clears_stored_items():
     bodies = Bodies("You are Nabu.")
     sock = Sock()
     bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
-    bodies.receive_items("Kitchen", ITEMS, people_here=1)
+    bodies.receive_items("Kitchen", ITEMS, people_here=1, sole_person="alex")
     bodies.disconnect("Kitchen", sock)
     assert bodies.screen_items("Kitchen") is None

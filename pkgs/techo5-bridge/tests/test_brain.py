@@ -37,7 +37,7 @@ def fetches(outs):
     return [o for o in outs if o[0] == "fetch"]
 
 
-EMPTY_ITEMS = {"items": {"reminders": [], "todos": [], "more": 0, "events": []}}
+EMPTY_ITEMS = {"items": {"person": None, "reminders": [], "todos": [], "more": 0, "events": []}}
 
 
 def test_it_says_hello_as_a_screen():
@@ -373,16 +373,25 @@ def test_items_message_shape():
         "more": 2,
         "events": [Event("Standup", start, False)],
     }
-    b = brain()
-    (msg,) = to_router(b.items(0.0, data))
+    b = brain(people={"alex": "Alex"})
+    (msg,) = to_router(b.items(0.0, data, for_person="alex"))
     assert msg == {
         "items": {
+            "person": "alex",
             "reminders": [{"uid": "r1", "title": "Pay bill", "due": due.isoformat(), "list": "todo.alex_reminders"}],
             "todos": [{"title": "Buy milk"}],
             "more": 2,
             "events": [{"title": "Standup", "start": start.isoformat(), "all_day": False}],
         }
     }
+
+
+def test_items_message_names_the_person():
+    b = brain(people={"alex": "Alex"})
+    (msg,) = to_router(b.items(0.0, {"reminders": [], "todos": [], "more": 0, "events": []}, for_person="alex"))
+    assert msg["items"]["person"] == "alex"
+    (clear,) = to_router(b.items(1.0, None, for_person=None))
+    assert clear["items"]["person"] is None
 
 
 def test_household_fetches_events_only():
@@ -398,15 +407,16 @@ def test_a_failed_read_still_sends_events():
     start = datetime(2026, 10, 21, 14, 0, tzinfo=tz)
     b = brain()
     data = {"reminders": [], "todos": [], "more": 0, "events": [Event("Standup", start, False)]}
-    assert to_router(b.items(0.0, data)) == [{
+    assert to_router(b.items(0.0, data, for_person="alex")) == [{
         "items": {
+            "person": "alex",
             "reminders": [],
             "todos": [],
             "more": 0,
             "events": [{"title": "Standup", "start": start.isoformat(), "all_day": False}],
         }
     }]
-    assert to_router(b.items(1.0, data)) == []
+    assert to_router(b.items(1.0, data, for_person="alex")) == []
     assert b.merge_fetch(None, None, None) is None
 
 
@@ -438,8 +448,8 @@ def test_router_reconnect_fetches_items_at_once():
     tz = ZoneInfo("UTC")
     data = {"reminders": [], "todos": [], "more": 0,
             "events": [Event("Standup", datetime(2026, 10, 21, 14, 0, tzinfo=tz), False)]}
-    to_router(b.items(1.0, data))
-    assert to_router(b.items(2.0, data)) == []
+    to_router(b.items(1.0, data, for_person="alex"))
+    assert to_router(b.items(2.0, data, for_person="alex")) == []
     assert fetches(b.router_connected(10.0))[0][:3] == ("fetch", "alex", b.profile()[1])
 
 

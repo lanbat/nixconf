@@ -363,8 +363,8 @@ class Brain:
     def wants_items(self) -> tuple[str | None, Profile]:
         return self.profile()
 
-    def _empty_items(self) -> dict:
-        return {"items": {"reminders": [], "todos": [], "more": 0, "events": []}}
+    def _empty_items(self, person: str | None = None) -> dict:
+        return {"items": {"person": person, "reminders": [], "todos": [], "more": 0, "events": []}}
 
     def _send_items(self, msg: dict, *, force: bool = False) -> list:
         if not force and msg == self._last_items:
@@ -372,12 +372,13 @@ class Brain:
         self._last_items = msg
         return [("router", msg)]
 
-    def items(self, now: float, data: dict | None) -> list:
+    def items(self, now: float, data: dict | None, *, for_person: str | None = None) -> list:
         from . import lists
 
         if data is None:
-            return self._send_items(self._empty_items())
+            return self._send_items(self._empty_items(for_person))
         payload = {
+            "person": for_person,
             "reminders": [{"uid": r.uid, "title": lists.clean(r.title), "due": r.due.isoformat() if r.due else None,
                            "list": r.list}
                           for r in data["reminders"]],
@@ -425,7 +426,7 @@ class Brain:
         data = self.merge_fetch(rem_raw, todo_raw, ev_raw, now=now)
         if data is None:
             return []
-        return self.items(mono, data)
+        return self.items(mono, data, for_person=for_person)
 
     def router_connected(self, now: float) -> list:
         self._last_items = None

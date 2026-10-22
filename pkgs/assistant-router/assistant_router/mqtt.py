@@ -37,7 +37,7 @@ import re
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 
-from .body import GESTURE_EVENTS, MOODS, PHASES, Bodies
+from .body import GESTURE_EVENTS, MOODS, PHASES, Bodies, normalize_items_payload
 
 LOOKS = ("track", "user", "up", "center")
 from .people import People
@@ -306,10 +306,11 @@ def items_state(room: str, items: dict | None) -> dict[str, tuple[str, dict]]:
     out[f"{uid}_todo_more"] = ("0", {})
     if not items:
         return out
-    reminders = items.get("reminders") if isinstance(items.get("reminders"), list) else []
-    todos = items.get("todos") if isinstance(items.get("todos"), list) else []
-    events = items.get("events") if isinstance(items.get("events"), list) else []
-    more = items.get("more") if type(items.get("more")) is int and items["more"] >= 0 else 0
+    parsed = normalize_items_payload(items)
+    reminders = parsed["reminders"]
+    todos = parsed["todos"]
+    events = parsed["events"]
+    more = parsed["more"]
     for i, rem in enumerate(reminders[:REMINDER_SLOTS], 1):
         if isinstance(rem, dict) and isinstance(rem.get("title"), str):
             attrs = {k: rem[k] for k in ("uid", "list", "due") if isinstance(rem.get(k), str)}
@@ -546,12 +547,23 @@ class HomeAssistant:
         return sorted(seen.values(), key=str.casefold)
 
     def _items_to_publish(self, room: str, now: float) -> dict | None:
-        """None clears every slot: not alone in the room, no screen, or no items yet."""
-        if len(self.people.here(room, now)) != 1:
+        """None clears every slot; household messages publish events only."""
+        here = self.people.here(room, now)
+        self.bodies.reconcile_screen_items(room, here)
+        if len(here) != 1:
             return None
         if not self.bodies.has(room) or self.bodies.kind(room) != "screen":
             return None
-        return self.bodies.screen_items(room)
+        stored = self.bodies.screen_items(room)
+        if stored is None:
+            return None
+        sole = next(iter(here))
+        person = stored.get("person")
+        if person is not None and person != sole:
+            return None
+        if person is None:
+            return {"person": None, "reminders": [], "todos": [], "more": 0, "events": stored.get("events") or []}
+        return stored
 
     async def _publish_items(self, publish: Publish, room: str, items: dict | None,
                             *, force: bool = False) -> None:

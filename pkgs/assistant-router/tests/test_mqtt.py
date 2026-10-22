@@ -408,11 +408,18 @@ def test_a_sighting_is_an_event_in_the_logbook():
 
 
 SAMPLE_ITEMS = {
+    "person": "alex",
     "reminders": [{"uid": "r1", "title": "Pay bill", "due": "2026-10-21T09:00:00+00:00",
                    "list": "todo.alex_reminders"}],
     "todos": [{"title": "Buy milk"}, {"title": "Call mom"}],
     "more": 0,
     "events": [{"title": "Standup", "start": "2026-10-21T10:00:00+00:00", "all_day": False}],
+}
+
+MARIA_ITEMS = {
+    "person": "maria",
+    "reminders": [{"uid": "r2", "title": "Water plants", "due": None, "list": "todo.maria_reminders"}],
+    "todos": [], "more": 0, "events": [],
 }
 
 
@@ -454,7 +461,7 @@ async def test_items_become_slot_sensors():
     socket = Socket()
     bodies.connect("Kitchen", socket, "screen", ["here"])
     people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
-    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     broker = Broker()
     await ha.bootstrap_items(broker.publish)
     await ha.tick(broker.publish)
@@ -472,7 +479,7 @@ async def test_two_people_in_the_room_publish_nothing_private():
     people = People({"alex": "Alex", "maria": "Maria"})
     ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
     bodies.connect("Kitchen", Socket(), "screen", ["here"])
-    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
     people.observe("Kitchen", "tap", "maria", 1.0, 100.0)
     broker = Broker()
@@ -490,7 +497,7 @@ async def test_disconnect_clears():
     socket = Socket()
     bodies.connect("Kitchen", socket, "screen", ["here"])
     people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
-    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     broker = Broker()
     await ha.bootstrap_items(broker.publish)
     await ha.tick(broker.publish)
@@ -513,13 +520,34 @@ async def test_start_clears_retained_slots():
     assert broker.messages[0][2] is True
 
 
+async def test_stale_items_are_not_shown_to_the_next_person_alone():
+    bodies = Bodies("You are Nabu.")
+    people = People({"alex": "Alex", "maria": "Maria"})
+    clock = [100.0]
+    ha = HomeAssistant(bodies, people, lambda: clock[0], screen_rooms=["Kitchen"])
+    bodies.connect("Kitchen", Socket(), "screen", ["here"])
+    people.observe("Kitchen", "tap", "alex", 1.0, clock[0])
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
+    broker = Broker()
+    await ha.bootstrap_items(broker.publish)
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Pay bill"
+    clock[0] = 250.0  # alex's tap aged out; maria alone before her bridge fetch
+    people.observe("Kitchen", "tap", "maria", 1.0, clock[0])
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "none"
+    bodies.receive_items("Kitchen", MARIA_ITEMS, people_here=1, sole_person="maria")
+    await ha.tick(broker.publish)
+    assert broker.last("lanbat/screen/kitchen/reminder/1") == "Water plants"
+
+
 async def test_unchanged_items_are_not_republished():
     bodies = Bodies("You are Nabu.")
     people = People({"alex": "Alex"})
     ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
     bodies.connect("Kitchen", Socket(), "screen", ["here"])
     people.observe("Kitchen", "tap", "alex", 1.0, 100.0)
-    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1)
+    bodies.receive_items("Kitchen", SAMPLE_ITEMS, people_here=1, sole_person="alex")
     broker = Broker()
     await ha.bootstrap_items(broker.publish)
     await ha.tick(broker.publish)
