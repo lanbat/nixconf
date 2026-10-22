@@ -197,3 +197,24 @@ Defaults taken when the user approved the design without answering two questions
 - How many to-do and reminder items fit before "+N more".
 - Tests: the dashboard generator's tests, `test_brain.py`, and a fixture in
   `tests/ha-dashboards.py`.
+
+## Walk-through after deploy
+
+Do this by hand on the kitchen Show after merging to `origin/master` and deploying
+(follow-me stays in dry run for the first day):
+
+- [ ] Add a reminder due now to `todo.<key>_reminders` and an open item to
+      `todo.<key>_todo` in Home Assistant.
+- [ ] Walk up alone: greeting, then the reminder card, calendar events and to-dos on the
+      personal view.
+- [ ] Tap the reminder: it disappears on the screen and the item is completed in Home
+      Assistant.
+- [ ] A second person walks up: personal sections (reminders, to-dos) drop away.
+- [ ] Everyone leaves; after `screenOffAfter` minutes the screen goes off.
+- [ ] Read the logbook for `Follow-me would turn off the lights` (and hand-switched lights
+      if `lightsOffAny` is on).
+- [ ] Note what the screen looked like on the 1280×800 panel (layout, reflow).
+
+## Spike results
+
+_(None yet.)_

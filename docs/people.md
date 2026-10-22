@@ -433,6 +433,14 @@ to no one), "not anyone known" (a library name that is nobody here), "no face fo
 (`face_probe`). Frigate's own pages don't list these: it shows only what its cameras
 detect, and a frame checked through its API is answered and not kept.
 
+Each Echo Show on TECHO5 also has item sensors on its screen device
+(`sensor.lanbat_screen_<room>_reminder_*`, `_todo_*`, `_todo_more`, `_event_*`): plain
+text the dashboard tiles read, filled by the assistant router from what the bridge fetched
+from Home Assistant. They mirror each person's `todo.*` lists and calendars configured on
+the profile (`docs/techo5.md`); the lists themselves stay ordinary Home Assistant to-do
+entities any household member can open. The screen shows reminders and to-dos only while
+exactly that one person is placed in the room.
+
 ## Acting on where people are
 
 The `follow-me` plugin (`lanbatPlugins.follow-me`, `modules/server/follow-me.nix`) turns
@@ -445,6 +453,7 @@ is set, and starts as a **dry run**: every decision is written to the logbook as
 modules = [ {
   lanbat.homeAssistant.followMe = {
     enable = true;
+    # lightsOffAny = true;
     rooms."Office" = { lights = [ "light.office_lamp" ]; illuminance = "sensor.office_lux"; };
     rooms."Kitchen" = { lights = [ "light.kitchen_strip" ]; music = false; };
   };
@@ -459,7 +468,8 @@ lists some; someone not listed (a guest) neither moves music nor keeps a room oc
 | What | When (defaults) |
 |---|---|
 | **Lights on** | someone arrives in a room (stays 10 s), it is dark (the room's light sensor under 30 lx, or the sun below -1 degree) and it is evening (17:00 to 22:30: 100 %) or night (22:30 to 06:30: 20 %, warm). Never by day, and not if a light is already on. |
-| **Lights off** | the room has been empty 5 minutes, and follow-me turned its lights on. A light you switched on, or off, by hand is left alone. |
+| **Lights off** | the room has been empty 5 minutes, and follow-me turned its lights on. A light you switched on, or off, by hand is left alone unless **Hand-switched lights off** is on. |
+| **Hand-switched lights off** | optional (`lightsOffAny`, default off): the room has been empty `lightsOffAnyMinutes` (10), and any of the room's listed `lights` is on, including ones you switched on by hand. Only those listed lights; a screen's or robot's own light is never touched unless you list it. Respects dry run, pause and guests like the other empty-room rules. |
 | **Music follows** | a person's last room changes and holds 20 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per minute per person at most. |
 | **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
 

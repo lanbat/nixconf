@@ -138,7 +138,13 @@
         # inputs.self.lanbatPlugins.dns
         # Music that follows people, lights and music off in empty rooms
         # (docs/people.md#acting-on-where-people-are); set
-        # lanbat.homeAssistant.followMe in a module below.
+        # lanbat.homeAssistant.followMe in a module below, for example:
+        #   lanbat.homeAssistant.followMe = {
+        #     enable = true;
+        #     dryRun = true;
+        #     # lightsOffAny = true;
+        #     rooms."Kitchen" = { lights = [ "light.kitchen_strip" ]; };
+        #   };
         # inputs.self.lanbatPlugins.follow-me
         # inputs.lanbat-justpark-parking.lanbatPlugin
       ];

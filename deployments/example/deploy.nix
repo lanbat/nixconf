@@ -141,6 +141,14 @@
             };
           };
         }
+        # Follow-me (docs/people.md#acting-on-where-people-are); dryRun defaults to true.
+        # {
+        #   lanbat.homeAssistant.followMe = {
+        #     enable = true;
+        #     # lightsOffAny = true;
+        #     rooms."Office" = { lights = [ "light.office_lamp" ]; };
+        #   };
+        # }
         # qBittorrent's categories and qBittorrent.conf (services/qbittorrent.nix).
         # Both are rewritten on every start, so nothing is set in the web UI.
         {
