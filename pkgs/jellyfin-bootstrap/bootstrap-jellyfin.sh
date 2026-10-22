@@ -14,10 +14,10 @@ IMVDB_API_KEY="${IMVDB_API_KEY:-}"
 OPENSUBTITLES_USERNAME="${OPENSUBTITLES_USERNAME:-}"
 OPENSUBTITLES_PASSWORD="${OPENSUBTITLES_PASSWORD:-}"
 # DLNA: 1 installs the DLNA plugin and lets Jellyfin play to DLNA speakers and
-# screens (the Echo Shows); DLNA_SERVER=1 also shares the libraries with every
-# DLNA client on the LAN, which asks for no login. 0 turns both off again.
+# screens (the Echo Shows); 0 turns that off again (the plugin stays installed).
+# The plugin's media-server side has no switch: who can reach it is the
+# firewall's to say (services/jellyfin.nix).
 DLNA_ENABLE="${DLNA_ENABLE:-0}"
-DLNA_SERVER="${DLNA_SERVER:-0}"
 STATE_DIR="${STATE_DIR:-/var/lib/jellyfin}"
 WIZARD_STATE_FILE="${WIZARD_STATE_FILE:-${STATE_DIR}/.lanbat-bootstrap-complete}"
 CONFIG_STATE_FILE="${CONFIG_STATE_FILE:-${STATE_DIR}/.lanbat-jellyfin-config-complete}"
@@ -377,33 +377,30 @@ setup_plugins() {
   fi
 }
 
-# The DLNA plugin's two switches, by the names its configuration has always
-# used: EnablePlayTo (Jellyfin finds DLNA speakers and screens and plays to
-# them) and EnableServer (Jellyfin is a DLNA media server). A key the plugin's
-# configuration lacks is left alone, so a renamed one changes nothing.
-# $play and $server are JSON booleans.
+# The DLNA plugin's one switch that matters here, EnablePlayTo: Jellyfin finds
+# DLNA speakers and screens and plays to them. (Its settings are this, how often
+# it announces itself and looks for devices, and which user DLNA clients see;
+# read from the plugin's own configuration page, DLNA 10.0.0.0.) A configuration
+# without the key is left alone. $play is a JSON boolean.
 DLNA_JQ='
-  (if has("EnablePlayTo") then .EnablePlayTo = $play else . end)
-  | (if has("EnableServer") then .EnableServer = $server else . end)'
+  (if has("EnablePlayTo") then .EnablePlayTo = $play else . end)'
 
-# Sets them from DLNA_ENABLE and DLNA_SERVER once the plugin is loaded, and
-# turns them off again when DLNA is switched off (the plugin stays installed).
+# Sets it from DLNA_ENABLE once the plugin is loaded.
 configure_dlna() {
-  local id current desired play=false server=false
+  local id current desired play=false
   id="$(api_call "${JELLYFIN_URL}/Plugins" | jq -r '[.[] | select(.Name == "DLNA") | .Id][0] // empty')"
   [[ -n "$id" ]] || return 0
   [[ "$DLNA_ENABLE" == 1 ]] && play=true
-  [[ "$DLNA_ENABLE" == 1 && "$DLNA_SERVER" == 1 ]] && server=true
   current="$(api_call "${JELLYFIN_URL}/Plugins/${id}/Configuration")"
-  if ! jq -e 'has("EnablePlayTo") or has("EnableServer")' <<<"$current" >/dev/null; then
-    log "the DLNA plugin's configuration has neither EnablePlayTo nor EnableServer; leaving it as it is"
+  if ! jq -e 'has("EnablePlayTo")' <<<"$current" >/dev/null; then
+    log "the DLNA plugin's configuration has no EnablePlayTo; leaving it as it is"
     return 0
   fi
-  desired="$(jq --argjson play "$play" --argjson server "$server" "$DLNA_JQ" <<<"$current")"
+  desired="$(jq --argjson play "$play" "$DLNA_JQ" <<<"$current")"
   if [[ "$(jq -S . <<<"$desired")" == "$(jq -S . <<<"$current")" ]]; then
     return 0
   fi
-  log "DLNA: play to devices ${play}, media server ${server}"
+  log "DLNA: play to devices ${play}"
   api_call -X POST "${JELLYFIN_URL}/Plugins/${id}/Configuration" \
     -H 'Content-Type: application/json' \
     -d "$desired" \

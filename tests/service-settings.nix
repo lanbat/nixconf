@@ -2190,17 +2190,21 @@ let
       && lib.hasInfix "iptables -I INPUT -p udp -s 192.0.2.77 -j ACCEPT" rules
       && lib.hasInfix "iptables -D INPUT -p udp -s 192.0.2.60 -j ACCEPT" routerNoTap.networking.firewall.extraStopCommands
       && lib.hasInfix "DLNA_ENABLE=\"1\"" script
-      && lib.hasInfix "DLNA_SERVER=\"1\"" script
+      # The media-server side has no switch in the plugin: the firewall is what opens it to the LAN.
+      && lib.elem 1900 routerNoTap.networking.firewall.allowedUDPPorts
+      && lib.elem 8096 routerNoTap.networking.firewall.allowedTCPPorts
       && kitchen.settings.dlna == true
       && kitchen.settings.video == true
       && kitchen.settings.dlna_video == true
       # On by default, the media server off, nobody allowed in without a device to name.
       && lib.hasInfix "DLNA_ENABLE=\"1\"" (jellyfinBootstrap base)
-      && lib.hasInfix "DLNA_SERVER=\"0\"" (jellyfinBootstrap base)
+      && !lib.elem 1900 base.networking.firewall.allowedUDPPorts
+      && !lib.elem 8096 base.networking.firewall.allowedTCPPorts
       && !lib.hasInfix "-p udp -s" base.networking.firewall.extraCommands
       # Off: nothing opened, and the bootstrap told to switch it off.
       && lib.hasInfix "DLNA_ENABLE=\"0\"" (jellyfinBootstrap jellyfinImvdb)
       && !lib.hasInfix "192.0.2.77" jellyfinImvdb.networking.firewall.extraCommands
+      && !lib.elem 1900 jellyfinImvdb.networking.firewall.allowedUDPPorts
     ))
 
     (expect

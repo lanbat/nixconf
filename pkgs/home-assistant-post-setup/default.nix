@@ -3,6 +3,7 @@
   stdenv,
   makeWrapper,
   jq,
+  curl,
   coreutils,
   openssl,
   systemd,
@@ -24,6 +25,7 @@ stdenv.mkDerivation {
       --prefix PATH : "${
         lib.makeBinPath [
           jq
+          curl
           coreutils
           openssl
           systemd # busctl, systemctl
