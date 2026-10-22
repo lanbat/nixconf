@@ -104,6 +104,41 @@ detector sees someone, every 20 s until the router names them, and its frame is 
 "remember me" enrols. Frames leave it only for those two, and go no further than the
 router and Frigate ([techo5.md](techo5.md)).
 
+## The satellite's camera
+
+The PlayStation Eye that is a voice satellite's microphone array also has a camera, and the
+`lanbat-satellite-camera` plugin (`modules/pi/satellite-camera.nix`, `pkgs/satellite-camera`)
+uses it as a face source for the router. Enable it on a host with a satellite room and the
+router, like room-presence:
+
+```nix
+plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-camera ];
+```
+
+- **Only when something moves.** Every few seconds (`sampleSeconds`, 3) it opens the camera
+  for one small grey frame and closes it again; if the picture changed by more than `motion`
+  it sends a 320x240 JPEG to the router, at most every `gapSeconds` (20), and every
+  `againSeconds` (60) once the router named someone or kept finding nobody it knows. Nothing
+  streams and nothing is kept on the Pi. There is no face detector on the Pi (a Pi 3 has no
+  room for one): a frame with no face is answered "no face found" by the face library and
+  costs nothing else.
+- **Always "seen".** The camera is fixed, not aimed at whoever is talking, so what it sees
+  is who is in the room (the same evidence as a room's camera), never who is speaking.
+- **What it is used for.** Naming who is in the room, sightings (source *satellite*, with
+  the picture, on the admin page), Unknown people (a stranger it sees gets a name of their
+  own, above), and enrolment: *"remember me"*, and the three frames after a tap or a card,
+  ask the camera for a face when the room has no robot or screen to ask.
+- **Not a body.** It is its own kind of router client, so a Stack-chan or an Echo Show in
+  the same room stays; a robot that can capture is asked first. A room with only a camera
+  has no Home Assistant device: its sightings are on the admin page.
+- **Where it runs.** The camera is the first video node of USB `1415:2000` (`usbId`, for another
+  camera), readable by the `video` group; the unit starts when it is plugged in and stops
+  when it is unplugged. Check that the host's kernel has the driver (`gspca_ov534`: `modinfo
+  gspca_ov534`), and on a Pi 3 that its single USB port budget (the Ethernet, the microphone
+  and now the camera share it) still holds; an under-voltage Pi will show it.
+- **Privacy.** A frame of whoever walks past is sent to the router and the face library, so
+  it is the same decision as any room camera. Frames go to the router only.
+
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any

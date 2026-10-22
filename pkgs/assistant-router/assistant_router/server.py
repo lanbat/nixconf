@@ -284,10 +284,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         # models refuse both together, so the provider's defaults apply.
         out = {k: v for k, v in body.items() if k not in ("temperature", "top_p", "user")}
         out["model"] = cfg.cloud_model
-        # The enrolment tool is offered only where a body can actually capture
-        # a face: Frigate is wired and this room has a body with a camera.
+        # The enrolment tool is offered only where a face can actually be had:
+        # Frigate is wired and this room has a body with a camera, or a satellite's.
         # With voice-id, a voice can be enrolled anywhere.
-        if (enrollable and bodies.can(room, "capture")) or voice is not None:
+        if (enrollable and bodies.can_capture(room)) or voice is not None:
             out["tools"] = list(out.get("tools") or []) + [ENROLL_TOOL]
         if voice is not None or frigate is not None:
             out["tools"] = list(out.get("tools") or []) + [FORGET_TOOL]
@@ -740,11 +740,15 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
     its room ({"here": [...]}) when it connects and on each change, with the
     settings each chose for their screen (`prefs`, prefs.py)."""
     people = people or People({})
-    non_bodies = ("room-sensor", "face-source", "house-sensor")
+    non_bodies = ("room-sensor", "face-source", "house-sensor", "satellite-camera")
+
+    def sees(kind: str) -> bool:
+        """A body, or a satellite's camera: what may send a face probe or a captured face."""
+        return kind not in non_bodies or kind == "satellite-camera"
     on_camera: dict[str, set[str]] = {}  # place key -> who its cameras see now (sightings when they appear)
     tasks: set[asyncio.Task] = set()
 
-    async def sighted(room: str, check: dict, img: bytes) -> dict:
+    async def sighted(room: str, check: dict, img: bytes, source: str | None = None) -> dict:
         """A body's frame with a face in it is a sighting, named or not; the
         frame itself is kept (sightings.py) and Home Assistant told. A face
         that matched no one becomes (or is again) an Unknown (unknowns.py):
@@ -760,7 +764,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                     check = {**check, "result": people.names[key], "person": key}
         if sightings is None:
             return check
-        source = "robot" if bodies.is_robot(room) else "screen"
+        source = source or ("robot" if bodies.is_robot(room) else "screen")
         sightings.record(room, check["person"], source, check["confidence"], jpeg=img)
         bodies.announce(room, {"sighting": {"person": people.names.get(check["person"] or "", None),
                                             "source": source, "confidence": check["confidence"]}})
@@ -882,6 +886,12 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                                 await ws.send_json({"irks": known_irks()})
                         except Exception:  # pylint: disable=broad-except
                             pass
+                    elif kind == "satellite-camera":
+                        bodies.connect_camera(room, ws)
+                        try:
+                            await ws.send_json({"body_hello": {"faces": frigate is not None}})
+                        except Exception:  # pylint: disable=broad-except
+                            pass
                     elif kind == "house-sensor" and taps is not None:
                         house.add(ws)
                         await tell_house(dict(taps.phones))
@@ -924,9 +934,9 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             and isinstance(sample.get("pcm"), str):
                         # Scored by voice-id, reported to /v1/voice, never kept.
                         spawn(voice.embed(sample["text"], sample["pcm"]))
-                elif room and kind not in non_bodies and "face_image" in data:
+                elif room and sees(kind) and "face_image" in data:
                     bodies.complete_capture(room, data["face_image"])
-                elif room and kind not in non_bodies and "face_probe" in data:
+                elif room and sees(kind) and "face_probe" in data:
                     img = _b64(data.get("face_probe"))
                     if img and frigate is not None:
                         error = None
@@ -943,7 +953,7 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                             source = "seen" if data.get("why") == "seen" else "aimed"
                             people.observe(room, source, person, hit.get("confidence"), clock())
                         check = face_check(hit, error, people.names, str(data.get("why") or "turn"), time.time())
-                        check = await sighted(room, check, img)
+                        check = await sighted(room, check, img, "satellite" if kind == "satellite-camera" else None)
                         bodies.note_face_check(room, check)
                         LOG.info(json.dumps({"face_probe": room, **check,
                                              **({"frigate": error.detail[:120]} if error else {})}))
@@ -966,6 +976,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
         finally:
             house.discard(ws)
             sensors.discard(ws)
+            if room and kind == "satellite-camera":
+                bodies.disconnect_camera(room, ws)
             if room and kind not in non_bodies:
                 bodies.disconnect(room, ws)
                 LOG.info(json.dumps({"body": "gone", "room": room}))

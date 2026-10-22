@@ -27,7 +27,7 @@ import sqlite3
 import time
 from typing import Callable
 
-SOURCES = ("robot", "screen", "camera")
+SOURCES = ("robot", "screen", "camera", "satellite")
 _PICTURE = re.compile(r"[0-9]{10,12}-[0-9a-f]{8}\.jpg")
 _EVENT = re.compile(r"[0-9]{6,14}\.[0-9]{1,8}-[a-z0-9]{1,16}")
 MAX_PICTURE = 128 * 1024

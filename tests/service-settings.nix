@@ -413,6 +413,7 @@ let
           pi-voice = deploy.hosts.pi-voice // {
             plugins = deploy.hosts.pi-voice.plugins ++ [
               inputsWithSelf.self.lanbatPlugins.room-presence
+              inputsWithSelf.self.lanbatPlugins.satellite-camera
               inputsWithSelf.self.lanbatPlugins.stackchan
             ];
           };
@@ -1031,6 +1032,24 @@ let
       )
       && failedAssertions bodyServer == [ ]
       && failedAssertions bodyPi == [ ]
+    ))
+
+    (expect "satellite-camera: the Eye's camera, for the router only, started when it is plugged in" (
+      let
+        unit = presencePi.systemd.services.satellite-camera;
+      in
+      lib.hasInfix ":8770/v1/body" unit.environment.ROUTER_BODY_URL
+      && unit.environment.ROOM == "Kitchen"
+      && unit.environment.DEVICE == "/dev/satellite-camera"
+      && unit.serviceConfig.SupplementaryGroups == [ "video" ]
+      && unit.serviceConfig.DeviceAllow == [ "char-video4linux rw" ]
+      && unit.serviceConfig.DevicePolicy == "closed"
+      && unit.serviceConfig.IPAddressDeny == "any"
+      && lib.hasInfix ''ATTRS{idVendor}=="1415", ATTRS{idProduct}=="2000"'' presencePi.services.udev.extraRules
+      && lib.hasInfix ''ENV{SYSTEMD_WANTS}+="satellite-camera.service"'' presencePi.services.udev.extraRules
+      && lib.elem "assistant-router" presencePi.lanbat.services.satellite-camera.consumes
+      && !(presenceServer.systemd.services ? satellite-camera)
+      && failedAssertions presencePi == [ ]
     ))
 
     (expect "stackchan: where its Pi scans the room for phones, the robot leaves them to it" (
