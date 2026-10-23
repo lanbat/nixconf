@@ -148,6 +148,8 @@ let
   # A satellite with a room hands its replies to the voice_reply script.
   voiceRooms = config.lanbat.deployment.voiceRooms != { };
   xiaomiBle = config.lanbat.deployment.haXiaomiBle;
+  # The house's Google Calendar, from the iCal feed URL in ha-gcal-url.age.
+  haCalendar = config.lanbat.deployment.haCalendar;
   # The storage Pi's satellite, reached the way policy on the Pi admits Home
   # Assistant: over the overlay when the profile runs one, the LAN otherwise.
   storageKey = config.lanbat.deployment.primaryStorage;
@@ -1580,6 +1582,12 @@ in
           enable = xiaomiBle;
           owner = "root";
         };
+        # The iCal feed URL of the house's Google Calendar (one line), for the
+        # remote_calendar entry home-assistant-post-setup provisions.
+        ha-gcal-url = {
+          enable = haCalendar;
+          owner = "root";
+        };
       };
       caddy.proxyOptions = ''
         # Long-lived websockets for HA's live updates.
@@ -1747,6 +1755,9 @@ in
         ${lib.optionalString xiaomiBle ''
           export XIAOMI_BLE_KEYS_FILE="${config.lanbat.secrets.ha-xiaomi-ble.path}"
         ''}
+        ${lib.optionalString haCalendar ''
+          export GCAL_URL="$(cat ${config.lanbat.secrets.ha-gcal-url.path})"
+        ''}
         # Rooms for devices, and the dashboards generated from the registries.
         export DEVICE_AREAS=${lib.escapeShellArg (builtins.toJSON cfg.deviceAreas)}
         export HA_DASHBOARDS="${lib.getExe haDashboards}"
@@ -1838,6 +1849,12 @@ in
       ++ lib.optionals hasAndroidTv [ "androidtv" ]
       ++ lib.optionals (hasLvaSatellite || hasTechos) [
         "esphome"
+      ]
+      ++ lib.optionals haCalendar [
+        # The house's Google Calendar (iCal feed in ha-gcal-url.age). A
+        # config-entry-only integration, so the yaml scan never sees it;
+        # declaring it here is what pulls its ical dependency into the package.
+        "remote_calendar"
       ]
       ++ [
         "music_assistant"

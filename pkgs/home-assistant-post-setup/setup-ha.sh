@@ -88,6 +88,10 @@ VOICE_RECORD_JQ='$record | split("\n") | map(select(test("^[A-Z_]+=")) | capture
 # cloud is not involved.
 XIAOMI_BLE_KEYS_FILE="${XIAOMI_BLE_KEYS_FILE:-}"
 
+# The iCal feed URL of the house's Google Calendar (ha-gcal-url.age, one
+# line), for the remote_calendar entry. Empty when the host has no calendar.
+GCAL_URL="${GCAL_URL:-}"
+
 log() {
   echo "home-assistant-post-setup: $*"
 }
@@ -1162,6 +1166,26 @@ ensure_xiaomi_ble() {
   done < <(xiaomi_ble_devices)
 }
 
+remote_calendar_needed() {
+  [[ -n "$GCAL_URL" ]] || return 1
+  ! has_entry remote_calendar
+}
+
+# The house's Google Calendar: remote_calendar polls the iCal feed, and the
+# who page's settings screens offer its calendar entity. Home Assistant
+# fetches and parses the feed when the entry sets up, so a bad URL surfaces
+# as a setup error in the logs rather than a silent no-op.
+ensure_remote_calendar() {
+  if [[ -z "$GCAL_URL" ]] || has_entry remote_calendar; then
+    return 0
+  fi
+  log "adding remote_calendar entry for the house calendar"
+  # The feed URL is a credential: it goes through the environment, not argv,
+  # to keep it out of the process list.
+  add_entry remote_calendar "House" \
+    "$(url="$GCAL_URL" jq -n '{calendar_name: "House", url: env.url, verify_ssl: true}')"
+}
+
 ensure_areas() {
   if state_done areas || [[ ! -f "$AREA_REGISTRY" ]]; then
     [[ -f "$AREA_REGISTRY" ]] && mark_done areas
@@ -1390,6 +1414,7 @@ if ! state_done "$(satellite_vad_state_key)"; then needs_work=true; fi
 if voice_token_needed; then needs_work=true; fi
 if bluetooth_needed; then needs_work=true; fi
 if xiaomi_ble_needed; then needs_work=true; fi
+if remote_calendar_needed; then needs_work=true; fi
 if device_areas_needed; then needs_work=true; fi
 if dashboards_needed; then needs_work=true; fi
 
@@ -1433,6 +1458,7 @@ ensure_satellite_vad
 ensure_voice_token
 ensure_bluetooth
 ensure_xiaomi_ble
+ensure_remote_calendar
 ensure_areas
 ensure_device_areas
 ensure_dashboards
