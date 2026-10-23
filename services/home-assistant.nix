@@ -386,11 +386,16 @@ let
 
   # The Music Assistant player to use in the area: the one of the satellite's
   # own host when it is in the area, else the first one there (a room named in
-  # the request, or a satellite whose host has no player).
+  # the request, or a satellite whose host has no player). Unavailable players
+  # are left out: a satellite whose host has no music player (the server's,
+  # lanbat.voiceSatellite.playMusic = false) still has an unavailable player in
+  # its area, and picking it made play/volume fail with "Player ... is not
+  # available" instead of falling back to the room's real speaker.
   roomPlayerTemplate = ''
     {%- set room = area_entities(area) if area else [] -%}
     {%- set ma = integration_entities('music_assistant')
-                 | select('match', 'media_player\\.') | select('in', room) | list -%}
+                 | select('match', 'media_player\\.') | select('in', room)
+                 | reject('is_state', ['unavailable', 'unknown']) | list -%}
     {%- set ns = namespace(own="") -%}
     {%- for p in ma -%}
       {%- if not ns.own and own_host
@@ -477,6 +482,7 @@ let
       {{ integration_entities('music_assistant')
          | select('match', 'media_player\\.')
          | select('in', room)
+         | reject('is_state', ['unavailable', 'unknown'])
          | list + tvs }}'';
   };
 
