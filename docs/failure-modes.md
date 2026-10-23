@@ -92,7 +92,7 @@ Services that stay up during Pi reboot (always-on tier):
 - Frigate ✓ (local DB; live stream from cameras unaffected)
 - SearXNG ✓
 - Redlib ✓ (stateless; needs the internet, not the Pi)
-- Invidious ✓ (database on the always-on instance; needs the internet, not the Pi)
+- Invidious ✓ (database on the always-on instance; needs the internet, not the Pi). Playback also needs `invidious-companion` on localhost: if it is down, search and browsing still work but videos fail
 - Music Assistant ✓ (library scans fail while Pi NFS is down; service stays up). Radio, podcasts and the video-channel bridge (`media-feed-bridge`) need only the internet (if GitHub is unreachable, or a new yt-dlp is no improvement on the channels, the bridge keeps the yt-dlp it has); its Audiobookshelf provider works only while Audiobookshelf does
 - Snapserver ✓
 - Wyoming pipeline (STT/TTS/wake word), the speaker-identification proxy (`voice-id`, which Home Assistant's speech-to-text goes through: if it is down, voice commands get no transcript until it restarts; switching the Voice pipeline's speech-to-text to faster-whisper in Home Assistant bypasses it; while the workload layer is locked it transcribes as usual but recognises nobody), the local conversation model (`llama-cpp`, when `haLlm` is on the loopback) and the server's voice satellite ✓
