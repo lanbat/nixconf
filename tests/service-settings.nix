@@ -30,10 +30,11 @@
 #     and a profile moves them.
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
-#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube and Twitch
-#     addons are off and need no key by default; settings.youtube and
-#     settings.twitch require kodi-youtube-env and kodi-twitch-token and put
-#     their addon into the Kodi package.
+#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch and
+#     subtitle addons are off and need no key by default; settings.youtube,
+#     settings.twitch and settings.opensubtitles require kodi-youtube-env,
+#     kodi-twitch-token and kodi-opensubtitles-env and put their addon into the
+#     Kodi package.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -554,6 +555,10 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.twitch = true; } ];
     })).configurations.example-pi-storage.config;
+  tvBoxSubtitles =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.opensubtitles = true; } ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -581,6 +586,10 @@ let
   kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
     twitchAddon
+  ]);
+  kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    addons.a4ksubtitles
   ]);
   kodiOf =
     config:
@@ -1524,9 +1533,10 @@ let
 
     # The streaming addons are off by default, so the box runs plain Kodi and
     # its profile needs no key for them.
-    (expect "tv: the YouTube and Twitch addons are off by default and need no key" (
+    (expect "tv: the YouTube, Twitch and subtitle addons are off by default and need no key" (
       !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
       && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
+      && !(lvaTvBox.lanbat.secrets ? "kodi-opensubtitles-env")
       && kodiOf lvaTvBox == kodiBase.outPath
     ))
 
@@ -1547,6 +1557,17 @@ let
       && !(tvBoxTwitch.lanbat.secrets ? "kodi-youtube-env")
       && failedAssertions tvBoxTwitch == [ ]
     ))
+
+    (expect "tv: settings.opensubtitles provisions the OpenSubtitles account and puts the addon in Kodi"
+      (
+        tvBoxSubtitles.lanbat.secrets ? "kodi-opensubtitles-env"
+        && tvBoxSubtitles.lanbat.secrets."kodi-opensubtitles-env".owner == "root"
+        && tvBoxSubtitles.lanbat.secrets."kodi-opensubtitles-env".declaredBy == "kodi"
+        && kodiOf tvBoxSubtitles == kodiSubtitles.outPath
+        && !(tvBoxSubtitles.lanbat.secrets ? "kodi-youtube-env")
+        && failedAssertions tvBoxSubtitles == [ ]
+      )
+    )
 
     (expect "voice-id: identifies speakers into the router, voiceprints on the workload layer" (
       let
