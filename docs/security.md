@@ -120,7 +120,7 @@ sudo systemctl start caddy
 Re-run the `openssl verify` check; once it succeeds, clients that already trust
 the pinned root need no further change.
 - Services that are admin-only (Frigate, qBittorrent, Bitmagnet) are behind Authentik forward auth.
-- SearXNG is intentionally unauthenticated (it's a search proxy, not a private service).
+- SearXNG, Redlib and Invidious are intentionally unauthenticated (they are search/front-end proxies, not private services).
 
 ### Firewall
 - Server allows: 22 (SSH), 80 (redirect to HTTPS), 443 (HTTPS), 7500 (Tang), 2049 (NFS — Pi only), 1883 (MQTT — LAN only).

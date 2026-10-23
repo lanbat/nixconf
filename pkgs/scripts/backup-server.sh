@@ -11,6 +11,7 @@
 #   - /var/lib/caddy (Caddy config + CA keys — required)
 #   - /var/lib/tang  (Tang private keys — required; control layer only)
 #   - /var/lib/authentik
+#   - /var/lib/invidious (hmac key; its database comes from the PostgreSQL dump)
 #   - /var/lib/nextcloud
 #   - /var/lib/immich/profile
 #   - /var/lib/music-assistant
@@ -123,6 +124,7 @@ echo "  Backing up always-on service state..."
 copy_state /var/lib/hass            hass
 copy_required_state /var/lib/caddy  caddy
 copy_state /var/lib/authentik       authentik
+copy_state /var/lib/invidious       invidious
 copy_state /var/lib/music-assistant music-assistant
 
 if control_online; then

@@ -4,7 +4,8 @@
 
 1. Server boots. Host layer comes up immediately — SSH reachable, both LUKS layers locked.
 2. Always-on services start automatically: Caddy, PostgreSQL (always-on instance),
-   Authentik, HA, Grafana, InfluxDB, Mosquitto, Frigate, Music Assistant, Snapcast, Wyoming, SearXNG, Telegraf.
+   Authentik, HA, Grafana, InfluxDB, Mosquitto, Frigate, Music Assistant, Snapcast, Wyoming,
+   SearXNG, Redlib, Invidious, Telegraf.
 3. Admin SSHes in and runs `sudo unlock-control` → Tang starts on port 7500.
 4. Admin runs `sudo unlock-workload` → the PostgreSQL workload instance, Nextcloud, Immich,
    Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM come up.
@@ -90,6 +91,8 @@ Services that stay up during Pi reboot (always-on tier):
 - Mosquitto ✓
 - Frigate ✓ (local DB; live stream from cameras unaffected)
 - SearXNG ✓
+- Redlib ✓ (stateless; needs the internet, not the Pi)
+- Invidious ✓ (database on the always-on instance; needs the internet, not the Pi)
 - Music Assistant ✓ (library scans fail while Pi NFS is down; service stays up). Radio, podcasts and the video-channel bridge (`media-feed-bridge`) need only the internet (if GitHub is unreachable, or a new yt-dlp is no improvement on the channels, the bridge keeps the yt-dlp it has); its Audiobookshelf provider works only while Audiobookshelf does
 - Snapserver ✓
 - Wyoming pipeline (STT/TTS/wake word), the speaker-identification proxy (`voice-id`, which Home Assistant's speech-to-text goes through: if it is down, voice commands get no transcript until it restarts; switching the Voice pipeline's speech-to-text to faster-whisper in Home Assistant bypasses it; while the workload layer is locked it transcribes as usual but recognises nobody), the local conversation model (`llama-cpp`, when `haLlm` is on the loopback) and the server's voice satellite ✓

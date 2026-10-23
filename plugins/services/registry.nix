@@ -23,6 +23,7 @@
   homepage = ../../services/homepage.nix;
   immich = ../../services/immich.nix;
   influxdb = ../../services/influxdb.nix;
+  invidious = ../../services/invidious.nix;
   jackett = ../../services/jackett.nix;
   jellyfin = ../../services/jellyfin.nix;
   llama-cpp = ../../services/llama-cpp.nix;
@@ -34,6 +35,7 @@
   postgresql = ../../services/postgresql.nix;
   qbittorrent = ../../services/qbittorrent.nix;
   redis = ../../services/redis.nix;
+  redlib = ../../services/redlib.nix;
   romm = ../../services/romm.nix;
   samba = ../../services/samba.nix;
   searxng = ../../services/searxng.nix;

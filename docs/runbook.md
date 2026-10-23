@@ -15,7 +15,7 @@ Services are split into two tiers with different startup behaviour:
 
 **Always-on (start automatically at boot — no action needed)**:
 Caddy, PostgreSQL (always-on instance), Redis, Authentik, Home Assistant, Zigbee2MQTT, Grafana, InfluxDB,
-Mosquitto, Frigate, Snapcast, Wyoming pipeline, SearXNG, Telegraf, Homepage.
+Mosquitto, Frigate, Snapcast, Wyoming pipeline, SearXNG, Redlib, Invidious, Telegraf, Homepage.
 
 **Workload-gated (locked until you run `unlock-workload`)**:
 Nextcloud, Immich, Jellyfin, Vaultwarden, Syncthing, Samba, qBittorrent, Bitmagnet,
