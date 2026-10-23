@@ -30,6 +30,10 @@
 #     and a profile moves them.
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
+#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube and Twitch
+#     addons are off and need no key by default; settings.youtube and
+#     settings.twitch require kodi-youtube-env and kodi-twitch-token and put
+#     their addon into the Kodi package.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -541,6 +545,46 @@ let
         { lanbat.services.kodi.settings.videoSources.tv.path = "/mnt/storage-a/media/tv/shows/"; }
       ];
     })).configurations.example-pi-storage.config;
+  # The TV box with each streaming addon enabled.
+  tvBoxYoutube =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.youtube = true; } ];
+    })).configurations.example-pi-storage.config;
+  tvBoxTwitch =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.twitch = true; } ];
+    })).configurations.example-pi-storage.config;
+  # The Kodi package the TV box runs, as the module composes it: nixpkgs'
+  # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
+  # the expected packages come from the aarch64 nixpkgs the platform evaluates
+  # with — nixos-raspberrypi builds the profiles against its own nixpkgs pin,
+  # not this flake's nixpkgs input (the storage-pi and voice-pi checks do the
+  # same). The Twitch addon is not in nixpkgs; the repository builds it, and
+  # withPackages pulls its python module along.
+  aarchPkgs = nixos-raspberrypi.inputs.nixpkgs.legacyPackages.aarch64-linux;
+  twitchPkgs = aarchPkgs.kodi-gbm.packages;
+  pythonTwitchAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-python-twitch {
+    buildKodiAddon = twitchPkgs.buildKodiAddon;
+    six = twitchPkgs.six;
+    requests = twitchPkgs.requests;
+  };
+  twitchAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-twitch {
+    buildKodiAddon = twitchPkgs.buildKodiAddon;
+    requests = twitchPkgs.requests;
+    pythonTwitch = pythonTwitchAddon;
+  };
+  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
+  kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    addons.youtube
+  ]);
+  kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    twitchAddon
+  ]);
+  kodiOf =
+    config:
+    lib.removeSuffix "/bin/kodi-standalone" config.systemd.services.tv-kodi.serviceConfig.ExecStart;
   # The example Android TV box with apps to open by voice.
   tvApps = serverWith [
     {
@@ -1476,6 +1520,32 @@ let
       && lib.hasInfix ''<cleanstrings action="append">'' (
         builtins.readFile ../pkgs/kodi-tv-config/advancedsettings.xml
       )
+    ))
+
+    # The streaming addons are off by default, so the box runs plain Kodi and
+    # its profile needs no key for them.
+    (expect "tv: the YouTube and Twitch addons are off by default and need no key" (
+      !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
+      && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
+      && kodiOf lvaTvBox == kodiBase.outPath
+    ))
+
+    (expect "tv: settings.youtube provisions the YouTube key and puts the addon in Kodi" (
+      tvBoxYoutube.lanbat.secrets ? "kodi-youtube-env"
+      && tvBoxYoutube.lanbat.secrets."kodi-youtube-env".owner == "root"
+      && tvBoxYoutube.lanbat.secrets."kodi-youtube-env".declaredBy == "kodi"
+      && kodiOf tvBoxYoutube == kodiYoutube.outPath
+      && !(tvBoxYoutube.lanbat.secrets ? "kodi-twitch-token")
+      && failedAssertions tvBoxYoutube == [ ]
+    ))
+
+    (expect "tv: settings.twitch provisions the Twitch token and puts the addon in Kodi" (
+      tvBoxTwitch.lanbat.secrets ? "kodi-twitch-token"
+      && tvBoxTwitch.lanbat.secrets."kodi-twitch-token".owner == "root"
+      && tvBoxTwitch.lanbat.secrets."kodi-twitch-token".declaredBy == "kodi"
+      && kodiOf tvBoxTwitch == kodiTwitch.outPath
+      && !(tvBoxTwitch.lanbat.secrets ? "kodi-youtube-env")
+      && failedAssertions tvBoxTwitch == [ ]
     ))
 
     (expect "voice-id: identifies speakers into the router, voiceprints on the workload layer" (

@@ -162,6 +162,23 @@ let
           (the voice plugin).
         '';
       };
+      youtube = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Install the YouTube add-on (plugin.video.youtube) and seed its
+          credentials from the kodi-youtube-env secret on every start.
+        '';
+      };
+      twitch = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Install the Twitch add-on (plugin.video.twitch) and seed its token
+          from the kodi-twitch-token secret once; the add-on then manages its
+          own login and token refresh in its own settings file.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -188,6 +205,35 @@ let
 
   kodiWebPort = 8080;
   kodiEventsPort = 9090;
+  # YouTube: rewrite the add-on's api_keys.json on every start (plugin.video.
+  # youtube v7.x). The credentials come from the kodi-youtube-env secret, three
+  # KEY=value lines.
+  youtubeSetup = ''
+    ytdir=${home}/.kodi/userdata/addon_data/plugin.video.youtube
+    mkdir -p "$ytdir"
+    . ${config.lanbat.secrets.kodi-youtube-env.path}
+    ${lib.getExe pkgs.jq} -n \
+      --arg api_key "$YOUTUBE_API_KEY" \
+      --arg client_id "$YOUTUBE_OAUTH_CLIENT_ID" \
+      --arg client_secret "$YOUTUBE_OAUTH_CLIENT_SECRET" \
+      '{keys:{developer:{},user:{api_key:$api_key,client_id:$client_id,client_secret:$client_secret}}}' \
+      > "$ytdir/api_keys.json"
+    chmod 0600 "$ytdir/api_keys.json"
+  '';
+  # Twitch: seed the add-on's settings.xml once (plugin.video.twitch v3.0.3).
+  # The add-on rewrites the file after a device-code login or token refresh, so
+  # seed only when it is absent; a changed secret is applied by deleting the
+  # file first, then restarting tv-kodi.
+  twitchSetup = ''
+    twdir=${home}/.kodi/userdata/addon_data/plugin.video.twitch
+    mkdir -p "$twdir"
+    twf="$twdir/settings.xml"
+    if [ ! -e "$twf" ]; then
+      twtoken="$(head -n1 ${config.lanbat.secrets.kodi-twitch-token.path})"
+      printf '<settings version="2">\n<setting id="oauth_token_helix" value="%s"/>\n</settings>\n' "$twtoken" > "$twf"
+    fi
+    chmod 0600 "$twf"
+  '';
   # Settings tv-kodi puts in guisettings.xml before Kodi starts (see the top).
   kodiRemote = pkgs.writeShellScript "kodi-remote-control" ''
     set -euo pipefail
@@ -217,6 +263,8 @@ let
     # the assistant's replies share the speakers and the echo canceller.
     set_setting audiooutput.audiodevice ${kodiAudioDevice}
     set_setting audiooutput.passthrough false
+    ${lib.optionalString kodiCfg.youtube youtubeSetup}
+    ${lib.optionalString kodiCfg.twitch twitchSetup}
     chown -R media:media ${home}/.kodi/userdata
     chmod 0600 "$f"
   '';
@@ -324,7 +372,28 @@ let
     <string name="ROMDirectory" value="${romDirectory}" />
   '';
 
-  kodi = pkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
+  # The Kodi add-on packages (pkgs/kodi-gbm's passthru), used to build the
+  # Twitch add-on, which nixpkgs does not carry.
+  kodiPkgs = pkgs.kodi-gbm.packages;
+  pythonTwitchAddon = pkgs.callPackage ../../pkgs/kodi-addon-python-twitch {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+    six = kodiPkgs.six;
+    requests = kodiPkgs.requests;
+  };
+  twitchAddon = pkgs.callPackage ../../pkgs/kodi-addon-twitch {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+    requests = kodiPkgs.requests;
+    pythonTwitch = pythonTwitchAddon;
+  };
+  # withPackages takes the add-ons to install and resolves their dependencies
+  # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
+  # module and its six/requests dependencies.
+  kodi = pkgs.kodi-gbm.withPackages (
+    addons:
+    [ addons.joystick ]
+    ++ lib.optionals kodiCfg.youtube [ addons.youtube ]
+    ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
+  );
 
   # Seeded once: Kodi rewrites its favourites.
   kodiFavourites = pkgs.writeText "favourites.xml" ''
@@ -412,6 +481,16 @@ in
         port = kodiWebPort;
       };
       secrets.kodi-web-password.owner = "root";
+      # The add-on's credentials, written into its addon_data by kodiRemote
+      # (root), so both secrets are owned by root like kodi-web-password.
+      secrets.kodi-youtube-env = {
+        enable = kodiCfg.youtube;
+        owner = "root";
+      };
+      secrets.kodi-twitch-token = {
+        enable = kodiCfg.twitch;
+        owner = "root";
+      };
     };
     lanbat.services.kodi-events.endpoint = {
       scheme = "tcp";
