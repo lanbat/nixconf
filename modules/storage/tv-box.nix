@@ -179,6 +179,16 @@ let
           own login and token refresh in its own settings file.
         '';
       };
+      opensubtitles = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Install the a4kSubtitles add-on (service.subtitles.a4ksubtitles) and
+          seed its OpenSubtitles.com credentials from the
+          kodi-opensubtitles-env secret once; the add-on then manages its own
+          settings file.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -230,9 +240,24 @@ let
     twf="$twdir/settings.xml"
     if [ ! -e "$twf" ]; then
       twtoken="$(head -n1 ${config.lanbat.secrets.kodi-twitch-token.path})"
-      printf '<settings version="2">\n<setting id="oauth_token_helix" value="%s"/>\n</settings>\n' "$twtoken" > "$twf"
+      printf '<settings version="2">\n<setting id="oauth_token_helix">%s</setting>\n</settings>\n' "$(xmlenc "$twtoken")" > "$twf"
     fi
     chmod 0600 "$twf"
+  '';
+  # Subtitles: seed the a4kSubtitles add-on's OpenSubtitles.com credentials once
+  # (service.subtitles.a4ksubtitles v3.3). The add-on rewrites the file when its
+  # settings change, so seed only when it is absent; a changed secret is applied
+  # by deleting the file first, then restarting tv-kodi.
+  opensubtitlesSetup = ''
+    subdir=${home}/.kodi/userdata/addon_data/service.subtitles.a4ksubtitles
+    mkdir -p "$subdir"
+    subf="$subdir/settings.xml"
+    if [ ! -e "$subf" ]; then
+      . ${config.lanbat.secrets.kodi-opensubtitles-env.path}
+      printf '<settings version="2">\n<setting id="opensubtitles.username">%s</setting>\n<setting id="opensubtitles.password">%s</setting>\n</settings>\n' \
+        "$(xmlenc "$OPENSUBTITLES_USERNAME")" "$(xmlenc "$OPENSUBTITLES_PASSWORD")" > "$subf"
+    fi
+    chmod 0600 "$subf"
   '';
   # Settings tv-kodi puts in guisettings.xml before Kodi starts (see the top).
   kodiRemote = pkgs.writeShellScript "kodi-remote-control" ''
@@ -251,6 +276,11 @@ let
           -i //lanbatnew -t attr -n id -v "$id" -r //lanbatnew -v setting "$f"
       fi
     }
+    # Kodi's v2 add-on settings store the value as element text, not in a
+    # value attribute; escape credentials for the XML.
+    xmlenc() {
+      printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'
+    }
     set_setting services.webserver true
     set_setting services.webserverport ${toString kodiWebPort}
     set_setting services.webserverauthentication true
@@ -265,6 +295,7 @@ let
     set_setting audiooutput.passthrough false
     ${lib.optionalString kodiCfg.youtube youtubeSetup}
     ${lib.optionalString kodiCfg.twitch twitchSetup}
+    ${lib.optionalString kodiCfg.opensubtitles opensubtitlesSetup}
     chown -R media:media ${home}/.kodi/userdata
     chmod 0600 "$f"
   '';
@@ -393,6 +424,7 @@ let
     [ addons.joystick ]
     ++ lib.optionals kodiCfg.youtube [ addons.youtube ]
     ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
+    ++ lib.optionals kodiCfg.opensubtitles [ addons.a4ksubtitles ]
   );
 
   # Seeded once: Kodi rewrites its favourites.
@@ -489,6 +521,10 @@ in
       };
       secrets.kodi-twitch-token = {
         enable = kodiCfg.twitch;
+        owner = "root";
+      };
+      secrets.kodi-opensubtitles-env = {
+        enable = kodiCfg.opensubtitles;
         owner = "root";
       };
     };

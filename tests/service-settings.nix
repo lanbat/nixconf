@@ -30,10 +30,11 @@
 #     and a profile moves them.
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
-#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube and Twitch
-#     addons are off and need no key by default; settings.youtube and
-#     settings.twitch require kodi-youtube-env and kodi-twitch-token and put
-#     their addon into the Kodi package.
+#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch and
+#     subtitle addons are off and need no key by default; settings.youtube,
+#     settings.twitch and settings.opensubtitles require kodi-youtube-env,
+#     kodi-twitch-token and kodi-opensubtitles-env and put their addon into the
+#     Kodi package.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -47,11 +48,14 @@
 #     Nextcloud's database is the workload instance's "nextcloud" over its
 #     socket, as database.createLocally made it.
 #
-# Split into parts, one check each (service-settings, -2, -3): every variant is
-# a whole profile evaluation, and the whole list in one process grew past the
-# CI runner's memory (19.7 GB measured, 2026-10-06; CI builds each check in a
-# process of its own). Part n takes every parts-th case from the n-th; the
-# list is lazy, so a part evaluates only the variants its own cases use.
+# Split into parts, one check each (service-settings, -2, ... -8): every
+# variant is a whole profile evaluation, and the whole list in one process grew
+# past the CI runner's memory (19.7 GB measured, 2026-10-06; CI builds each
+# check in a process of its own). On 2026-10-23 three parts of ~40 cases were
+# above the runner's 16.2 GB again, and a part of 20 cases still peaked above
+# 10 GB, so the list is in eight parts of ~15 cases. Part n takes every
+# parts-th case from the n-th; the list is lazy, so a part evaluates only the
+# variants its own cases use.
 {
   lib,
   pkgs,
@@ -554,6 +558,10 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.twitch = true; } ];
     })).configurations.example-pi-storage.config;
+  tvBoxSubtitles =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.opensubtitles = true; } ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -581,6 +589,10 @@ let
   kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
     twitchAddon
+  ]);
+  kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    addons.a4ksubtitles
   ]);
   kodiOf =
     config:
@@ -1524,9 +1536,10 @@ let
 
     # The streaming addons are off by default, so the box runs plain Kodi and
     # its profile needs no key for them.
-    (expect "tv: the YouTube and Twitch addons are off by default and need no key" (
+    (expect "tv: the YouTube, Twitch and subtitle addons are off by default and need no key" (
       !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
       && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
+      && !(lvaTvBox.lanbat.secrets ? "kodi-opensubtitles-env")
       && kodiOf lvaTvBox == kodiBase.outPath
     ))
 
@@ -1547,6 +1560,17 @@ let
       && !(tvBoxTwitch.lanbat.secrets ? "kodi-youtube-env")
       && failedAssertions tvBoxTwitch == [ ]
     ))
+
+    (expect "tv: settings.opensubtitles provisions the OpenSubtitles account and puts the addon in Kodi"
+      (
+        tvBoxSubtitles.lanbat.secrets ? "kodi-opensubtitles-env"
+        && tvBoxSubtitles.lanbat.secrets."kodi-opensubtitles-env".owner == "root"
+        && tvBoxSubtitles.lanbat.secrets."kodi-opensubtitles-env".declaredBy == "kodi"
+        && kodiOf tvBoxSubtitles == kodiSubtitles.outPath
+        && !(tvBoxSubtitles.lanbat.secrets ? "kodi-youtube-env")
+        && failedAssertions tvBoxSubtitles == [ ]
+      )
+    )
 
     (expect "voice-id: identifies speakers into the router, voiceprints on the workload layer" (
       let

@@ -88,6 +88,30 @@
       };
 
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
+
+      # service-settings is split into parts because every case evaluates a whole
+      # example-profile variant and one process peaks with the cases it holds.
+      # Three parts of ~40 cases peaked above the CI runner's 16.2 GB on
+      # 2026-10-23 and the runner was killed during a part's evaluation; a part
+      # of 20 cases still peaked above 10 GB. Eight parts of ~15 cases leave
+      # room under 16.2 GB. Re-measure and add parts as the list grows.
+      serviceSettings =
+        part:
+        import ./tests/service-settings.nix {
+          inherit part;
+          parts = 8;
+          inherit
+            lib
+            pkgs
+            inputs
+            self
+            agenix
+            disko
+            deploy-rs
+            nixpkgs
+            nixos-raspberrypi
+            ;
+        };
     in
     {
       inherit lanbatPlugins;
@@ -246,63 +270,14 @@
             nixos-raspberrypi
             ;
         };
-        service-settings = import ./tests/service-settings.nix (
-          {
-            part = 1;
-            parts = 3;
-          }
-          // {
-            inherit
-              lib
-              pkgs
-              inputs
-              self
-              agenix
-              disko
-              deploy-rs
-              nixpkgs
-              nixos-raspberrypi
-              ;
-          }
-        );
-        service-settings-2 = import ./tests/service-settings.nix (
-          {
-            part = 2;
-            parts = 3;
-          }
-          // {
-            inherit
-              lib
-              pkgs
-              inputs
-              self
-              agenix
-              disko
-              deploy-rs
-              nixpkgs
-              nixos-raspberrypi
-              ;
-          }
-        );
-        service-settings-3 = import ./tests/service-settings.nix (
-          {
-            part = 3;
-            parts = 3;
-          }
-          // {
-            inherit
-              lib
-              pkgs
-              inputs
-              self
-              agenix
-              disko
-              deploy-rs
-              nixpkgs
-              nixos-raspberrypi
-              ;
-          }
-        );
+        service-settings = serviceSettings 1;
+        service-settings-2 = serviceSettings 2;
+        service-settings-3 = serviceSettings 3;
+        service-settings-4 = serviceSettings 4;
+        service-settings-5 = serviceSettings 5;
+        service-settings-6 = serviceSettings 6;
+        service-settings-7 = serviceSettings 7;
+        service-settings-8 = serviceSettings 8;
         settings-guard = import ./tests/settings-guard.nix { inherit lib pkgs; };
         settings-schema = import ./tests/settings-schema.nix { inherit lib pkgs; };
         validate-deploy = import ./tests/validate-deploy.nix { inherit lib pkgs; };
