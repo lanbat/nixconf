@@ -12,7 +12,7 @@ dark room should light up when someone walks in. Today the house senses where pe
 - **Presence.** The assistant router publishes `sensor.lanbat_people_where_<key>` per
   person (`pkgs/assistant-router/assistant_router/mqtt.py`). Its state is a room name
   (the keys of `lanbat.deployment.voiceRooms`: `Office`, `Bedroom 1`, plus the Kitchen's
-  Echo Show), `home` or `away`. A phone counts as in a room two minutes after it was last
+  Echo Show), `home` or `away`. A phone counts as in a room 45 seconds after it was last
   heard, a face on a camera ten seconds. Only rooms with a sensor can be reported: today
   Office, Bedroom 1 and Kitchen. Living Room, Bathroom, Landing and Hall have none.
 - **People.** `lanbat.deployment.people` has one entry, `akadmin`. Follow-me is only
