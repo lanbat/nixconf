@@ -99,7 +99,7 @@ def test_evidence_expires():
     p.observe("Kitchen", "phone", "maria", 1.0, now=0.0)
     assert "Kiril" not in p.line("Kitchen", now=30.0)   # the face is 30 s old
     assert "Maria" in p.line("Kitchen", now=30.0)       # the phone still counts
-    assert p.line("Kitchen", now=200.0) is None         # so is the phone, after 2 minutes
+    assert p.line("Kitchen", now=60.0) is None          # so is the phone, after its 45 s window
 
 
 def test_other_rooms_are_other_rooms():
@@ -187,8 +187,8 @@ def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
     p.observe_phone("Bedroom 1", "kiril", -64, now=20.0)
     assert "Kiril" in p.line("Bedroom 1", now=30.0)
     # Gone quiet in the kitchen: the bedroom alone has it.
-    assert "Kiril" in p.line("Bedroom 1", now=125.0)
-    assert p.line("Kitchen", now=125.0) is None
+    assert "Kiril" in p.line("Bedroom 1", now=60.0)
+    assert p.line("Kitchen", now=60.0) is None
 
 
 def test_bluetooth_and_wifi_strengths_are_not_compared():

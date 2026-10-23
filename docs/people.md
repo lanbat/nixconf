@@ -142,9 +142,9 @@ plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
-host whose satellite has a room (a Pi, or the server), and every 15 s tells the router whose phones it heard in the
-last minute, with their signal strength. The router counts a phone as *nearby* for two
-minutes; a phone never names the speaker. A phone heard by sensors in several rooms (a
+host whose satellite has a room (a Pi, or the server), and every 5 s tells the router whose phones it heard in the
+last 30 seconds, with their signal strength. The router counts a phone as *nearby* for 45
+seconds; a phone never names the speaker. A phone heard by sensors in several rooms (a
 wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
 room within 6 dB of that, a doorway say. Bluetooth and Wi-Fi strengths are on different
 scales, so each is compared only with its own kind. Enable it next to the voice plugin:
@@ -566,7 +566,7 @@ and an extra one stands for someone not enrolled.
 
 - **A tap** of their card or phone on the room's robot (last 2 minutes) names them unless
   the voice clearly disagrees.
-- **Presence** raises a candidate's weight: their phone in the room (last 2 minutes),
+- **Presence** raises a candidate's weight: their phone in the room (last 45 seconds),
   their face on a room camera (last 10 s), their voice clearly heard in the room (a match
   of 0.7 or more, well ahead of anyone else's, in the last 5 minutes), having been the
   speaker earlier in this conversation, and, less, their phone on the home network (last
