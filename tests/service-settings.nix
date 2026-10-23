@@ -574,12 +574,17 @@ let
     pythonTwitch = pythonTwitchAddon;
   };
   kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
-  kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick addons.youtube ]);
-  kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick twitchAddon ]);
+  kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    addons.youtube
+  ]);
+  kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    twitchAddon
+  ]);
   kodiOf =
     config:
-    lib.removeSuffix "/bin/kodi-standalone"
-      config.systemd.services.tv-kodi.serviceConfig.ExecStart;
+    lib.removeSuffix "/bin/kodi-standalone" config.systemd.services.tv-kodi.serviceConfig.ExecStart;
   # The example Android TV box with apps to open by voice.
   tvApps = serverWith [
     {

@@ -388,10 +388,12 @@ let
   # withPackages takes the add-ons to install and resolves their dependencies
   # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
   # module and its six/requests dependencies.
-  kodi =
-    pkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]
+  kodi = pkgs.kodi-gbm.withPackages (
+    addons:
+    [ addons.joystick ]
     ++ lib.optionals kodiCfg.youtube [ addons.youtube ]
-    ++ lib.optionals kodiCfg.twitch [ twitchAddon ]);
+    ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
+  );
 
   # Seeded once: Kodi rewrites its favourites.
   kodiFavourites = pkgs.writeText "favourites.xml" ''
