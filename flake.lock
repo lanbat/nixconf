@@ -240,6 +240,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-invidious": {
+      "locked": {
+        "lastModified": 1792502884,
+        "narHash": "sha256-IoNisKcGbUjdd45qCqywGMCYmZ5EnkxezvLII0FWwNA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "02c087f3fe673c9e317f206a627cb6b910336dbe",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs-z2m": {
       "locked": {
         "lastModified": 1789785513,
@@ -280,6 +296,7 @@
         "lanbat-justpark-parking": "lanbat-justpark-parking",
         "nixos-raspberrypi": "nixos-raspberrypi",
         "nixpkgs": "nixpkgs_2",
+        "nixpkgs-invidious": "nixpkgs-invidious",
         "nixpkgs-z2m": "nixpkgs-z2m"
       }
     },
