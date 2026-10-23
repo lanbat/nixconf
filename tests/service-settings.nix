@@ -48,11 +48,14 @@
 #     Nextcloud's database is the workload instance's "nextcloud" over its
 #     socket, as database.createLocally made it.
 #
-# Split into parts, one check each (service-settings, -2, -3): every variant is
-# a whole profile evaluation, and the whole list in one process grew past the
-# CI runner's memory (19.7 GB measured, 2026-10-06; CI builds each check in a
-# process of its own). Part n takes every parts-th case from the n-th; the
-# list is lazy, so a part evaluates only the variants its own cases use.
+# Split into parts, one check each (service-settings, -2, ... -8): every
+# variant is a whole profile evaluation, and the whole list in one process grew
+# past the CI runner's memory (19.7 GB measured, 2026-10-06; CI builds each
+# check in a process of its own). On 2026-10-23 three parts of ~40 cases were
+# above the runner's 16.2 GB again, and a part of 20 cases still peaked above
+# 10 GB, so the list is in eight parts of ~15 cases. Part n takes every
+# parts-th case from the n-th; the list is lazy, so a part evaluates only the
+# variants its own cases use.
 {
   lib,
   pkgs,
