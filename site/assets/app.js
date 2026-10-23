@@ -20,7 +20,7 @@
     { name: "homepage", port: 3000, sub: "home" },
     { name: "immich", port: 2283, sub: "photos" },
     { name: "influxdb", port: 8086, sub: null },
-    { name: "invidious", port: 8082, sub: "youtube" },
+    { name: "invidious", port: 8083, sub: "youtube" },
     { name: "jackett", port: 9117, sub: "jackett" },
     { name: "jellyfin", port: 8096, sub: "media" },
     { name: "mosquitto", port: 1883, sub: null },

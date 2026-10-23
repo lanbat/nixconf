@@ -44,4 +44,13 @@ in
       REDLIB_ROBOTS_DISABLE_INDEXING = true;
     };
   };
+
+  # Redlib creates a Reddit OAuth client on start-up and exits if it cannot
+  # (Reddit has started answering the spoofed clients with 401). Keep it
+  # retrying at a low rate rather than staying failed; it serves normally on
+  # the runs where a request gets through.
+  systemd.services.redlib.serviceConfig = {
+    Restart = "on-failure";
+    RestartSec = "5min";
+  };
 }
