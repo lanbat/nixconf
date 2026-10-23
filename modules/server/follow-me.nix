@@ -210,6 +210,13 @@ in
         assertion = cfg.morningTo <= cfg.eveningFrom && cfg.eveningFrom <= cfg.nightFrom;
         message = "follow-me: morningTo (${cfg.morningTo}) must come before eveningFrom (${cfg.eveningFrom}), which must come before nightFrom (${cfg.nightFrom})";
       }
+      {
+        # Every decision is written with logbook.log; without the integration
+        # set up, that service does not exist and each rule aborts at its first
+        # action. services/home-assistant.nix sets it up.
+        assertion = config.services.home-assistant.config ? logbook;
+        message = "follow-me: Home Assistant's logbook integration must be set up; every decision is written with logbook.log";
+      }
     ]
     ++ lib.mapAttrsToList (room: _: {
       assertion = lib.elem room presenceRooms;
