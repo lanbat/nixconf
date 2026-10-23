@@ -354,6 +354,17 @@ in
         '';
       };
 
+      haCalendar = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether Home Assistant adds the house's Google Calendar from the iCal
+          feed URL in the ha-gcal-url secret (one line). Its calendar entity is
+          what the who page's settings screens offer. Needs that secret; see
+          secrets/README.md.
+        '';
+      };
+
       parkingGuard = mkOption {
         type = types.nullOr (
           types.submodule {
