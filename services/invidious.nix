@@ -35,7 +35,7 @@
 
 let
   domain = config.lanbat.deployment.domain;
-  port = 8082;
+  port = 8083;
   alwaysOn = config.lanbat.postgresql.instance "always-on";
 in
 {
