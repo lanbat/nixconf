@@ -1890,6 +1890,12 @@ in
         # line is what sets it up, since the configuration lists no default_config.
         mobile_app = { };
 
+        # follow-me writes every decision to the logbook with logbook.log.
+        # extraComponents only installs the integration's dependencies; without
+        # this key the service does not exist, and the automations abort at
+        # their first action (the log line) before doing anything.
+        logbook = { };
+
         homeassistant = {
           name = "Home";
           latitude = config.lanbat.deployment.haLatitude;
