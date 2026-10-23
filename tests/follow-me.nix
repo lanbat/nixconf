@@ -10,7 +10,7 @@ let
   fmLib = import ../lib/follow-me.nix { inherit lib; };
 
   eval =
-    followMe: deployment:
+    followMe: deployment: withLogbook:
     (lib.evalModules {
       modules = [
         {
@@ -36,6 +36,11 @@ let
           }
           // deployment;
         }
+        {
+          # services/home-assistant.nix sets this up; follow-me's logbook
+          # assertion reads it. A test can drop it to check the assertion.
+          services.home-assistant.config = lib.mkIf withLogbook { logbook = { }; };
+        }
         ../modules/server/follow-me.nix
         { lanbat.homeAssistant.followMe = followMe; }
       ];
@@ -45,7 +50,7 @@ let
   messages = cfg: map (a: a.message) (failures cfg);
   fm = cfg: cfg.lanbat.homeAssistant.followMe;
 
-  off = eval { } { };
+  off = eval { } { } false;
 
   on = eval {
     enable = true;
@@ -59,18 +64,18 @@ let
         music = false;
       };
     };
-  } { };
+  } { } true;
 
   noSensor = eval {
     enable = true;
     rooms."Garage".lights = [ "light.garage" ];
-  } { };
+  } { } true;
 
   unknownPerson = eval {
     enable = true;
     people = [ "nobody" ];
     rooms."Office".lights = [ "light.office_lamp" ];
-  } { };
+  } { } true;
 
   # A lock is not a light: the type refuses it, so forcing the value throws.
   notALight = builtins.tryEval (
@@ -79,7 +84,7 @@ let
         eval {
           enable = true;
           rooms."Office".lights = [ "lock.front_door" ];
-        } { }
+        } { } true
       )).rooms
       true
   );
@@ -90,7 +95,14 @@ let
     eveningFrom = "23:00";
     nightFrom = "22:30";
     rooms."Office".lights = [ "light.office_lamp" ];
-  } { };
+  } { } true;
+
+  # Follow-me needs the logbook integration (services/home-assistant.nix sets
+  # it up) for logbook.log; without it every rule aborts at its first action.
+  noLogbook = eval {
+    enable = true;
+    rooms."Office".lights = [ "light.office_lamp" ];
+  } { } false;
 
   # What the generator makes for two rooms (one with a light-level sensor, one
   # without) and two people.
@@ -153,7 +165,7 @@ let
   inLive = eval {
     enable = true;
     rooms."Office".lights = [ "light.office_lamp" ];
-  } { };
+  } { } true;
   hacfg = inLive.services.home-assistant.config;
 
   actDry = fmLib.act {
@@ -299,6 +311,9 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
     )
     + expect "a lights entry that is not a light entity is rejected" (!notALight.success)
     + expect "evening after night is rejected" (lib.length (failures badClock) == 1)
+    + expect "follow-me without the logbook integration is rejected" (
+      lib.length (failures noLogbook) == 1 && lib.any (m: lib.hasInfix "logbook" m) (messages noLogbook)
+    )
     + expect "the generator makes the global switches" (
       gen.input_boolean ? followme_paused && gen.input_boolean ? followme_guests
     )
