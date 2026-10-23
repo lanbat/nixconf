@@ -653,7 +653,7 @@ repair_media_permissions() {
 }
 
 run_configuration() {
-  repair_media_permissions
+  ( set +eu; trap '' HUP; repair_media_permissions ) &
   harden_adult_permissions
   api_auth
   configure_networking
@@ -675,7 +675,7 @@ run_configuration() {
 wait_for_jellyfin
 
 if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>/dev/null; then
-  repair_media_permissions
+  ( set +eu; trap '' HUP; repair_media_permissions ) &
   harden_adult_permissions
   api_auth
   configure_networking
