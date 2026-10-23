@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 SOURCES = ("face", "aimed", "seen", "phone", "card", "tap", "voice")
 WINDOW = {"face": 10.0, "aimed": 10.0, "seen": 90.0, "phone": 120.0, "card": 120.0, "tap": 120.0,
@@ -108,6 +109,8 @@ class People:
         self.names = dict(names)
         # People nobody has met (unknowns.py): in `names`, never greeted or counted as present.
         self.strangers: set[str] = set()
+        # Told who was identified and when (evidence.py learns which devices arrive with whom).
+        self.on_identified: Callable[[str, float], None] | None = None
         # room -> source -> person -> evidence
         self._seen: dict[str, dict[str, dict[str, Evidence]]] = {}
         # person -> (how it was heard, room) -> (signal strength, when): to place
@@ -131,9 +134,13 @@ class People:
         self.strangers.discard(str(key))
 
     def observe(self, room: str, source: str, person: str, confidence, now: float) -> None:
-        if source not in SOURCES or person not in self.names or person in self.strangers or not room:
+        if source not in SOURCES or person not in self.names or not room:
             return
         if type(confidence) not in (int, float) or not 0 <= confidence <= 1:
+            return
+        if self.on_identified is not None:
+            self.on_identified(person, now)
+        if person in self.strangers:
             return
         self._rooms[_key(room)] = room.strip()
         self._seen.setdefault(_key(room), {}).setdefault(source, {})[person] = Evidence(
@@ -145,6 +152,8 @@ class People:
         Bluetooth and Wi-Fi are on different scales."""
         if person not in self.names or not room or type(rssi) is not int:
             return
+        if self.on_identified is not None:
+            self.on_identified(person, now)
         self._rooms[_key(room)] = room.strip()
         self._signal.setdefault(person, {})[(str(via), _key(room))] = (rssi, now)
 

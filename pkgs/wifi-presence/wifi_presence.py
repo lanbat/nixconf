@@ -18,6 +18,12 @@ router tells this service those, {"phones": {mac: person}}, when it connects
 and on each change; the profile's own addresses win, and the kernel filter is
 rebuilt.
 
+With DEVICES=1 (the router keeps evidence, evidence.py) it also hears the ARP of every other
+device on the network, and tells the router their addresses once a minute,
+{"devices": ["aa:bb:..."]}, so it can learn whose they are from who arrives with
+them. Only ARP, which a sweep of the subnet brings out of every device anyway;
+the router keeps only a keyed hash of an address nobody has claimed.
+
 The router hears the full set of who is home every minute, as a "house-sensor"
 on its body socket: {"home": [{"person": "alex"}]}. Being home is a mild hint
 for who is speaking (pkgs/assistant-router people.py), never authority over
@@ -46,6 +52,7 @@ REPORT_S = 60.0        # the router forgets the set after 3 minutes
 MAX_HOSTS = 4096       # a larger subnet is swept only in its first 4096 addresses
 SWEEP_GAP_S = 0.01     # between ARP requests: about 100 a second
 MAX_PHONES = 60        # the kernel filter's jumps are 8 bits
+MAX_DEVICES = 512      # other devices reported at most
 
 ETH_P_ALL = 0x0003
 ETH_P_ARP = 0x0806
@@ -101,14 +108,18 @@ def mac_bytes(mac: str) -> bytes:
     return bytes.fromhex(mac.replace(":", ""))
 
 
-def bpf_source_macs(macs: list[str], snap: int = 128) -> list[tuple[int, int, int, int]]:
+def bpf_source_macs(macs: list[str], snap: int = 128, arp_any: bool = False) -> list[tuple[int, int, int, int]]:
     """A classic BPF program passing frames whose Ethernet source is one of
-    `macs` (the first `snap` bytes of each), dropping everything else."""
+    `macs` (the first `snap` bytes of each), dropping everything else; with
+    `arp_any`, also every ARP frame, whoever sent it."""
     LD_W_ABS, LDH_ABS, JEQ_K, RET_K = 0x20, 0x28, 0x15, 0x06
     if len(macs) > MAX_PHONES:
         raise ValueError(f"at most {MAX_PHONES} addresses (BPF jumps are 8 bits)")
     prog: list[tuple[int, int, int, int]] = []
     n = len(macs)
+    if arp_any:
+        prog.append((LDH_ABS, 0, 0, 12))               # the Ethernet type
+        prog.append((JEQ_K, 4 * n + 1, 0, ETH_P_ARP))  # ARP: over the checks and the drop, to the accept
     for i, mac in enumerate(macs):
         hi, lo = struct.unpack("!HI", mac_bytes(mac))
         # Four instructions per MAC. Jumps count from the next instruction:
@@ -164,18 +175,33 @@ def arp_request(src_mac: bytes, src_ip: str, target_ip: str) -> bytes:
 class Presence:
     """Who is home, from when each phone was last heard."""
 
-    def __init__(self, phones: dict[str, str], hold_s: float = HOLD_S) -> None:
+    def __init__(self, phones: dict[str, str], hold_s: float = HOLD_S, others: bool = False,
+                 own: str | None = None) -> None:
         self.phones = phones
         self.hold_s = hold_s
+        self.others = others                 # also keep the devices that are no phone of the household's
+        self.own = own                       # this host's own address: never one of them
         self.last: dict[str, float] = {}     # mac -> when heard
         self.address: dict[str, str] = {}    # mac -> IPv4, for the targeted ARP
+        self.other_last: dict[str, float] = {}  # mac -> when heard, of the others
 
     def heard(self, mac: str, ip: str | None, now: float) -> None:
         if mac not in self.phones:
+            if self.others and mac != self.own and not int(mac[:2], 16) & 1 and mac != "00:00:00:00:00:00":
+                self.other_last[mac] = now
+                if len(self.other_last) > 2 * MAX_DEVICES:  # forget the longest silent
+                    oldest = min(self.other_last, key=self.other_last.get)
+                    del self.other_last[oldest]
             return
         self.last[mac] = now
         if ip:
             self.address[mac] = ip
+
+    def devices(self, now: float) -> list[str]:
+        """The other devices heard lately (not the household's phones), newest first."""
+        heard = sorted(((t, m) for m, t in self.other_last.items()
+                        if now - t <= self.hold_s and m not in self.phones), reverse=True)
+        return [m for _, m in heard[:MAX_DEVICES]]
 
     def home(self, now: float) -> list[str]:
         return sorted({self.phones[m] for m, t in self.last.items() if now - t <= self.hold_s})
@@ -205,11 +231,13 @@ def sweep_targets(subnet: str, own_ip: str) -> list[str]:
 
 
 class Service:
-    def __init__(self, interface: str, subnet: str, phones: dict[str, str], router_url: str) -> None:
+    def __init__(self, interface: str, subnet: str, phones: dict[str, str], router_url: str,
+                 devices: bool = False) -> None:
         self.interface = interface
         self.subnet = subnet
+        self.devices = devices
         self.static = dict(phones)
-        self.presence = Presence(dict(phones))
+        self.presence = Presence(dict(phones), others=devices)
         self.router_url = router_url
         self.sock: socket.socket | None = None
         self.own_mac = b""
@@ -219,8 +247,9 @@ class Service:
 
     def open(self) -> None:
         self.own_mac, self.own_ip = interface_address(self.interface)
+        self.presence.own = ":".join(f"{b:02x}" for b in self.own_mac)
         sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
-        attach_filter(sock, bpf_source_macs(sorted(self.presence.phones)))
+        attach_filter(sock, bpf_source_macs(sorted(self.presence.phones), arp_any=self.devices))
         sock.bind((self.interface, 0))
         sock.setblocking(False)
         self.sock = sock
@@ -232,7 +261,7 @@ class Service:
             return
         self.presence.phones = merged
         if self.sock is not None:
-            attach_filter(self.sock, bpf_source_macs(sorted(merged)))
+            attach_filter(self.sock, bpf_source_macs(sorted(merged), arp_any=self.devices))
         log(f"listening for {len(merged)} phones ({len(merged) - len(self.static)} learned from taps)")
 
     async def listen(self, ws) -> None:
@@ -290,6 +319,8 @@ class Service:
                                 log(f"home: {', '.join(home) or 'nobody'}")
                                 self.reported = home
                             await ws.send(json.dumps({"home": [{"person": p} for p in home]}))
+                            if self.devices:
+                                await ws.send(json.dumps({"devices": self.presence.devices(time.time())}))
                             await asyncio.wait([listening], timeout=REPORT_S)
                         listening.result()  # the router hung up: why
                     finally:
@@ -315,6 +346,7 @@ def main() -> None:
         subnet=os.environ["SUBNET"],
         phones=phones,
         router_url=os.environ["ROUTER_BODY_URL"],
+        devices=os.environ.get("DEVICES") == "1",
     )
     asyncio.run(service.run())
 

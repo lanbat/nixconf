@@ -253,6 +253,32 @@ let
       '';
     };
   };
+  routerSettings.options.evidence = {
+    enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = ''
+        Learn whose devices are on the home network. The Wi-Fi sensor
+        (services/wifi-presence.nix) then also tells the router the addresses
+        of devices that are no one's; the router keeps a keyed hash of each,
+        notices which ones arrive when a particular person does (identified
+        by face, voice, tap, card or a Bluetooth phone), and suggests, on the
+        who page's Devices page, whose they probably are. An admin confirms,
+        and the device is taught like a tapped phone. Nothing is claimed
+        automatically, nothing probes a device, and the random addresses a
+        phone changes between networks are not linked to each other
+        (pkgs/assistant-router evidence.py, docs/people.md).
+
+        Off by default: it records, however pseudonymously, which devices
+        visit the network, including visitors'.
+      '';
+    };
+    days = mkOption {
+      type = types.ints.positive;
+      default = 30;
+      description = "How long a device nobody claimed is kept after it was last heard. Claimed ones stay.";
+    };
+  };
   unknownWordsFile = pkgs.writeText "assistant-router-unknown-words.json" (
     builtins.toJSON { inherit (cfg.unknownPeople) adjectives nouns; }
   );
@@ -415,6 +441,11 @@ in
             ++ lib.optionals (!cfg.logText) [ "--no-log-text" ]
             ++ lib.optionals (!cfg.offerToMeet) [ "--no-offer-to-meet" ]
             ++ lib.optionals (!cfg.greet) [ "--no-greet" ]
+            ++ lib.optionals cfg.evidence.enable [
+              "--evidence-db /var/lib/assistant-router/evidence.db"
+              "--evidence-key /var/lib/assistant-router/evidence.key"
+              "--evidence-days ${toString cfg.evidence.days}"
+            ]
             ++ lib.optionals cfg.unknownPeople.enable [
               "--unknown-people"
               "--unknown-words-file ${unknownWordsFile}"

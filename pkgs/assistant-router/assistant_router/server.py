@@ -27,6 +27,7 @@ from . import (actions, body as body_mod, cards as cards_mod, gate as gate_mod, 
 from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
+from .evidence import Evidence
 from .frigate import Frigate, FrigateError
 from .irks import Irks
 from .lists import Lists, Personal
@@ -742,7 +743,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                   frigate: Frigate | None = None, voice: VoiceIdClient | None = None,
                   cards: Cards | None = None, taps: Taps | None = None,
                   irks: Irks | None = None, sightings: Sightings | None = None,
-                  strangers: Strangers | None = None, prefs: Prefs | None = None) -> web.Application:
+                  strangers: Strangers | None = None, prefs: Prefs | None = None,
+                  evidence: Evidence | None = None) -> web.Application:
     """The bodies' side (assistant_router/body.py): one WebSocket each, on its
     own listener, so the LAN reaches this and not the agent's endpoint.
 
@@ -790,6 +792,8 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 key = await strangers.meet(room, img)
                 if key is not None:
                     check = {**check, "result": people.names[key], "person": key}
+        if evidence is not None and check["person"] in people.strangers:
+            evidence.person_seen(check["person"], clock())  # a stranger arriving, for what arrives with them
         if sightings is None:
             return check
         source = source or ("robot" if bodies.is_robot(room) else "screen")
@@ -998,6 +1002,10 @@ def make_body_app(bodies: Bodies, clock=time.monotonic, people: People | None = 
                 elif room and kind == "face-source" and isinstance(data.get("faces"), list):
                     observe_faces(room, data["faces"], clock())
                     camera_sightings(room, data["faces"], data.get("unknown"))
+                elif room and kind == "house-sensor" and isinstance(data.get("devices"), list):
+                    # The devices on the network that are no one's, once a minute (evidence.py).
+                    if evidence is not None:
+                        evidence.observe_devices([d for d in data["devices"][:512] if isinstance(d, str)], clock())
                 elif room and kind == "house-sensor" and isinstance(data.get("home"), list):
                     people.observe_home([h.get("person") for h in data["home"][:64] if isinstance(h, dict)],
                                         clock())

@@ -11,7 +11,9 @@
 # It runs where the assistant router runs, once someone has wifiMacs or the
 # router learns phones from taps on a robot (its "who" page, tap.py: the
 # router hands them over on the body socket). It reports to the router's body
-# socket on the loopback. No state, no secrets, nothing listening.
+# socket on the loopback. No state, no secrets, nothing listening. With
+# assistant-router settings.evidence it also reports the other devices it hears
+# ARP from, for the router to learn whose they are (docs/people.md).
 {
   config,
   lib,
@@ -28,7 +30,10 @@ let
     hostLib.haLlmIsRouter (config.lanbat.deployment.haLlm or null)
     && config.lanbat.hasService "assistant-router";
   tapping = config.lanbat.services ? who && config.lanbat.services.who.port != null;
-  enabled = routerHere && (phones != { } || tapping);
+  # The router keeps evidence of who owns what (settings.evidence): the sensor then reports the
+  # devices that are no phone of the household's too.
+  evidence = routerHere && config.lanbat.services.assistant-router.settings.evidence.enable;
+  enabled = routerHere && (phones != { } || tapping || evidence);
   bodyPort = config.lanbat.services.assistant-router.endpoint.port;
 in
 {
@@ -46,6 +51,7 @@ in
       INTERFACE = config.lanbat.network.lanInterface;
       SUBNET = config.lanbat.deployment.lanSubnet;
       PHONES = builtins.toJSON phones;
+      DEVICES = if evidence then "1" else "0";
       ROUTER_BODY_URL = "ws://127.0.0.1:${toString bodyPort}/v1/body";
     };
     serviceConfig = {

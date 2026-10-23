@@ -429,6 +429,10 @@ let
   # (and a second port, for a host plugged in behind it).
   routerServer = serverWith [
     {
+      lanbat.services.assistant-router.settings.evidence = {
+        enable = true;
+        days = 14;
+      };
       lanbat.network.bridge = {
         enable = true;
         macAddress = "6c:2b:59:00:00:01";
@@ -1172,6 +1176,18 @@ let
         && failedAssertions routerNoTap == [ ]
       )
     )
+
+    (expect "evidence: off unless a profile turns it on, then the sensor reports other devices too" (
+      let
+        on = routerServer.systemd.services.assistant-router.serviceConfig.ExecStart;
+        off = routerNoTap.systemd.services.assistant-router.serviceConfig.ExecStart;
+      in
+      !(lib.hasInfix "--evidence-db" off)
+      && lib.hasInfix "--evidence-db /var/lib/assistant-router/evidence.db" on
+      && lib.hasInfix "--evidence-key /var/lib/assistant-router/evidence.key" on
+      && lib.hasInfix "--evidence-days 14" on
+      && routerServer.systemd.services.wifi-presence.environment.DEVICES == "1"
+    ))
 
     (expect
       "assistant-router: unknown people are off unless a profile turns them on, with its own words"
