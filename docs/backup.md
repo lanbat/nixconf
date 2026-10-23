@@ -17,6 +17,7 @@
 | Nextcloud config | `/var/lib/nextcloud/` | `backup-server.sh` (back up before any major upgrade — see `docs/runbook.md` § Nextcloud major version upgrade) |
 | Vaultwarden data | `/var/lib/vaultwarden/` | `backup-server.sh` (the database through SQLite's online backup) |
 | Grafana state | always-on PostgreSQL (`grafana`) | `pg_dump` via `backup-server.sh`; dashboards are provisioned from this repo |
+| Invidious state | always-on PostgreSQL (`invidious`) and `/var/lib/invidious/` (hmac key) | `pg_dump` and `backup-server.sh`; losing the hmac key only invalidates sessions |
 | Syncthing config + identity | `/var/lib/syncthing/.config/syncthing/` | `backup-server.sh` (without the index, which Syncthing rebuilds) |
 | Audiobookshelf accounts + listening progress | `/var/lib/audiobookshelf/config/` | `backup-server.sh` |
 

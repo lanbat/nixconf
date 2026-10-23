@@ -102,12 +102,13 @@ These paths live on `/dev/lanbat/root` and are accessible at boot without any un
 ├── caddy/             Caddy TLS state (intermediate + leaf certs; rotates)
 ├── hass/              Home Assistant config (history is in PostgreSQL)
 ├── authentik/         Authentik media, certs
-├── postgresql-always-on/  PostgreSQL always-on instance: Authentik, Home Assistant, Grafana
+├── postgresql-always-on/  PostgreSQL always-on instance: Authentik, Home Assistant, Grafana, Invidious
 ├── frigate/           (config.yml is rendered into the Nix store from the settings)
 │   ├── db/            Frigate SQLite event DB
 │   ├── clips/         Review snapshots and clips
 │   └── recordings/    Motion-only recordings
 ├── grafana/           Grafana dashboards, users, alert state
+├── invidious/         Invidious hmac key (its database is on the always-on instance)
 ├── influxdb2/         InfluxDB data + WAL (BACK THIS UP)
 ├── mosquitto/         Mosquitto broker state
 ├── homepage/          Homepage config (stateless, managed in repo)
@@ -177,6 +178,8 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Bitmagnet | server-local | workload PostgreSQL | — |
 | RomM | server-local | workload PostgreSQL | Pi/b/media/roms (ROM library), Pi/b/media/roms-browser (arcade zips) |
 | SearXNG | server-local | — | — |
+| Redlib | server-local (none) | — | — |
+| Invidious | server-local (hmac key) | always-on PostgreSQL | — |
 | Homepage | server-local | — | — |
 | Samba | (via nss) | — | Pi/a + Pi/b (the drives of its shares, `lanbat.services.samba.settings`) |
 | MQTT | server-local | — | — |

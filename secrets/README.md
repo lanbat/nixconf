@@ -166,6 +166,11 @@ agenix -e grafana-alert-env.age
 #   ADMIN_TOKEN=<openssl rand -base64 48>
 agenix -e vaultwarden-env.age
 
+# ---- Invidious ----
+# One line: the bare PostgreSQL password (no KEY=), e.g. openssl rand -hex 32.
+# invidious-db-password sets it on the role on the always-on instance.
+agenix -e invidious-db-pass.age
+
 # ---- Caddy internal CA ----
 # Created once when pinning the root CA (see services/caddy.nix). The public
 # cert is caddy-ca-root.crt beside the .age files (committed; override with
@@ -286,6 +291,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `mosquitto-assistant-router-pass.age` | plaintext password | Mosquitto (`assistant-router` user, `lanbat/#` and Home Assistant discovery only); read by the assistant router as a systemd credential, to publish the robots and who is around to Home Assistant. Only with the router and `settings.homeAssistant` (on by default) |
 | `mosquitto-z2m-pass.age` | plaintext password | Mosquitto (Zigbee2MQTT user); shared with Zigbee2MQTT |
 | `bitmagnet-db-pass.age` | `POSTGRES_PASSWORD=<value>` | Bitmagnet PostgreSQL |
+| `invidious-db-pass.age` | plaintext password (one line, no `KEY=`) | `invidious-db-password`, which sets it on the always-on PostgreSQL role; the Invidious module reads it through a systemd credential |
 | `frigate-rtsp-env.age` | `FRIGATE_RTSP_USER=<value>`, `FRIGATE_RTSP_PASSWORD=<value>` | Frigate camera RTSP auth |
 | `rclone-frigate-config.age` | full rclone config file | Frigate rclone sync |
 | `influxdb-admin-password.age` | plaintext password | InfluxDB initial setup |

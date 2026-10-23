@@ -23,8 +23,8 @@ SERVER — one disk (hosts/server/disk.nix)
 - **Filesystem**: ext4, no encryption
 - **Mount**: `/` (root)
 - **Contains**: NixOS, SSH, networking, firewall, admin scripts, systemd units,
-  always-on service data (always-on PostgreSQL, Authentik, HA, Grafana, InfluxDB, Mosquitto,
-  Frigate, Caddy TLS certs, container images)
+  always-on service data (always-on PostgreSQL, Authentik, HA, Grafana, Invidious,
+  InfluxDB, Mosquitto, Frigate, Caddy TLS certs, container images)
 - **Does NOT contain**: Tang keys, workload-gated service data (Nextcloud, Immich,
   Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM)
 
@@ -71,7 +71,7 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
 | Service | Data path | Rationale |
 |---|---|---|
 | Caddy | `/var/lib/caddy` | Reverse proxy and TLS — must be up to serve all services, both tiers |
-| PostgreSQL (always-on instance) | `/var/lib/postgresql-always-on` | Databases of Authentik, Home Assistant and Grafana — needed at boot |
+| PostgreSQL (always-on instance) | `/var/lib/postgresql-always-on` | Databases of Authentik, Home Assistant, Grafana and Invidious — needed at boot |
 | Authentik | `/var/lib/authentik` | Identity provider — SSO must be available for all auth flows |
 | Home Assistant | `/var/lib/hass` | Automation and sensor history — availability over confidentiality |
 | Grafana | `/var/lib/grafana` | Dashboards and metrics config — monitoring must be up at boot |
@@ -89,6 +89,8 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
 | LLM gateway (`llm-gateway`) | — | LiteLLM in front of cloud LLM APIs; no state; keys from `llm-gateway-env` |
 | llama.cpp (`llama-cpp`) | — | Local conversation model — pinned in the Nix store, no state; runs only when `haLlm` is on the loopback |
 | SearXNG | — | Search proxy — stateless |
+| Redlib | — | Reddit front-end — stateless |
+| Invidious | `/var/lib/invidious` | YouTube front-end — cached metadata and, with accounts, subscriptions and watch history; it boots with the rest instead of waiting for `unlock-workload` (set `tier = "workload"` and move its database to the workload instance to encrypt that at rest) |
 | Telegraf | — | Metrics collector — stateless |
 | CoreDNS (`lanbat-dns` plugin) | — | LAN DNS — must answer at boot; records are generated, stateless |
 | Redis | — | Ephemeral cache for Authentik and Immich — no persistent state |
@@ -159,7 +161,7 @@ boot
       │                    (Caddy, always-on PostgreSQL, Authentik, HA, Grafana,
       │                     InfluxDB, Mosquitto, Frigate, Music Assistant,
       │                     Snapcast, Wyoming,
-      │                     SearXNG, Telegraf)
+      │                     SearXNG, Redlib, Invidious, Telegraf)
       └── [admin] unlock-workload
            └── /mnt/workload mounted
                 └── bind mounts activated (/var/lib/nextcloud, etc.)

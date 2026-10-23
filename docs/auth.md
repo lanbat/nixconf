@@ -99,7 +99,7 @@ browser ──▶ service (sets its own session from the ID token)
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
 | Vaultwarden | app | (optional, not yet wired) | **own account system** (Bitwarden) |
-| Homepage, SearXNG, CA page | none | no | deliberately open |
+| Homepage, SearXNG, Redlib, Invidious, CA page | none | no | deliberately open |
 
 `auth` defaults to `"app"` (Caddy passes through, the service owns the login). Set it
 to `"forward-auth"` only for services that have no login of their own.

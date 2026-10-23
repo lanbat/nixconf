@@ -128,6 +128,8 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Audiobookshelf | Own accounts + native OIDC (Authentik) | Phone apps log in through the same OIDC; an Authentik user gets the account with their username, or a new one |
 | RomM | Own accounts + native OIDC (Authentik) | App clients (Argosy Launcher) pair by code; admin email must match the Authentik user |
 | SearXNG | None (intentional) | Public LAN search |
+| Redlib | None (intentional) | Stateless Reddit front-end; open to the LAN |
+| Invidious | None (intentional) | YouTube front-end; its own accounts if used, open to the LAN |
 | Samba | Local smbpasswd (optionally Authentik LDAP) | SMB doesn't speak OIDC |
 | MQTT | Local password file | IoT devices don't speak OIDC |
 | Vaultwarden | Own account system + admin token | Bitwarden clients need direct API access; no forward auth |
@@ -171,6 +173,8 @@ Caddy and Authentik on this one.
 | `jackett.<domain>` | Jackett (indexer manager for qBittorrent search; admins only) |
 | `romm.<domain>` | RomM (on-demand) |
 | `search.<domain>` | SearXNG |
+| `reddit.<domain>` | Redlib (Reddit front-end) |
+| `youtube.<domain>` | Invidious (YouTube front-end) |
 | `ca.<domain>` | CA cert distribution |
 | `vault.<domain>` | Vaultwarden password manager |
 | `grafana.<domain>` | Grafana dashboards |

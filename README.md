@@ -177,6 +177,8 @@ Services run in two tiers. See [docs/secure-layers.md](docs/secure-layers.md) fo
 | Frigate | `nvr.<domain>` | Caddy fwd-auth |
 | Grafana | `grafana.<domain>` | OIDC |
 | SearXNG | `search.<domain>` | **none (intentional)** |
+| Redlib | `reddit.<domain>` | **none (intentional)** |
+| Invidious | `youtube.<domain>` | **none (intentional)** |
 | Zigbee2MQTT | `zigbee.<domain>` | Caddy fwd-auth (MQTT bridge to HA) |
 | CA page | `ca.<domain>` | none |
 | Mosquitto | MQTT port 1883 | local password file |
