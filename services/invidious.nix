@@ -30,6 +30,9 @@
 # sig-helper runs JavaScript downloaded from YouTube.
 {
   config,
+  pkgs,
+  lib,
+  inputs,
   ...
 }:
 
@@ -37,6 +40,23 @@ let
   domain = config.lanbat.deployment.domain;
   port = 8083;
   alwaysOn = config.lanbat.postgresql.instance "always-on";
+
+  # Pinned from nixpkgs-invidious rather than this flake's nixpkgs, like
+  # ZigbeeMQTT.  2.20260207.0 (what the pinned nixpkgs carries) sends Innertube
+  # requests that YouTube rejects with HTTP 400: trending and search return
+  # nothing, comments fail, while suggestions still work.  The 2026-07-23
+  # release follows YouTube's backend changes and 2026-08-04 works.
+  #
+  # The override lapses by itself once nixpkgs ships a newer Invidious, and is
+  # skipped for a flake that consumes lanbat without the nixpkgs-invidious
+  # input.
+  pinnedInvidious =
+    if inputs ? nixpkgs-invidious then
+      inputs.nixpkgs-invidious.legacyPackages.${pkgs.stdenv.hostPlatform.system}.invidious
+    else
+      pkgs.invidious;
+  usePinned =
+    inputs ? nixpkgs-invidious && lib.versionOlder pkgs.invidious.version pinnedInvidious.version;
 in
 {
   lanbat.services.invidious = {
@@ -68,6 +88,7 @@ in
 
   services.invidious = {
     enable = true;
+    package = if usePinned then pinnedInvidious else pkgs.invidious;
     address = "127.0.0.1";
     port = config.lanbat.services.invidious.port;
     domain = "youtube.${domain}";

@@ -10,6 +10,14 @@
     # following nixpkgs: the point is a newer lock.
     nixpkgs-z2m.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+    # Invidious only.  The pinned nixpkgs above carries 2.20260207.0, whose
+    # Innertube requests YouTube now answers with HTTP 400 (search, trending,
+    # comments — suggestions still work).  The 2026-07-23 release fixed the
+    # YouTube backend changes.  Deliberately not following nixpkgs: the point
+    # is a newer lock, and this input retires once the pinned nixpkgs is
+    # updated past it.
+    nixpkgs-invidious.url = "github:NixOS/nixpkgs/nixos-unstable";
+
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
 
     agenix = {
