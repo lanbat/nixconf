@@ -147,6 +147,11 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--ma-url", help="Music Assistant (http://127.0.0.1:8095); unset: video only")
     serve.add_argument("--ma-token-file", help="the token music-assistant-setup minted")
     serve.add_argument("--ma-limit", type=int, default=40)
+    # Jellyfin (jellyfin.py): the video library, streamed to the screen.
+    serve.add_argument("--jellyfin-url", help="Jellyfin's API (http://127.0.0.1:8096)")
+    serve.add_argument("--jellyfin-public-url", help="where the Show fetches a stream (http://<server>:8096)")
+    serve.add_argument("--jellyfin-key-file", help="the API key jellyfin-bootstrap minted")
+    serve.add_argument("--jellyfin-limit", type=int, default=20)
     _options(serve)
 
     search = sub.add_parser("search", help="print one page of search results as JSON")

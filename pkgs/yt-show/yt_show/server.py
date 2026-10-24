@@ -10,6 +10,7 @@ be up but unable to play a particular video (services/invidious.nix).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from aiohttp import web
 
 from .core import PAGE_SIZE, is_id, page as page_of, video_id
 from .invidious import Invidious, InvidiousError
+from .jellyfin import Jellyfin, JellyfinError
 from .ma import Ma, MaError
 from .remux import NAME, Remux, RemuxError
 from .ytdlp import YtDlp, YtDlpError
@@ -51,6 +53,11 @@ class Config:
     ma_url: str | None = None
     ma_token_file: str | None = None
     ma_limit: int = 40
+    # Jellyfin (jellyfin.py): its video library, played through a transcode URL.
+    jellyfin_url: str | None = None
+    jellyfin_public_url: str | None = None
+    jellyfin_key_file: str | None = None
+    jellyfin_limit: int = 20
 
     def remuxer(self) -> Remux | None:
         if not (self.remux and self.cache_dir and self.media_url_base):
@@ -62,13 +69,16 @@ class Config:
 
 def make_app(cfg: Config, invidious: Invidious | None = None,
              ytdlp: YtDlp | None = None, remux: Remux | None = None,
-             ma: Ma | None = None) -> web.Application:
+             ma: Ma | None = None, jellyfin: Jellyfin | None = None) -> web.Application:
     invidious = invidious if invidious is not None else (
         Invidious(cfg.invidious_url, cfg.invidious_public_url) if cfg.invidious_url else None)
     ytdlp = ytdlp if ytdlp is not None else YtDlp(cfg.ytdlp)
     remux = remux if remux is not None else cfg.remuxer()
     ma = ma if ma is not None else (
         Ma(cfg.ma_url, cfg.ma_token_file) if cfg.ma_url and cfg.ma_token_file else None)
+    jellyfin = jellyfin if jellyfin is not None else (
+        Jellyfin(cfg.jellyfin_url, cfg.jellyfin_public_url, cfg.jellyfin_key_file)
+        if cfg.jellyfin_url and cfg.jellyfin_public_url and cfg.jellyfin_key_file else None)
 
     def media_url(path: Path) -> str:
         return f"{cfg.media_url_base.rstrip('/')}/media/{path.name}"
@@ -80,9 +90,9 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         """(items numbered from 1, another page follows, source), or None when
         neither source could answer.
 
-        A page mixes YouTube with Music Assistant: up to two videos, two audio
-        items and one playlist.  Music Assistant is skipped when it is not
-        configured or did not answer, and the videos take its slots."""
+        A page mixes YouTube, Music Assistant and Jellyfin: up to two videos,
+        one playlist, one audio item and one Jellyfin title.  A source that is
+        not configured or did not answer gives its slots to the videos."""
         block = want // cfg.page_size
         music: list[dict] = []
         if ma is not None:
@@ -90,8 +100,15 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                 music = await ma.search(query, cfg.ma_limit)
             except MaError as exc:
                 LOG.warning("music assistant search failed: %s", exc)
-        music_slots = min(2, max(cfg.page_size - 2, 0)) if music else 0
-        video_slots = max(cfg.page_size - 1 - music_slots, 0)
+        films: list[dict] = []
+        if jellyfin is not None:
+            try:
+                films = await jellyfin.search(query, cfg.jellyfin_limit)
+            except JellyfinError as exc:
+                LOG.warning("jellyfin search failed: %s", exc)
+        film_slots = 1 if films else 0
+        music_slots = (1 if film_slots else 2) if music else 0
+        video_slots = max(cfg.page_size - 1 - music_slots - film_slots, 0)
         if invidious is not None:
             try:
                 # `type=all` returns videos and channels, not playlists, so the
@@ -105,12 +122,15 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                 chunk_p = playlists[playlist_offset : playlist_offset + 1]
                 music_offset = block * music_slots
                 chunk_m = music[music_offset : music_offset + music_slots]
+                film_offset = block * film_slots
+                chunk_f = films[film_offset : film_offset + film_slots]
+                mixed = chunk_m + chunk_f
                 chunk: list[dict] = []
-                for i in range(max(len(chunk_v), len(chunk_m))):
+                for i in range(max(len(chunk_v), len(mixed))):
                     if i < len(chunk_v):
                         chunk.append(chunk_v[i])
-                    if i < len(chunk_m):
-                        chunk.append(chunk_m[i])
+                    if i < len(mixed):
+                        chunk.append(mixed[i])
                 chunk += chunk_p
                 more = (
                     len(videos) > offset + video_slots
@@ -118,6 +138,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                     or len(playlists) > playlist_offset + 1
                     or len(playlists) >= INVIDIOUS_PAGE
                     or len(music) > music_offset + music_slots
+                    or len(films) > film_offset + film_slots
                 )
                 numbered, _ = page_of(chunk, 1, cfg.page_size)
                 return [r.as_dict() for r in numbered], more, "invidious"
@@ -222,6 +243,50 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         return web.json_response({"title": title, "items": items, "has_next": more,
                                   "page": page, "source": source})
 
+    async def on_jelly_resolve(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return bad("not JSON")
+        if not isinstance(body, dict):
+            return bad("not an object")
+        item_id = body.get("item_id")
+        if not isinstance(item_id, str) or not re.fullmatch(r"[A-Za-z0-9]{1,64}", item_id):
+            return bad("item_id")
+        if jellyfin is None:
+            return web.json_response({"error": "Jellyfin is not configured"}, status=502)
+        try:
+            url = jellyfin.stream(item_id)
+        except JellyfinError as exc:
+            LOG.warning("jellyfin could not stream %s: %s", item_id, exc)
+            return web.json_response({"error": "Jellyfin could not stream it"}, status=502)
+        return web.json_response({"url": url})
+
+    async def on_jelly_contents(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return bad("not JSON")
+        if not isinstance(body, dict):
+            return bad("not an object")
+        series = body.get("series_id")
+        if not isinstance(series, str) or not re.fullmatch(r"[A-Za-z0-9]{1,64}", series):
+            return bad("series_id")
+        page = body.get("page", 1)
+        if type(page) is not int or not 1 <= page <= MAX_PAGE:
+            return bad("page")
+        if jellyfin is None:
+            return web.json_response({"error": "Jellyfin is not configured"}, status=502)
+        try:
+            items, more = await jellyfin.episodes(series, (page - 1) * cfg.page_size, cfg.page_size)
+        except JellyfinError as exc:
+            LOG.warning("jellyfin could not list %s: %s", series, exc)
+            return web.json_response({"error": "Jellyfin could not list it"}, status=502)
+        numbered, _ = page_of(items, 1, cfg.page_size)
+        title = body.get("title") if isinstance(body.get("title"), str) else ""
+        return web.json_response({"title": title, "items": [r.as_dict() for r in numbered],
+                                  "has_next": more, "page": page, "source": "jellyfin"})
+
     async def on_resolve(request: web.Request) -> web.Response:
         try:
             body = await request.json()
@@ -244,12 +309,15 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
             "ok": True,
             "source": "invidious" if invidious is not None else "yt-dlp",
             "music": ma is not None,
+            "jellyfin": jellyfin is not None,
         })
 
     app = web.Application()
     app.router.add_get("/healthz", on_health)
     app.router.add_post("/search", on_search)
     app.router.add_post("/contents", on_contents)
+    app.router.add_post("/jellyfin/resolve", on_jelly_resolve)
+    app.router.add_post("/jellyfin/contents", on_jelly_contents)
     app.router.add_post("/resolve", on_resolve)
     return app
 

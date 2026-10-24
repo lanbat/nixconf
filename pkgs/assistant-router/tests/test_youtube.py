@@ -270,3 +270,17 @@ async def test_the_rooms_speaker_is_found_by_the_name_the_profile_gave_it():
         "media_player.echo_show_8"
     assert await audio_player(hass, "Office", {"kitchen": "echo show 8"}) is None
     assert await audio_player(hass, "Kitchen", {}) is None
+
+
+def test_jellyfin_kinds_are_labelled_on_the_screen_and_in_speech():
+    mixed = Results("the wire", 1, (
+        {"n": 1, "kind": "movie", "source": "jellyfin", "id": "m1", "title": "A film"},
+        {"n": 2, "kind": "series", "source": "jellyfin", "id": "s1", "title": "The Wire",
+         "count": 60},
+        {"n": 3, "kind": "episode", "source": "jellyfin", "id": "e1", "title": "Pilot",
+         "channel": "The Wire"},
+    ), False, time.monotonic())
+    screen = caption(mixed)
+    assert "[movie]" in screen and "[series]" in screen and "[episode]" in screen
+    said = spoken(mixed)
+    assert "movie, A film" in said and "series, The Wire" in said

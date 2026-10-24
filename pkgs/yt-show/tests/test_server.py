@@ -78,9 +78,9 @@ class FakeYtDlp:
         return "Yt title", "https://googlevideo.test/videoplayback"
 
 
-def app(invidious, ytdlp, ma=None):
+def app(invidious, ytdlp, ma=None, jellyfin=None):
     return make_app(Config(invidious_url="http://invidious.test", page_size=5),
-                    invidious=invidious, ytdlp=ytdlp, ma=ma)
+                    invidious=invidious, ytdlp=ytdlp, ma=ma, jellyfin=jellyfin)
 
 
 async def test_first_page_is_four_videos_and_a_playlist(aiohttp_client):
@@ -242,7 +242,7 @@ async def test_bad_resolve_input_is_refused(aiohttp_client, payload):
 async def test_health_says_which_source_is_configured(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
     assert await (await client.get("/healthz")).json() == {
-        "ok": True, "source": "invidious", "music": False}
+        "ok": True, "source": "invidious", "music": False, "jellyfin": False}
 
 
 async def test_a_playlist_lists_its_videos_a_page_at_a_time(aiohttp_client):
@@ -315,3 +315,73 @@ async def test_music_assistant_being_down_leaves_videos_and_playlists(aiohttp_cl
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa(fail=True)))
     body = await (await client.post("/search", json={"query": "x"})).json()
     assert [i["kind"] for i in body["items"]] == ["video"] * 4 + ["playlist"]
+
+
+JELLY_FILM = {"source": "jellyfin", "kind": "movie", "id": "abc123",
+              "title": "A film", "channel": ""}
+JELLY_EPISODES = [
+    {"source": "jellyfin", "kind": "episode", "id": f"ep{i}", "title": f"Episode {i}",
+     "channel": "S1E1 · Show"}
+    for i in range(3)
+]
+
+
+class FakeJellyfin:
+    def __init__(self, fail=False):
+        self.fail = fail
+
+    async def search(self, query, limit=20):
+        if self.fail:
+            from yt_show.jellyfin import JellyfinError
+            raise JellyfinError("down")
+        return [JELLY_FILM]
+
+    async def episodes(self, series, start, limit):
+        return JELLY_EPISODES[start : start + limit], len(JELLY_EPISODES) > start + limit
+
+    def stream(self, item):
+        return f"http://192.168.1.10:8096/Videos/{item}/stream.mp4?api_key=k"
+
+
+async def test_a_page_includes_a_jellyfin_title(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa(),
+                                      jellyfin=FakeJellyfin()))
+    body = await (await client.post("/search", json={"query": "the matrix"})).json()
+    assert [(i["kind"], i["source"]) for i in body["items"]] == [
+        ("video", "youtube"),
+        ("radio", "music-assistant"),
+        ("video", "youtube"),
+        ("movie", "jellyfin"),
+        ("playlist", "youtube"),
+    ]
+    assert body["items"][3]["title"] == "A film"
+
+
+async def test_jellyfin_being_down_leaves_the_other_sources(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa(),
+                                      jellyfin=FakeJellyfin(fail=True)))
+    body = await (await client.post("/search", json={"query": "x"})).json()
+    assert [i["kind"] for i in body["items"]] == ["video", "radio", "video", "track", "playlist"]
+
+
+async def test_a_jellyfin_stream_is_resolved(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), jellyfin=FakeJellyfin()))
+    body = await (await client.post("/jellyfin/resolve", json={"item_id": "abc123"})).json()
+    assert body["url"] == "http://192.168.1.10:8096/Videos/abc123/stream.mp4?api_key=k"
+    assert (await client.post("/jellyfin/resolve", json={"item_id": "bad id"})).status == 400
+    assert (await client.post("/jellyfin/resolve",
+                              json={"item_id": "abc123"})).status == 200
+
+
+async def test_a_series_episodes_are_listed(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), jellyfin=FakeJellyfin()))
+    body = await (await client.post("/jellyfin/contents",
+                                    json={"series_id": "abc123", "page": 1})).json()
+    assert [i["title"] for i in body["items"]] == ["Episode 0", "Episode 1", "Episode 2"]
+    assert body["page"] == 1
+
+
+async def test_jellyfin_needs_to_be_configured(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
+    assert (await client.post("/jellyfin/resolve", json={"item_id": "abc123"})).status == 502
+    assert (await client.post("/jellyfin/contents", json={"series_id": "abc123"})).status == 502

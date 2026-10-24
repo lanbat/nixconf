@@ -328,10 +328,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if yt_show is not None and hass is not None and _any_screen():
             block = "\n".join(part for part in (
                 block,
-                "The house can play videos on a screen and music, radio and podcasts on a "
-                "speaker. When someone asks to watch, play or listen to something named, call "
-                "search_media and play the number they say; a clear station or song may be "
-                "played directly on Music Assistant.",
+                "The house can play videos on a screen (YouTube and the Jellyfin library) and "
+                "music, radio and podcasts on a speaker. When someone asks to watch, play or "
+                "listen to something named, call search_media and play the number they say; a "
+                "clear station or song may be played directly on Music Assistant.",
             ) if part)
         msgs = out.get("messages") or []
         if block and msgs and msgs[0].get("role") == "system":
@@ -431,11 +431,49 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         yt_lists.clear(room)
         return finish(device, f"Playing {title[:80]}.", ["Success"])
 
+    async def _jelly_play(device: str, room: str, item: dict) -> dict:
+        found = await yt_show.jellyfin_resolve(str(item.get("id") or ""))
+        if found is None:
+            return finish(device, "I couldn't get that from Jellyfin.", [])
+        target = await youtube_mod.play_service(hass, room, cfg.yt_play_service)
+        if target is None:
+            return finish(device, YOUTUBE_NO_SCREEN, [])
+        title = str(item.get("title") or "that")
+        try:
+            await hass.call(target[0], target[1], {"url": found["url"], "title": title})
+        except HassError:
+            return finish(device, "The screen didn't take it.", [])
+        yt_lists.clear(room)
+        return finish(device, f"Playing {title[:80]}.", ["Success"])
+
+    async def _jelly_contents(device: str, room: str, item: dict, page: int) -> dict:
+        series = str(item.get("id") or "")
+        data = await yt_show.jellyfin_episodes(series, page)
+        if data is None:
+            return finish(device, "I couldn't open that series just now.", [])
+        if not data.get("items"):
+            return finish(device, "That's the end of the series." if page > 1
+                          else "That series looks empty.", [])
+        results = youtube_mod.Results(str(item.get("title") or "series"), page,
+                                      tuple(data["items"]), bool(data.get("has_next")),
+                                      clock(), series=series)
+        current = yt_lists.get(room)
+        if current is not None and current.series == series:
+            yt_lists.replace(room, results)
+        else:
+            yt_lists.push(room, results)
+        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
+        return finish(device, youtube_mod.spoken(results), [])
+
     async def _media_play(device: str, room: str, item: dict) -> dict:
-        """A picked result: a video on the screen, music on a speaker, or a
-        playlist opened into its videos."""
+        """A picked result: a video on the screen, music on a speaker, a
+        Jellyfin title, or a playlist/series opened into its videos."""
         if item.get("source") == "music-assistant":
             return await _ma_play(device, room, item)
+        if item.get("source") == "jellyfin":
+            if item.get("kind") == "series":
+                return await _jelly_contents(device, room, item, 1)
+            return await _jelly_play(device, room, item)
         if item.get("kind") == "playlist":
             return await _yt_contents(device, room, str(item.get("id") or ""), 1,
                                       str(item.get("title") or ""))
@@ -471,6 +509,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                 return finish(device, "That's the first page of results.", [])
             if results.playlist is not None:
                 return await _yt_contents(device, room, results.playlist, page, results.query)
+            if results.series is not None:
+                return await _jelly_contents(device, room,
+                                             {"id": results.series, "title": results.query}, page)
             return await _yt_search(device, room, results.query, page)
         return finish(device, YOUTUBE_PICK, [])
 

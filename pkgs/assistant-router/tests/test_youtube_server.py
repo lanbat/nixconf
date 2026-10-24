@@ -166,6 +166,8 @@ MIXED = [
      "title": "A playlist", "channel": "C", "count": 2},
     {"n": 3, "kind": "radio", "source": "music-assistant", "id": "library://radio/1",
      "title": "BBC Radio 4", "channel": "RadioBrowser"},
+    {"n": 4, "kind": "movie", "source": "jellyfin", "id": "abc123", "title": "A film",
+     "channel": ""},
 ]
 
 
@@ -204,6 +206,12 @@ async def mixed_world(aiohttp_server):
     yt.router.add_post("/contents", yt_contents)
     yt.router.add_post("/resolve", yt_resolve)
     yt.router.add_post("/play", yt_play)
+
+    async def yt_jelly_resolve(request):
+        seen["yt"].append(("jellyfin", await request.json()))
+        return web.json_response({"url": "http://192.168.1.10:8096/Videos/abc123/stream.mp4?api_key=k"})
+
+    yt.router.add_post("/jellyfin/resolve", yt_jelly_resolve)
     yt_url = f"http://127.0.0.1:{(await aiohttp_server(yt)).port}"
 
     async def ha_services(request):
@@ -304,3 +312,21 @@ async def test_a_music_result_plays_on_the_room_player(aiohttp_client, mixed_wor
         "entity_id": "media_player.echo_show_8",
         "media_content_id": "library://radio/1",
         "media_content_type": "music"})
+
+
+async def test_a_jellyfin_movie_plays_on_the_screen(aiohttp_client, mixed_world):
+    seen, cloud, yt_url, ha_url, llm_url = mixed_world
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
+    client = await aiohttp_client(router(yt_url, ha_url, llm_url, bodies))
+
+    cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "search_media", "arguments": '{"query": "the matrix"}'}}]}
+    await client.post("/v1/chat/completions", json=req("play the matrix"))
+    played = await (await client.post("/v1/chat/completions", json=req("play four", conv="c2"))).json()
+    assert played["choices"][0]["message"]["content"] == "Playing A film."
+    assert seen["yt"][-1] == ("jellyfin", {"item_id": "abc123"})
+    assert seen["ha"][-1] == ("play_video", {
+        "url": "http://192.168.1.10:8096/Videos/abc123/stream.mp4?api_key=k",
+        "title": "A film"})
