@@ -32,6 +32,11 @@
 # tv-kodi sets these settings in it before every start, as root, while Kodi is
 # not running.
 #
+# The Invidious add-on (settings.invidious) watches YouTube through the
+# deployment's own instance (youtube.<domain>, from the service table) instead
+# of a public one, and the box trusts that instance's internal-CA certificate
+# so both the add-on and inputstream.adaptive reach it.
+#
 # Audio: Kodi plays PCM into the system PipeWire (passthrough off), so with a
 # voice satellite on the box its films and music meet the satellite's ducking
 # and echo canceller. The satellite's companion (pkgs/lva-kodi-companion)
@@ -189,9 +194,29 @@ let
           settings file.
         '';
       };
+      invidious = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Install the Invidious add-on (plugin.video.invidious) and point it
+          at this deployment's Invidious instance instead of a public one.
+          Playback is proxied through that instance (the add-on's "local"
+          setting), and the box trusts its internal-CA certificate. Needs
+          Invidious in the deployment.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
+  # The add-on's instance comes from the profile-wide service table, not a
+  # hard-coded hostname: Invidious runs on the server while Kodi runs on the
+  # Pi.  Forcing it keeps the add-on from answering a public instance.
+  invidiousService = config.lanbat.endpoints.invidious or null;
+  invidiousUrl =
+    if invidiousService != null && invidiousService.web != null then
+      "https://${invidiousService.web.subdomain}.${config.lanbat.deployment.domain}"
+    else
+      throw "lanbat: lanbat.services.kodi.settings.invidious is on, but this deployment has no Invidious web service.";
   # name|path|content|scraper|recursive|useFolderNames, one per line. Shows
   # are a folder each and not recursive; the rest are scanned recursively.
   # useFolderNames stays off: for shows it is Kodi's "Selected folder
@@ -259,6 +284,22 @@ let
     fi
     chmod 0600 "$subf"
   '';
+  # Invidious: seed the add-on's settings once (plugin.video.invidious 0.2.9).
+  # auto_instance off plus instance_url is what keeps it off the public
+  # instance list; local makes the instance proxy the streams, so the box
+  # talks to the instance alone.  The add-on rewrites the file when its
+  # settings change, so seed only when it is absent; a changed instance is
+  # applied by deleting the file first, then restarting tv-kodi.
+  invidiousSetup = ''
+    invdir=${home}/.kodi/userdata/addon_data/plugin.video.invidious
+    mkdir -p "$invdir"
+    invf="$invdir/settings.xml"
+    if [ ! -e "$invf" ]; then
+      printf '<settings version="2">\n<setting id="auto_instance">false</setting>\n<setting id="instance_url">%s</setting>\n<setting id="local">true</setting>\n</settings>\n' \
+        "$(xmlenc "$INVIDIOUS_URL")" > "$invf"
+    fi
+    chmod 0600 "$invf"
+  '';
   # Settings tv-kodi puts in guisettings.xml before Kodi starts (see the top).
   kodiRemote = pkgs.writeShellScript "kodi-remote-control" ''
     set -euo pipefail
@@ -296,6 +337,7 @@ let
     ${lib.optionalString kodiCfg.youtube youtubeSetup}
     ${lib.optionalString kodiCfg.twitch twitchSetup}
     ${lib.optionalString kodiCfg.opensubtitles opensubtitlesSetup}
+    ${lib.optionalString kodiCfg.invidious invidiousSetup}
     chown -R media:media ${home}/.kodi/userdata
     chmod 0600 "$f"
   '';
@@ -404,7 +446,8 @@ let
   '';
 
   # The Kodi add-on packages (pkgs/kodi-gbm's passthru), used to build the
-  # Twitch add-on, which nixpkgs does not carry.
+  # Twitch add-on (which nixpkgs does not carry) and the newer Invidious
+  # add-on than nixpkgs pins.
   kodiPkgs = pkgs.kodi-gbm.packages;
   pythonTwitchAddon = pkgs.callPackage ../../pkgs/kodi-addon-python-twitch {
     buildKodiAddon = kodiPkgs.buildKodiAddon;
@@ -416,6 +459,13 @@ let
     requests = kodiPkgs.requests;
     pythonTwitch = pythonTwitchAddon;
   };
+  invidiousAddon = pkgs.callPackage ../../pkgs/kodi-addon-invidious {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+    infotagger = kodiPkgs.infotagger;
+    requests = kodiPkgs.requests;
+    inputstream-adaptive = kodiPkgs.inputstream-adaptive;
+    inputstreamhelper = kodiPkgs.inputstreamhelper;
+  };
   # withPackages takes the add-ons to install and resolves their dependencies
   # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
   # module and its six/requests dependencies.
@@ -425,6 +475,7 @@ let
     ++ lib.optionals kodiCfg.youtube [ addons.youtube ]
     ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
     ++ lib.optionals kodiCfg.opensubtitles [ addons.a4ksubtitles ]
+    ++ lib.optionals kodiCfg.invidious [ invidiousAddon ]
   );
 
   # Seeded once: Kodi rewrites its favourites.
@@ -583,17 +634,38 @@ in
     # ES-DE looks for the cores in /run/current-system/sw/lib/retroarch/cores.
     environment.pathsToLink = [ "/lib/retroarch" ];
 
+    # The Invidious add-on reaches youtube.<domain> over the internal CA (see
+    # tv-kodi's REQUESTS_CA_BUNDLE).  Installing the root here covers
+    # inputstream.adaptive's curl, which reads the system bundle.
+    security.pki.certificateFiles = lib.mkIf kodiCfg.invidious [
+      config.lanbat.deployment.secrets.caCertificate
+    ];
+
     systemd.services = {
       # tty1 belongs to the TV sessions; consoles remain on tty2 and up.
       "getty@tty1".enable = false;
       "autovt@tty1".enable = false;
 
-      tv-kodi = lib.recursiveUpdate (session {
-        description = "Kodi on the TV";
-        other = "tv-games.service";
-        command = "${kodi}/bin/kodi-standalone";
-        extraAfter = [ "kodi-bootstrap.service" ] ++ unlockUnits;
-      }) { serviceConfig.ExecStartPre = [ "+${kodiRemote}" ]; };
+      tv-kodi =
+        lib.recursiveUpdate
+          (session {
+            description = "Kodi on the TV";
+            other = "tv-games.service";
+            command = "${kodi}/bin/kodi-standalone";
+            extraAfter = [ "kodi-bootstrap.service" ] ++ unlockUnits;
+          })
+          {
+            serviceConfig.ExecStartPre = [ "+${kodiRemote}" ];
+            # Kodi's requests module trusts its bundled certifi, not the system
+            # bundle, so the Invidious add-on could not reach the instance's
+            # internal-CA certificate. inputstream.adaptive (the DASH stream)
+            # uses the system bundle, which the CA above joins.
+            environment = lib.optionalAttrs kodiCfg.invidious {
+              REQUESTS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt";
+              SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
+              INVIDIOUS_URL = invidiousUrl;
+            };
+          };
       tv-games = session {
         description = "EmulationStation on the TV";
         other = "tv-kodi.service";
