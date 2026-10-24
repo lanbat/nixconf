@@ -21,7 +21,8 @@ _ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
 _PLAYLIST = re.compile(r"[A-Za-z0-9_-]{12,64}\Z")
 
 # The kinds a result can be: two from YouTube, the rest from Music Assistant.
-KINDS = ("video", "playlist", "radio", "track", "album", "artist", "podcast", "audiobook")
+KINDS = ("video", "playlist", "radio", "track", "album", "artist", "podcast", "audiobook",
+         "movie", "series", "episode")
 
 # The forms a link to one video takes: a share, a watch link, a short, a live
 # or an embed. A playlist or channel link names no single video and is not one.
@@ -100,7 +101,9 @@ def page(items: list[dict], number: int, size: int = PAGE_SIZE) -> tuple[list[Re
     for position, item in enumerate(chosen, start=start + 1):
         if not isinstance(item, dict):
             continue
-        source = item.get("source") if item.get("source") in ("youtube", "music-assistant") else "youtube"
+        source = (item.get("source")
+                  if item.get("source") in ("youtube", "music-assistant", "jellyfin")
+                  else "youtube")
         kind = item.get("kind") if item.get("kind") in KINDS else "video"
         vid, title = item.get("id"), item.get("title")
         count = item.get("count")
@@ -111,6 +114,8 @@ def page(items: list[dict], number: int, size: int = PAGE_SIZE) -> tuple[list[Re
         if source == "youtube" and not is_id(vid, kind):
             continue
         if source == "music-assistant" and "://" not in vid:
+            continue
+        if source == "jellyfin" and not vid.isalnum():
             continue
         out.append(Result(position, vid, title.strip(), str(item.get("channel") or "").strip(),
                           duration(item.get("seconds")), kind,

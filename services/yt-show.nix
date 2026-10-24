@@ -40,11 +40,15 @@ let
   enabled = hasRouter && screens != { };
   invidiousHere = config.lanbat.hasService "invidious";
   maHere = config.lanbat.hasService "music-assistant";
+  jellyfinHere = config.lanbat.hasService "jellyfin";
   domain = config.lanbat.deployment.domain;
+  serverIp = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
 
   # The token music-assistant-setup minted (root, 0600): copied into the
   # service's runtime directory before it starts.
   maToken = "/var/lib/music-assistant/.lanbat-setup/ma-token";
+  # The API key jellyfin-bootstrap minted for this helper.
+  jellyfinKey = "/var/lib/jellyfin/.lanbat-setup/yt-show-api-key";
 
   cfg = config.lanbat.services.${name}.settings;
 
@@ -167,15 +171,34 @@ in
               "--ma-url http://127.0.0.1:${toString config.lanbat.services.music-assistant.port}"
               "--ma-token-file /run/${name}/ma-token"
             ]
+            # Jellyfin: its video library, played through a transcode URL the
+            # Show fetches from the server on the LAN (Caddy's vhost asks for a
+            # browser login the Show cannot give).
+            ++ lib.optionals jellyfinHere [
+              "--jellyfin-url http://127.0.0.1:${toString config.lanbat.services.jellyfin.port}"
+              "--jellyfin-public-url http://${serverIp}:${toString config.lanbat.services.jellyfin.port}"
+              "--jellyfin-key-file /run/${name}/jellyfin-key"
+            ]
           );
           RuntimeDirectory = name;
           RuntimeDirectoryMode = "0700";
-          ExecStartPre = lib.optional maHere "+${pkgs.writeShellScript "yt-show-ma-token" ''
-            if [ -r ${maToken} ]; then
-              uid=$(${pkgs.coreutils}/bin/stat -c %u /run/${name})
-              ${pkgs.coreutils}/bin/install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
-            fi
-          ''}";
+          # Both tokens are copied in by root: the services that minted them
+          # wrote them root-only. A missing one only leaves that source out.
+          ExecStartPre =
+            lib.optional (maHere || jellyfinHere)
+              "+${pkgs.writeShellScript "yt-show-keys" ''
+                uid=$(${pkgs.coreutils}/bin/stat -c %u /run/${name})
+                ${lib.optionalString maHere ''
+                  if [ -r ${maToken} ]; then
+                    ${pkgs.coreutils}/bin/install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
+                  fi
+                ''}
+                ${lib.optionalString jellyfinHere ''
+                  if [ -r ${jellyfinKey} ]; then
+                    ${pkgs.coreutils}/bin/install -m 0400 -o "$uid" ${jellyfinKey} /run/${name}/jellyfin-key
+                  fi
+                ''}
+              ''}";
           Environment = [ "PATH=${path}" ];
           Restart = "always";
           RestartSec = "2s";
@@ -190,6 +213,18 @@ in
             "AF_UNIX"
           ];
         };
+      };
+
+      # jellyfin-bootstrap mints the API key on its first run, after this
+      # service may have started: when the file appears (or changes), restart
+      # so ExecStartPre copies it in.
+      systemd.paths."${name}-jellyfin-key" = lib.mkIf jellyfinHere {
+        wantedBy = [ "multi-user.target" ];
+        pathConfig.PathChanged = jellyfinKey;
+      };
+      systemd.services."${name}-jellyfin-key" = lib.mkIf jellyfinHere {
+        serviceConfig.Type = "oneshot";
+        script = "${config.systemd.package}/bin/systemctl try-restart ${name}.service";
       };
     })
   ];

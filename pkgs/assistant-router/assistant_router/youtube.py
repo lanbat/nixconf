@@ -26,9 +26,10 @@ SEARCH_TOOL = {
         "name": "search_media",
         "description": (
             "Find something to play and show it, numbered, on a room's Echo Show: videos and "
-            "playlists from YouTube, and radio stations, tracks, albums, artists, podcasts and "
-            "playlists from Music Assistant. Use it when someone asks to watch, play or listen "
-            "to something they name. The person then says which number to play."),
+            "playlists from YouTube, movies and TV from Jellyfin, and radio stations, tracks, "
+            "albums, artists, podcasts and playlists from Music Assistant. Use it when someone "
+            "asks to watch, play or listen to something they name. The person then says which "
+            "number to play."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -84,6 +85,7 @@ class Results:
     has_next: bool
     at: float
     playlist: str | None = None  # set when this list is a playlist's videos
+    series: str | None = None    # set when this list is a series' episodes
 
     def item(self, n: int) -> dict | None:
         """The nth result, counting from 1; -1 is the last one."""
@@ -183,6 +185,20 @@ class YtShow:
         """A playlist's videos, numbered from 1 on each page."""
         data = await self._post("/contents", {"playlist_id": playlist, "page": page})
         if data is None or not isinstance(data.get("items"), list):
+            return None
+        return data
+
+    async def jellyfin_episodes(self, series: str, page: int) -> dict | None:
+        """A Jellyfin series' episodes, numbered from 1 on each page."""
+        data = await self._post("/jellyfin/contents", {"series_id": series, "page": page})
+        if data is None or not isinstance(data.get("items"), list):
+            return None
+        return data
+
+    async def jellyfin_resolve(self, item: str) -> dict | None:
+        """The transcoded stream address of a Jellyfin title."""
+        data = await self._post("/jellyfin/resolve", {"item_id": item})
+        if data is None or not isinstance(data.get("url"), str) or not data["url"]:
             return None
         return data
 

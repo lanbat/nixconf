@@ -82,6 +82,31 @@ ensure_api_key() {
   ')"
 }
 
+# An API key for yt-show (the Echo Show's search/play helper), written where
+# that service copies it from. Idempotent: one key per app name. The helper
+# only needs it to search the library and to stream a title to the screen.
+YT_SHOW_KEY_APP="yt-show"
+YT_SHOW_KEY_FILE="${STATE_DIR}/.lanbat-setup/yt-show-api-key"
+write_yt_show_key() {
+  local key
+  key="$(api_call "${JELLYFIN_URL}/Auth/Keys" | jq -r --arg app "$YT_SHOW_KEY_APP" '
+    [.Items[] | select(.AppName == $app) | .AccessToken] | last // empty
+  ')"
+  if [[ -z "$key" ]]; then
+    api_call -X POST "${JELLYFIN_URL}/Auth/Keys?app=${YT_SHOW_KEY_APP}" -o /dev/null || true
+    key="$(api_call "${JELLYFIN_URL}/Auth/Keys" | jq -r --arg app "$YT_SHOW_KEY_APP" '
+      [.Items[] | select(.AppName == $app) | .AccessToken] | last // empty
+    ')"
+  fi
+  if [[ -z "$key" ]]; then
+    log "could not mint the yt-show API key"
+    return 0
+  fi
+  install -d -m 0750 "$(dirname "$YT_SHOW_KEY_FILE")"
+  printf '%s\n' "$key" > "$YT_SHOW_KEY_FILE"
+  chmod 0600 "$YT_SHOW_KEY_FILE"
+}
+
 run_startup_wizard() {
   log "setting locale and metadata language"
   curl -fsS -X POST "${JELLYFIN_URL}/Startup/Configuration" \
@@ -656,6 +681,7 @@ run_configuration() {
   ( set +eu; trap '' HUP; repair_media_permissions ) &
   harden_adult_permissions
   api_auth
+  write_yt_show_key
   configure_networking
   setup_libraries
   configure_nfs_libraries
@@ -678,6 +704,7 @@ if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>
   ( set +eu; trap '' HUP; repair_media_permissions ) &
   harden_adult_permissions
   api_auth
+  write_yt_show_key
   configure_networking
   setup_libraries
   configure_nfs_libraries

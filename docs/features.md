@@ -37,10 +37,11 @@ external API, or the assistant router.
 
 - **Jellyfin** for video, **Immich** for photos, **Audiobookshelf** for
   audiobooks, and **RomM** for retro games (it starts on the first request).
-- **Media on the Echo Show** by voice: search YouTube and Music Assistant
-  together, pick from the results (videos, playlists, radio, music, podcasts)
-  and play them — video on the screen (remuxing a 720p one when YouTube offers
-  only 360p), audio on the room's speaker.
+- **Media on the Echo Show** by voice: search YouTube, Music Assistant and
+  Jellyfin together, pick from the results (videos, playlists, radio, music,
+  podcasts, movies, TV) and play them — video on the screen (remuxing a 720p one
+  when YouTube offers only 360p, transcoding from Jellyfin), audio on the room's
+  speaker.
   [Echo Shows](techo5.md#playing-video-music-radio-and-podcasts-on-the-screen).
 - **qBittorrent**, **Jackett** for indexers, and **Bitmagnet** as an on-demand
   DHT index. Media files live on the Pi's encrypted drives.
