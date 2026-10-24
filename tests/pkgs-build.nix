@@ -11,6 +11,13 @@ let
   dashboards = pkgs.callPackage ../pkgs/grafana-dashboards { };
   kodiTvConfig = pkgs.callPackage ../pkgs/kodi-tv-config { };
   kodiBootstrap = pkgs.callPackage ../pkgs/kodi-bootstrap { };
+  kodiInvidious = pkgs.callPackage ../pkgs/kodi-addon-invidious {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
+    infotagger = pkgs.kodi-gbm.packages.infotagger;
+    requests = pkgs.kodi-gbm.packages.requests;
+    inputstream-adaptive = pkgs.kodi-gbm.packages.inputstream-adaptive;
+    inputstreamhelper = pkgs.kodi-gbm.packages.inputstreamhelper;
+  };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
   xiaomiClockSync = pkgs.callPackage ../pkgs/xiaomi-clock-sync { };
   feedBridge = pkgs.callPackage ../pkgs/media-feed-bridge { };
@@ -35,6 +42,7 @@ pkgs.runCommand "pkgs-build-smoke"
       caPage
       dashboards
       kodiBootstrap
+      kodiInvidious
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -62,6 +70,7 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${caPage}/index.html
     test -d ${dashboards}
     test -f ${kodiTvConfig}/sources.xml
+    test -f ${kodiInvidious}/share/kodi/addons/plugin.video.invidious/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite
