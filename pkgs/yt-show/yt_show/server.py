@@ -73,11 +73,22 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         neither source could answer."""
         if invidious is not None:
             try:
-                items = await invidious.search(query, want // INVIDIOUS_PAGE + 1)
-                offset = want % INVIDIOUS_PAGE
-                chunk = items[offset : offset + cfg.page_size]
-                # A short last page is the end; a full one means there may be more.
-                more = len(items) > offset + cfg.page_size or len(items) >= INVIDIOUS_PAGE
+                # One page is (page_size - 1) videos plus one playlist, when
+                # there is one: `type=all` does not include playlists.
+                block = want // cfg.page_size
+                video_want = block * (cfg.page_size - 1)
+                videos = await invidious.search(query, video_want // INVIDIOUS_PAGE + 1, "video")
+                offset = video_want % INVIDIOUS_PAGE
+                chunk = videos[offset : offset + cfg.page_size - 1]
+                playlists = await invidious.search(query, block // INVIDIOUS_PAGE + 1, "playlist")
+                playlist_offset = block % INVIDIOUS_PAGE
+                chunk = chunk + playlists[playlist_offset : playlist_offset + 1]
+                more = (
+                    len(videos) > offset + cfg.page_size - 1
+                    or len(videos) >= INVIDIOUS_PAGE
+                    or len(playlists) > playlist_offset + 1
+                    or len(playlists) >= INVIDIOUS_PAGE
+                )
                 numbered, _ = page_of(chunk, 1, cfg.page_size)
                 return [r.as_dict() for r in numbered], more, "invidious"
             except InvidiousError as exc:
