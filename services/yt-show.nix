@@ -177,8 +177,8 @@ in
           RuntimeDirectoryMode = "0700";
           ExecStartPre = lib.optional maHere "+${pkgs.writeShellScript "yt-show-ma-token" ''
             if [ -r ${maToken} ]; then
-              uid=$(stat -c %u /run/${name})
-              install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
+              uid=$(${pkgs.coreutils}/bin/stat -c %u /run/${name})
+              ${pkgs.coreutils}/bin/install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
             fi
           ''}";
           Environment = [ "PATH=${path}" ];
