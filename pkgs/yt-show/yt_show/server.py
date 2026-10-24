@@ -10,7 +10,7 @@ be up but unable to play a particular video (services/invidious.nix).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
@@ -50,7 +50,6 @@ class Config:
     # Music Assistant (ma.py): audio results and playback on the room's player.
     ma_url: str | None = None
     ma_token_file: str | None = None
-    ma_players: dict[str, str] = field(default_factory=dict)  # room -> player name
     ma_limit: int = 40
 
     def remuxer(self) -> Remux | None:
@@ -240,27 +239,6 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         title, url, source = found
         return web.json_response({"url": url, "title": title, "source": source})
 
-    async def on_play(request: web.Request) -> web.Response:
-        try:
-            body = await request.json()
-        except ValueError:
-            return bad("not JSON")
-        if not isinstance(body, dict):
-            return bad("not an object")
-        uri = body.get("uri")
-        if not isinstance(uri, str) or "://" not in uri:
-            return bad("uri")
-        room = body.get("room") if isinstance(body.get("room"), str) else ""
-        if ma is None:
-            return web.json_response({"error": "Music Assistant is not configured"}, status=502)
-        players = {key.casefold(): value for key, value in cfg.ma_players.items()}
-        try:
-            player = await ma.play(room, uri, players.get(room.strip().casefold()))
-        except MaError as exc:
-            LOG.warning("music assistant could not play %s: %s", uri, exc)
-            return web.json_response({"error": "Music Assistant could not play it"}, status=502)
-        return web.json_response({"ok": True, "player": player})
-
     async def on_health(_request: web.Request) -> web.Response:
         return web.json_response({
             "ok": True,
@@ -272,7 +250,6 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
     app.router.add_get("/healthz", on_health)
     app.router.add_post("/search", on_search)
     app.router.add_post("/contents", on_contents)
-    app.router.add_post("/play", on_play)
     app.router.add_post("/resolve", on_resolve)
     return app
 

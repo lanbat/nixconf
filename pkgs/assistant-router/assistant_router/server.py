@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 import aiohttp
@@ -194,6 +194,8 @@ class Config:
     # its own (youtube.play_service); unset: one play_video service, or the
     # one whose name holds the room.
     yt_play_service: str | None = None
+    # room -> Music Assistant speaker's friendly name (media_player discovery).
+    media_players: dict[str, str] = field(default_factory=dict)
 
 
 def _reply(text: str) -> dict:
@@ -415,9 +417,17 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
 
     async def _ma_play(device: str, room: str, item: dict) -> dict:
         title = str(item.get("title") or "that")
-        player = await yt_show.play_media(room, str(item.get("id") or ""), title)
-        if player is None:
-            return finish(device, "I couldn't play that just now.", [])
+        entity = await youtube_mod.audio_player(hass, room, cfg.media_players)
+        if entity is None:
+            return finish(device, "I can't find a speaker in that room.", [])
+        try:
+            await hass.call("media_player", "play_media", {
+                "entity_id": entity,
+                "media_content_id": str(item.get("id") or ""),
+                "media_content_type": "music",
+            })
+        except HassError:
+            return finish(device, "The speaker didn't take it.", [])
         yt_lists.clear(room)
         return finish(device, f"Playing {title[:80]}.", ["Success"])
 

@@ -5,8 +5,8 @@ import pytest
 from aiohttp import web
 
 from assistant_router.hass import Hass, HassError
-from assistant_router.youtube import (Results, Sessions, YtShow, caption, control, interpret,
-                                      play_service, plays_something, spoken)
+from assistant_router.youtube import (Results, Sessions, YtShow, audio_player, caption, control,
+                                      interpret, play_service, plays_something, spoken)
 
 TITLES = [
     "A very long title about kittens that goes on and on and on for ages",
@@ -242,22 +242,31 @@ async def test_the_helper_client_finds_the_helper_and_survives_its_absence(aioht
     async def broken(request):
         return web.Response(status=502)
 
-    async def play(request):
-        body = await request.json()
-        assert body == {"room": "Kitchen", "uri": "library://radio/1", "title": "BBC Radio 4"}
-        return web.json_response({"ok": True, "player": "Echo Show 8"})
-
     app = web.Application()
     app.router.add_post("/search", search)
     app.router.add_post("/resolve", resolve)
-    app.router.add_post("/play", play)
     app.router.add_post("/broken", broken)
     server = await aiohttp_server(app)
     client = YtShow(f"http://127.0.0.1:{server.port}")
     found = await client.search("kittens", 1)
     assert found["items"][0]["title"] == "A"
     assert (await client.resolve("dQw4w9WgXcQ"))["url"] == "https://x/video"
-    assert await client.play_media("Kitchen", "library://radio/1", "BBC Radio 4") == "Echo Show 8"
-    assert await client.play_media("Kitchen", "library://nope/1") is None
     assert await client._post("/broken", {}) is None
     await client.aclose()
+
+
+class FakeStates:
+    def __init__(self, states):
+        self._states = states
+
+    async def states(self, domain=None):
+        return self._states
+
+
+async def test_the_rooms_speaker_is_found_by_the_name_the_profile_gave_it():
+    hass = FakeStates([{"entity_id": "media_player.echo_show_8", "name": "Echo Show 8",
+                        "state": "idle"}])
+    assert await audio_player(hass, "Kitchen", {"kitchen": "echo show 8"}) == \
+        "media_player.echo_show_8"
+    assert await audio_player(hass, "Office", {"kitchen": "echo show 8"}) is None
+    assert await audio_player(hass, "Kitchen", {}) is None

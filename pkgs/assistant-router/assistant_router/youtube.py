@@ -193,12 +193,6 @@ class YtShow:
             return None
         return data
 
-    async def play_media(self, room: str, uri: str, title: str = "") -> str | None:
-        """Play a Music Assistant item on the room's player; its name, or None."""
-        data = await self._post("/play", {"room": room, "uri": uri, "title": title})
-        if data is None or data.get("ok") is not True:
-            return None
-        return data.get("player") if isinstance(data.get("player"), str) else ""
 
 
 def _clip(text: object, width: int) -> str:
@@ -332,6 +326,21 @@ def plays_something(text: str) -> bool:
     rest = [word for word in re.findall(r"[a-z0-9']+", (text or "").lower()[found.end():])
             if word not in _EMPTY]
     return bool(rest) and not all(word in _MUSIC for word in rest)
+
+
+async def audio_player(hass: Hass, room: str, players: dict[str, str]) -> str | None:
+    """The room's Music Assistant speaker, by the name its profile gave it."""
+    name = players.get((room or "").strip().casefold())
+    if not name:
+        return None
+    try:
+        states = await hass.states("media_player")
+    except HassError:
+        return None
+    for state in states:
+        if state["name"].casefold() == name.casefold():
+            return state["entity_id"]
+    return None
 
 
 async def play_service(hass: Hass, room: str, override: str | None = None) -> tuple[str, str] | None:

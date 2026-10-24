@@ -90,7 +90,8 @@ async def world(aiohttp_server):
 
 def router(yt_url, ha_url, llm_url, bodies):
     cfg = Config(local_url="http://127.0.0.1:1/v1", local_model="x", cloud_url=llm_url,
-                 cloud_model="smart", mode="cloud-first")
+                 cloud_model="smart", mode="cloud-first",
+                 media_players={"kitchen": "echo show 8"})
     hass = Hass(ha_url, "token")
     return make_app(cfg, state=State(), bodies=bodies, yt_show=YtShow(yt_url), hass=hass)
 
@@ -210,12 +211,24 @@ async def mixed_world(aiohttp_server):
                                    "services": {"kitchen_play_video": {}}}])
 
     async def ha_play(request):
-        seen["ha"].append(await request.json())
+        seen["ha"].append(("play_video", await request.json()))
+        return web.json_response([])
+
+    async def ha_states(request):
+        return web.json_response([
+            {"entity_id": "media_player.echo_show_8", "state": "idle",
+             "attributes": {"friendly_name": "Echo Show 8"}},
+        ])
+
+    async def ha_play_media(request):
+        seen["ha"].append(("play_media", await request.json()))
         return web.json_response([])
 
     ha = web.Application()
     ha.router.add_get("/api/services", ha_services)
+    ha.router.add_get("/api/states", ha_states)
     ha.router.add_post("/api/services/esphome/kitchen_play_video", ha_play)
+    ha.router.add_post("/api/services/media_player/play_media", ha_play_media)
     ha_url = f"http://127.0.0.1:{(await aiohttp_server(ha)).port}"
 
     async def cloud_chat(request):
@@ -253,7 +266,8 @@ async def test_a_playlist_opens_its_videos_and_one_of_them_plays(aiohttp_client,
     played = await (await client.post("/v1/chat/completions", json=req("play one", conv="c3"))).json()
     assert played["choices"][0]["message"]["content"] == "Playing Video 7."
     assert seen["yt"][-1] == ("resolve", {"video_id": "vid00000007"})
-    assert seen["ha"][-1] == {"url": "https://youtube.example/video.mp4", "title": "Video 7"}
+    assert seen["ha"][-1] == ("play_video", {
+        "url": "https://youtube.example/video.mp4", "title": "Video 7"})
 
 
 async def test_going_back_returns_to_the_search_results(aiohttp_client, mixed_world):
@@ -285,6 +299,8 @@ async def test_a_music_result_plays_on_the_room_player(aiohttp_client, mixed_wor
     await client.post("/v1/chat/completions", json=req("play radio 4"))
     played = await (await client.post("/v1/chat/completions", json=req("play three", conv="c2"))).json()
     assert played["choices"][0]["message"]["content"] == "Playing BBC Radio 4."
-    assert seen["yt"][-1] == ("play", {"room": "Kitchen", "uri": "library://radio/1",
-                                       "title": "BBC Radio 4"})
-    assert seen["ha"] == []
+    assert seen["yt"][-1] == ("search", {"query": "radio 4", "page": 1})
+    assert seen["ha"][-1] == ("play_media", {
+        "entity_id": "media_player.echo_show_8",
+        "media_content_id": "library://radio/1",
+        "media_content_type": "music"})
