@@ -63,18 +63,18 @@ def test_presence_narrows_a_close_voice_call():
     # Kiril and Ivo sound alike; only Kiril's phone is here: Kiril.
     p = People(NAMES)
     p.observe("Kitchen", "phone", "kiril", 1.0, now=0.0)
-    a = p.assess("Kitchen", now=30.0, voice=scores(kiril=0.62, ivo=0.6))
+    a = p.assess("Kitchen", now=20.0, voice=scores(kiril=0.62, ivo=0.6))
     assert a.speaker == "kiril"
     # Without the phone the same voice is too close to call.
-    assert People(NAMES).assess("Kitchen", now=30.0, voice=scores(kiril=0.62, ivo=0.6)).speaker is None
+    assert People(NAMES).assess("Kitchen", now=20.0, voice=scores(kiril=0.62, ivo=0.6)).speaker is None
 
 
 def test_a_phone_left_elsewhere_does_not_beat_a_clear_voice():
     p = People(NAMES)
     p.observe("Kitchen", "phone", "maria", 1.0, now=0.0)
-    a = p.assess("Kitchen", now=30.0, voice=scores(kiril=0.75))
+    a = p.assess("Kitchen", now=20.0, voice=scores(kiril=0.75))
     assert a.speaker == "kiril"
-    assert "Maria is nearby" in p.line("Kitchen", now=30.0, voice=scores(kiril=0.75))
+    assert "Maria is nearby" in p.line("Kitchen", now=20.0, voice=scores(kiril=0.75))
 
 
 def test_the_same_speaker_carries_through_a_conversation():
@@ -97,9 +97,9 @@ def test_evidence_expires():
     p = People(NAMES)
     p.observe("Kitchen", "aimed", "kiril", 0.9, now=0.0)
     p.observe("Kitchen", "phone", "maria", 1.0, now=0.0)
-    assert "Kiril" not in p.line("Kitchen", now=30.0)   # the face is 30 s old
-    assert "Maria" in p.line("Kitchen", now=30.0)       # the phone still counts
-    assert p.line("Kitchen", now=60.0) is None          # so is the phone, after its 45 s window
+    assert "Kiril" not in p.line("Kitchen", now=20.0)   # the face is 20 s old
+    assert "Maria" in p.line("Kitchen", now=20.0)       # the phone still counts
+    assert p.line("Kitchen", now=60.0) is None          # so is the phone, after its 25 s window
 
 
 def test_other_rooms_are_other_rooms():
@@ -185,10 +185,10 @@ def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
     assert p.line("Bedroom 1", now=10.0) is None
     # Close enough in both: in both (a doorway, a thin wall).
     p.observe_phone("Bedroom 1", "kiril", -64, now=20.0)
-    assert "Kiril" in p.line("Bedroom 1", now=30.0)
+    assert "Kiril" in p.line("Bedroom 1", now=24.0)
     # Gone quiet in the kitchen: the bedroom alone has it.
-    assert "Kiril" in p.line("Bedroom 1", now=60.0)
-    assert p.line("Kitchen", now=60.0) is None
+    assert "Kiril" in p.line("Bedroom 1", now=35.0)
+    assert p.line("Kitchen", now=35.0) is None
 
 
 def test_bluetooth_and_wifi_strengths_are_not_compared():

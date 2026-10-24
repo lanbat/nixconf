@@ -5,7 +5,7 @@ are the profile's people (lanbat.deployment.people, and those enrolled since);
 anything else is dropped, so no free text from a satellite or a robot reaches
 a prompt. The sources:
 
-- "phone": a person's phone heard in the room (pkgs/room-presence), last 45 s;
+- "phone": a person's phone heard in the room (pkgs/room-presence), last 25 s;
   heard by sensors in several rooms (through walls), it counts only where it
   is loudest, or in each room within ROOM_MARGIN_DB of that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
@@ -46,7 +46,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 SOURCES = ("face", "aimed", "seen", "phone", "card", "tap", "voice")
-WINDOW = {"face": 10.0, "aimed": 10.0, "seen": 90.0, "phone": 45.0, "card": 120.0, "tap": 120.0,
+WINDOW = {"face": 10.0, "aimed": 10.0, "seen": 90.0, "phone": 25.0, "card": 120.0, "tap": 120.0,
           "voice": 300.0}
 MIN_CONFIDENCE = {"face": 0.6, "aimed": 0.6, "seen": 0.6, "phone": 0.5, "card": 0.5, "tap": 0.5,
                   "voice": 0.7}
