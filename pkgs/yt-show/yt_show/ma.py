@@ -10,6 +10,7 @@ from __future__ import annotations
 import aiohttp
 from music_assistant_client import MusicAssistantClient
 from music_assistant_client.exceptions import MusicAssistantClientException
+from music_assistant_models.errors import MusicAssistantError
 
 # (our kind, the SearchResults attribute), in the order they are interleaved.
 FIELDS = (
@@ -78,7 +79,7 @@ def _item(kind: str, item: object) -> dict | None:
 
 class Ma:
     def __init__(self, url: str, token_file: str,
-                 session: aiohttp.ClientSession | None = None, timeout: float = 10.0) -> None:
+                 session: aiohttp.ClientSession | None = None, timeout: float = 30.0) -> None:
         self.url = url.rstrip("/")
         self.token_file = token_file
         self._session = session
@@ -127,5 +128,7 @@ class Ma:
                         break
                     index += 1
                 return out
-        except (MusicAssistantClientException, OSError) as exc:
+        except (MusicAssistantClientException, MusicAssistantError, OSError, TimeoutError) as exc:
+            # A slow or unhappy Music Assistant must not take the search down:
+            # the page is then just YouTube and Jellyfin.
             raise MaError(str(exc)) from exc
