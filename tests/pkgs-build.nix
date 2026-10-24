@@ -24,6 +24,7 @@ let
   haDashboards = pkgs.callPackage ../pkgs/home-assistant-dashboards { };
   voiceId = pkgs.callPackage ../pkgs/voice-id { };
   assistantRouter = pkgs.callPackage ../pkgs/assistant-router { };
+  ytShow = pkgs.callPackage ../pkgs/yt-show { };
   frigatePersonMapper = pkgs.callPackage ../pkgs/frigate-person-mapper { };
 in
 pkgs.runCommand "pkgs-build-smoke"
@@ -44,6 +45,7 @@ pkgs.runCommand "pkgs-build-smoke"
       haDashboards
       voiceId
       assistantRouter
+      ytShow
       frigatePersonMapper
     ];
   }

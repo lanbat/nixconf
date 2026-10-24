@@ -23,12 +23,13 @@ import aiohttp
 from aiohttp import web
 
 from . import (actions, body as body_mod, cards as cards_mod, gate as gate_mod, honesty, identity,
-               lists as lists_mod, reminders as reminders_mod, triage)
+               lists as lists_mod, reminders as reminders_mod, triage, youtube as youtube_mod)
 from .body import Bodies
 from .cards import Cards
 from .context import Context, parse_context
 from .evidence import Evidence
 from .frigate import Frigate, FrigateError
+from .hass import Hass, HassError
 from .irks import Irks
 from .lists import Lists, Personal
 from .people import VOICE_UNKNOWN, People
@@ -50,6 +51,10 @@ CLARIFY = "Which one do you mean?"
 CLOUD_DOWN = "I can't reach the online assistant right now."
 OFFLINE = "I can't do that offline. I can control devices and media."
 REFUSED = "I can't do that."
+YOUTUBE_DOWN = "I couldn't search YouTube just now."
+YOUTUBE_NO_SCREEN = "I can't find a screen to play that on."
+YOUTUBE_NO_VIDEO = "I couldn't find a video there that this screen will play."
+YOUTUBE_PICK = "Which one? Say the number."
 
 # What a cloud model may ask Home Assistant to run: the agent's two functions,
 # with the actions their specs list (setup-ha.sh).
@@ -184,6 +189,10 @@ class Config:
     log_days: int = 14
     log_text: bool = True
     offer_to_meet: bool = True  # Nabu asks an unknown voice's name, once a room a day
+    # esphome.<node>_play_video, when a room's screen cannot be told apart on
+    # its own (youtube.play_service); unset: one play_video service, or the
+    # one whose name holds the room.
+    yt_play_service: str | None = None
 
 
 def _reply(text: str) -> dict:
@@ -236,10 +245,14 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              voice: VoiceIdClient | None = None, cards: Cards | None = None,
              forget_phones: Callable[[str], int] | None = None,
              sightings: Sightings | None = None, strangers: Strangers | None = None,
-             personal: Personal | None = None) -> web.Application:
+             personal: Personal | None = None,
+             yt_show: youtube_mod.YtShow | None = None,
+             yt_lists: youtube_mod.Sessions | None = None,
+             hass: Hass | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
+    yt_lists = yt_lists or youtube_mod.Sessions()
     enrollable = capture_face is not None
     reports = VoiceReports()
     speakers: dict[str, tuple[str, float]] = {}       # device -> (person, when)
@@ -258,6 +271,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     def last_speaker(device: str, now: float) -> str | None:
         hit = speakers.get(device)
         return hit[0] if hit and now - hit[1] <= SPEAKER_SECONDS and hit[0] in people.names else None
+
+    def _any_screen() -> bool:
+        """An Echo Show (a screen body) is connected somewhere: it can play a video."""
+        return any(bodies.kind(name) == "screen" for name in bodies.rooms())
 
     def remember(key: str, name: str) -> None:
         if people_store is not None:
@@ -295,11 +312,22 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             out["tools"] = list(out.get("tools") or []) + [ENROLL_TOOL]
         if voice is not None or frigate is not None:
             out["tools"] = list(out.get("tools") or []) + [FORGET_TOOL]
+        # A screen in the house can play a video: let the cloud find one and
+        # then play the one the person picks (youtube.py).
+        if yt_show is not None and hass is not None and _any_screen():
+            out["tools"] = list(out.get("tools") or []) + [
+                youtube_mod.SEARCH_TOOL, youtube_mod.PLAY_TOOL]
         # A body in the room: its persona and what it senses go after Home
         # Assistant's block, so the start of the prompt stays the same.
         now = clock()
         block = "\n".join(b for b in (bodies.prompt_block(room, now),
                                       people.line(room, now, voice_scores, last)) if b)
+        if yt_show is not None and hass is not None and _any_screen():
+            block = "\n".join(part for part in (
+                block,
+                "A screen in the house can play a YouTube video: when someone asks to watch or "
+                "play something on it, call search_youtube_videos, and play the number they say.",
+            ) if part)
         msgs = out.get("messages") or []
         if block and msgs and msgs[0].get("role") == "system":
             out["messages"] = [dict(msgs[0], content=(msgs[0].get("content") or "") + "\n" + block)] + msgs[1:]
@@ -316,6 +344,100 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         said = honesty.check(honesty.speakable(text), tool_results)
         state.remember_reply(device, said, clock())
         return _reply(said)
+
+    def _screen_room(room: str) -> str | None:
+        """The room's screen, or the one screen there is. "the kitchen",
+        "Kitchen" and "kitchen screen" all name it."""
+        want = (room or "").strip().casefold()
+        screens = [name for name in bodies.rooms() if bodies.kind(name) == "screen"]
+        for name in screens:
+            if name.casefold() == want:
+                return name
+        if want:
+            for name in screens:
+                if name.casefold() in want:
+                    return name
+        return screens[0] if len(screens) == 1 else None
+
+    async def _yt_search(device: str, room: str, query: str, page: int) -> dict:
+        data = await yt_show.search(query, page)
+        if data is None:
+            return finish(device, YOUTUBE_DOWN, [])
+        if not data.get("items"):
+            # An empty page is not a failure: it is the end of the list, or a
+            # search that found nothing.
+            return finish(device, "That's the end of the results." if page > 1
+                          else "I couldn't find anything for that.", [])
+        results = youtube_mod.Results(query, page, tuple(data["items"]),
+                                      bool(data.get("has_next")), clock())
+        yt_lists.set(room, results)
+        # The list stays up while the person decides (brain.py shows a caption
+        # for ten seconds unless told longer).
+        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
+        return finish(device, youtube_mod.spoken(results), [])
+
+    async def _yt_play(device: str, room: str, video: str, title: str = "") -> dict:
+        found = await yt_show.resolve(video)
+        if found is None:
+            return finish(device, YOUTUBE_NO_VIDEO, [])
+        target = await youtube_mod.play_service(hass, room, cfg.yt_play_service)
+        if target is None:
+            return finish(device, YOUTUBE_NO_SCREEN, [])
+        chosen = str(found.get("title") or title or "the video")
+        try:
+            await hass.call(target[0], target[1], {"url": found["url"], "title": chosen})
+        except HassError:
+            return finish(device, "The screen didn't take the video.", [])
+        yt_lists.clear(room)
+        return finish(device, f"Playing {chosen[:80]}.", ["Success"])
+
+    async def _yt_control(device: str, room: str, pick: tuple[str, object]) -> dict:
+        kind, value = pick
+        if kind == "cancel":
+            yt_lists.clear(room)
+            return finish(device, STOPPED, [])
+        if kind == "raw":
+            return await _yt_play(device, room, str(value))
+        results = yt_lists.get(room)
+        if results is None:
+            return finish(device, "There's no list to pick from. What should I look for?", [])
+        if kind == "play":
+            item = results.item(int(value or 0))
+            if item is None:
+                return finish(device, YOUTUBE_PICK, [])
+            return await _yt_play(device, room, str(item.get("id") or ""), str(item.get("title") or ""))
+        if kind in ("next", "prev", "page"):
+            page = (results.page + 1 if kind == "next"
+                    else results.page - 1 if kind == "prev" else int(value or 1))
+            if page < 1:
+                return finish(device, "That's the first page of results.", [])
+            return await _yt_search(device, room, results.query, page)
+        return finish(device, YOUTUBE_PICK, [])
+
+    async def _yt_tool(device: str, ctx: Context | None, call: dict, tool_results: list[str]) -> dict:
+        # A cloud tool from youtube.py: its own, not Home Assistant's, so it is
+        # run here and the turn ends with what was done.
+        fn = call.get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "")
+        except (TypeError, ValueError):
+            args = {}
+        if not isinstance(args, dict):
+            args = {}
+        room = args.get("room") if isinstance(args.get("room"), str) else ""
+        room = _screen_room(room) or _screen_room(ctx.room if ctx else "")
+        if room is None:
+            return finish(device, YOUTUBE_NO_SCREEN, tool_results)
+        if fn.get("name") == youtube_mod.SEARCH_TOOL["function"]["name"]:
+            query = args.get("query")
+            if not isinstance(query, str) or not query.strip():
+                return finish(device, "What should I look for?", tool_results)
+            page = args.get("page") if type(args.get("page")) is int else 1
+            return await _yt_search(device, room, query.strip()[:200], max(1, min(page, 20)))
+        pick = youtube_mod.interpret(str(args.get("selection") or ""))
+        if pick is None:
+            return finish(device, YOUTUBE_PICK, tool_results)
+        return await _yt_control(device, room, pick)
 
     async def _enroll(device: str, ctx: Context | None, call: dict, tool_results: list[str],
                       texts: list[str]) -> dict:
@@ -531,6 +653,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         msg = data["choices"][0]["message"]
         calls = msg.get("tool_calls")
         if calls:
+            video = next((c for c in calls
+                          if (c.get("function") or {}).get("name") in youtube_mod.TOOL_NAMES), None)
+            if video is not None:
+                return await _yt_tool(device, ctx, video, tool_results)
             enroll = next((c for c in calls if (c.get("function") or {}).get("name") == "enroll_person"), None)
             if enroll is not None:
                 return await _enroll(device, ctx, enroll, tool_results, texts or [])
@@ -667,6 +793,18 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                  "ms": int((time.monotonic() - started) * 1000)})
             return web.json_response(resp)
 
+        # A list of videos is open on a screen: "play 2", "next page", "cancel"
+        # answer that, before the gate and before the local model could read
+        # "play" as a media player's (youtube.py).
+        screen = _screen_room(room)
+        if yt_show is not None and hass is not None and screen is not None and yt_lists.has(screen):
+            pick = youtube_mod.control(text)
+            if pick is not None:
+                resp = await _yt_control(device, screen, pick)
+                log({"conv": conv, "device": device, "room": room, "text": text, "tier": "video",
+                     "route": pick[0], "ms": int((time.monotonic() - started) * 1000)})
+                return web.json_response(resp)
+
         verdict = gate_mod.gate(text, state.last_reply(device, now)) if ctx else "escalate"
         tier, route = "gate", verdict
         if verdict == "reject":
@@ -678,6 +816,13 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             if verdict == "pass" and cfg.mode != "cloud-first":
                 t = await triage.classify(session, cfg.local_url, cfg.local_model, ctx, asked, cfg.local_timeout)
                 tier, route = "local", t.route
+            # "Play <something>" in a house with a screen: the cloud searches
+            # for it (youtube.py) instead of the local model resuming whatever
+            # the room's player last had. Music keeps the local act.
+            if t.route == "act" and t.action == "play" and _any_screen() \
+                    and youtube_mod.plays_something(asked):
+                t = triage.Triage("escalate")
+                tier, route = "local", "escalate"
             if t.route == "act":
                 calls = actions.tool_calls(t)
                 state.add_pending(calls[0]["id"], t, now)

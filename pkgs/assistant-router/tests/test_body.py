@@ -260,6 +260,9 @@ def test_a_screen_can_only_what_it_names():
     assert bodies.can("Kitchen", "here") and not bodies.can("Kitchen", "gesture")
     assert not bodies.can("Kitchen", "fly")
     assert bodies.doable("Kitchen", {"mood": "happy", "gesture": "nod", "led": None}) == {"mood": "happy"}
+    # A caption may say how long it stays up, which is still the caption's own.
+    assert bodies.doable("Kitchen", {"caption": "x", "caption_seconds": 120}) == {
+        "caption": "x", "caption_seconds": 120}
 
 
 async def test_a_screen_is_sent_only_what_it_can_show():

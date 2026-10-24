@@ -24,6 +24,7 @@ from .irks import Irks
 from .lists import Lists, Personal
 from .people import People
 from .voice import VoiceIdClient
+from .youtube import YtShow
 from .people_store import PeopleStore
 from .ringer import Ringer
 from .selfcheck import run as self_check
@@ -98,10 +99,12 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
         household = Household(people, people_store, taps=taps, voice=voice, frigate=frigate, cards=cards,
                               irks=irks, forget=forget, sightings=sightings, strangers=strangers, evidence=evidence,
                               prefs=prefs, lists=lists) if people_store is not None else None
+    yt_show = YtShow(a.yt_show_url) if a.yt_show_url else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None,
-                                      sightings=sightings, strangers=strangers, personal=personal))]
+                                      sightings=sightings, strangers=strangers, personal=personal,
+                                      yt_show=yt_show, hass=hass))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
@@ -143,6 +146,8 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                 task.cancel()
         if hass is not None:
             await hass.aclose()
+        if yt_show is not None:
+            await yt_show.aclose()
         for runner in runners:
             await runner.cleanup()
 
@@ -218,10 +223,14 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--prefs-state", help="JSON {key: settings} in the state dir: the screen settings people "
                    "chose on the who page (prefs.py)")
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
+    p.add_argument("--yt-show-url", help="yt-show's API on the loopback (services/yt-show.nix): YouTube on a "
+                   "room's screen (youtube.py); unset: no video")
+    p.add_argument("--yt-play-service", help="esphome.<node>_play_video: the screen's video action, when more "
+                   "than one screen and its name does not hold the room")
     a = p.parse_args(argv)
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,
                  log_dir=a.log_dir, log_days=a.log_days, log_text=not a.no_log_text,
-                 offer_to_meet=not a.no_offer_to_meet)
+                 offer_to_meet=not a.no_offer_to_meet, yt_play_service=a.yt_play_service)
     return cfg, a
 
 

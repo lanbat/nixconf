@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt-show"
+version = "1.0"
+requires-python = ">=3.11"
+dependencies = ["aiohttp"]
+
+[project.scripts]
+yt-show = "yt_show.__main__:main"
+
+[tool.setuptools]
+packages = ["yt_show"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

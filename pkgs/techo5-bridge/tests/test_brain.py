@@ -94,6 +94,18 @@ def test_a_greeting_and_a_caption_are_notifications():
     assert out[2]["message"] == "Dinner's ready"
 
 
+def test_a_caption_may_say_how_long_it_stays():
+    # A list of videos the person is choosing from stays up longer than a greeting.
+    b = brain()
+    (short,) = b.router({"act": {"caption": "Dinner's ready"}}, 0.0)
+    (long,) = b.router({"act": {"caption": "1. A video  2. Another", "caption_seconds": 120}}, 0.0)
+    assert short[2]["seconds"] < long[2]["seconds"]
+    assert long[2]["seconds"] == 120
+    # Anything odd keeps the greeting's ten seconds.
+    (odd,) = b.router({"act": {"caption": "x", "caption_seconds": 0}}, 0.0)
+    assert odd[2]["seconds"] == short[2]["seconds"]
+
+
 def test_one_known_person_gets_their_own_screen():
     b = brain(profiles={"kiril": Profile(glance=["sensor.washer"], immich_person="Kiril")},
               household=Profile(calendars=["calendar.family"], glance=["binary_sensor.front_door"]))
