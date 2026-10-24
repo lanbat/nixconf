@@ -20,6 +20,9 @@ _ID = re.compile(r"[A-Za-z0-9_-]{11}\Z")
 # A playlist's id is longer than a video's (PL…, UU…, OLAK5uy_…, RD…).
 _PLAYLIST = re.compile(r"[A-Za-z0-9_-]{12,64}\Z")
 
+# The kinds a result can be: two from YouTube, the rest from Music Assistant.
+KINDS = ("video", "playlist", "radio", "track", "album", "artist", "podcast", "audiobook")
+
 # The forms a link to one video takes: a share, a watch link, a short, a live
 # or an embed. A playlist or channel link names no single video and is not one.
 _PATTERNS = tuple(
@@ -52,16 +55,17 @@ def watch_url(vid: str) -> str:
 @dataclass(frozen=True)
 class Result:
     n: int          # 1-based on the page: what the person says ("play 2")
-    id: str
+    id: str         # a YouTube id, or a Music Assistant uri
     title: str
     channel: str
     duration: str   # "12:34", empty when the source has none
-    kind: str = "video"      # "video" or "playlist"
-    count: int | None = None  # a playlist's videos
+    kind: str = "video"             # video, playlist, radio, track, album, artist, podcast, audiobook
+    count: int | None = None        # a playlist's/album's items
+    source: str = "youtube"         # youtube or music-assistant
 
     def as_dict(self) -> dict:
-        item = {"n": self.n, "kind": self.kind, "id": self.id, "title": self.title,
-                "channel": self.channel, "duration": self.duration}
+        item = {"n": self.n, "kind": self.kind, "source": self.source, "id": self.id,
+                "title": self.title, "channel": self.channel, "duration": self.duration}
         if self.count is not None:
             item["count"] = self.count
         return item
@@ -96,14 +100,21 @@ def page(items: list[dict], number: int, size: int = PAGE_SIZE) -> tuple[list[Re
     for position, item in enumerate(chosen, start=start + 1):
         if not isinstance(item, dict):
             continue
-        kind = item.get("kind") if item.get("kind") in ("video", "playlist") else "video"
+        source = item.get("source") if item.get("source") in ("youtube", "music-assistant") else "youtube"
+        kind = item.get("kind") if item.get("kind") in KINDS else "video"
         vid, title = item.get("id"), item.get("title")
         count = item.get("count")
-        if not is_id(vid, kind) or not isinstance(title, str):
+        if not isinstance(vid, str) or not isinstance(title, str):
             continue
-        out.append(Result(position, str(vid), title.strip(), str(item.get("channel") or "").strip(),
+        # A YouTube item's id is a video or playlist id; a Music Assistant
+        # item's is its own uri (library://…, spotify://…).
+        if source == "youtube" and not is_id(vid, kind):
+            continue
+        if source == "music-assistant" and "://" not in vid:
+            continue
+        out.append(Result(position, vid, title.strip(), str(item.get("channel") or "").strip(),
                           duration(item.get("seconds")), kind,
-                          count if type(count) is int and count >= 0 else None))
+                          count if type(count) is int and count >= 0 else None, source))
     return out, len(items) > start + size
 
 

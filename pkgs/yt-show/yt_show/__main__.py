@@ -32,6 +32,15 @@ def _options(p: argparse.ArgumentParser) -> None:
 
 
 def _config(a: argparse.Namespace) -> Config:
+    players: dict[str, str] = {}
+    raw = getattr(a, "ma_players", None)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            players = {str(key): str(value) for key, value in parsed.items()}
     return Config(invidious_url=a.invidious, invidious_public_url=a.invidious_public,
                   ytdlp=a.ytdlp, ffmpeg=a.ffmpeg, page_size=getattr(a, "page_size", PAGE_SIZE),
                   cache_dir=getattr(a, "cache_dir", None),
@@ -40,7 +49,11 @@ def _config(a: argparse.Namespace) -> Config:
                   max_minutes=getattr(a, "max_minutes", 15),
                   remux_seconds=getattr(a, "remux_seconds", 30),
                   cache_days=getattr(a, "cache_days", 7),
-                  max_cache_mb=getattr(a, "max_cache_mb", 4096))
+                  max_cache_mb=getattr(a, "max_cache_mb", 4096),
+                  ma_url=getattr(a, "ma_url", None),
+                  ma_token_file=getattr(a, "ma_token_file", None),
+                  ma_players=players,
+                  ma_limit=getattr(a, "ma_limit", 40))
 
 
 async def _search(a: argparse.Namespace) -> int:
@@ -140,6 +153,11 @@ def main(argv: list[str] | None = None) -> None:
                        help="how long a remux may take before the 360p address is played")
     serve.add_argument("--cache-days", type=float, default=7.0)
     serve.add_argument("--max-cache-mb", type=float, default=4096.0)
+    # Music Assistant (ma.py): audio results, and playback on the room's player.
+    serve.add_argument("--ma-url", help="Music Assistant (http://127.0.0.1:8095); unset: video only")
+    serve.add_argument("--ma-token-file", help="the token music-assistant-setup minted")
+    serve.add_argument("--ma-players", help='JSON of room -> player name, e.g. {"Kitchen": "Echo Show 8"}')
+    serve.add_argument("--ma-limit", type=int, default=40)
     _options(serve)
 
     search = sub.add_parser("search", help="print one page of search results as JSON")

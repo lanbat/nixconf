@@ -22,6 +22,7 @@ from .sightings import Sightings
 from .unknowns import Strangers, load_words
 from .irks import Irks
 from .lists import Lists, Personal
+from .media import MediaWatch
 from .people import People
 from .voice import VoiceIdClient
 from .youtube import YtShow
@@ -68,6 +69,13 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     if a.ha_url and a.ha_token_file:
         with open(a.ha_token_file, encoding="utf-8") as f:
             hass = Hass(a.ha_url, f.read().strip())
+    media_rooms: dict[str, list[str]] = {}
+    if a.media_rooms_file and hass is not None:
+        with open(a.media_rooms_file, encoding="utf-8") as f:
+            loaded_rooms = json.load(f)
+        if isinstance(loaded_rooms, dict):
+            media_rooms = {str(k): [str(p) for p in v] for k, v in loaded_rooms.items()
+                           if isinstance(v, list) and v}
     lists = Lists(a.lists_state) if a.lists_state and hass is not None else None
     reminder_lists: dict[str, str] = {}
     if a.reminder_lists_file:
@@ -135,13 +143,15 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
     greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
         if a.body_port and not a.no_greet else None
     checked = asyncio.create_task(self_check(hass)) if hass is not None else None
+    media = asyncio.create_task(MediaWatch(bodies, hass, media_rooms).run()) \
+        if hass is not None and media_rooms else None
     ringer = asyncio.create_task(Ringer(bodies, people, personal, time.monotonic,
                                         state_path=a.rung_state).run()) \
         if a.body_port and personal is not None else None
     try:
         await asyncio.Event().wait()
     finally:
-        for task in (mqtt, greeter, ringer, checked):
+        for task in (mqtt, greeter, ringer, checked, media):
             if task is not None:
                 task.cancel()
         if hass is not None:
@@ -211,6 +221,8 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--mqtt-user")
     p.add_argument("--mqtt-password-file", help="the broker password, one line (a systemd credential)")
     p.add_argument("--screen-rooms-file", help="JSON list of rooms with techo5 screens (mqtt.py item sensors)")
+    p.add_argument("--media-rooms-file", help="JSON {room: [media_player entity]}: quiet a robot while its "
+                   "room's media plays (media.py)")
     p.add_argument("--ha-url", help="Home Assistant, on the loopback: people's own settings, lists and "
                    "reminders (hass.py); unset: none")
     p.add_argument("--ha-token-file", help="the voice satellites' Home Assistant token, one line (a systemd credential)")
