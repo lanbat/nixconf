@@ -2,9 +2,11 @@
 #
 # yt-show (pkgs/yt-show) against a stand-in Invidious and a stand-in yt-dlp, so
 # it runs offline: a search comes back five to a page, numbered from one, with
-# a later page sliced out of Invidious' twenty; a video resolves to the 720p
-# MP4, not the 1080p one the screen cannot pair; Invidious being down falls
-# back to yt-dlp for both; and bad input is refused.
+# a later page sliced out of Invidious' twenty; a video with the single-file
+# 720p stream resolves to it; one with only 360p is remuxed from a stand-in DASH
+# pair and served with ranges, while a failed remux and a video past the length
+# limit fall back to 360p; Invidious being down falls back to yt-dlp for both;
+# and bad input is refused.
 #
 # Run with: nix build .#checks.x86_64-linux.yt-show
 { pkgs }:
@@ -12,8 +14,9 @@
 let
   ytShow = pkgs.callPackage ../pkgs/yt-show { };
 
-  # A stand-in Invidious: twenty videos a page, one muxed 720p stream and one
-  # 1080p stream the Show must not be given, and a second page that is empty.
+  # A stand-in Invidious: twenty videos a page, a second page that is empty, and
+  # per-video formats: 22 for most, 18 for ids ending 8, 9 or 6 (the remux and
+  # its fallbacks), and a long one ending 6.
   invidious = pkgs.writeText "fake-invidious.py" ''
     import json
     from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -44,10 +47,24 @@ let
                 return self.json(VIDEOS if page == 1 else [])
             if url.path.startswith("/api/v1/videos/"):
                 vid = url.path.rsplit("/", 1)[-1]
-                return self.json({"title": "A title " + vid, "formatStreams": [
+                fields = query.get("fields", [""])[0]
+                if "adaptiveFormats" in fields:
+                    formats = []
+                    if vid.endswith(("8", "9")):
+                        formats = [
+                            {"itag": "136", "url": "https://cdn.example/720-video"},
+                            {"itag": "140", "url": "https://cdn.example/audio"},
+                        ]
+                    return self.json({"adaptiveFormats": formats})
+                streams = [
                     {"itag": "137", "url": "https://cdn.example/1080"},
                     {"itag": "22", "url": "https://cdn.example/720"},
-                ]})
+                ]
+                if vid.endswith(("6", "8", "9")):
+                    streams = [{"itag": "18", "url": "https://cdn.example/360"}]
+                seconds = 4000 if vid.endswith("6") else 120
+                return self.json({"title": "A title " + vid, "lengthSeconds": seconds,
+                                  "formatStreams": streams})
             if url.path == "/latest_version":
                 self.send_response(302)
                 self.send_header("Location", "/stream")
@@ -88,7 +105,19 @@ let
     fi
   '';
 
-  # JSON helpers for the curl calls.
+  # A stand-in ffmpeg: joins the two streams by writing the file, and fails for
+  # vid00000008, the fallback case.
+  fakeFfmpeg = pkgs.writeShellScript "ffmpeg" ''
+    for arg in "$@"; do
+      case "$arg" in
+        *vid00000008*) echo "ERROR: stream gone" >&2; exit 1 ;;
+      esac
+    done
+    for last; do :; done
+    printf '0123456789' > "$last"
+  '';
+
+  # JSON helper for the curl calls.
   post = file: port: path: body: ''
     curl -fs -X POST -H 'Content-Type: application/json' -d '${body}' \
       http://127.0.0.1:${toString port}${path} -o ${file}
@@ -112,15 +141,20 @@ pkgs.runCommand "yt-show-check"
     ${ytShow}/bin/yt-show serve --port 18203 \
       --invidious http://127.0.0.1:19876 --ytdlp ${fakeYtDlp} &
     fallback_pid=$!
-    trap 'kill $show_pid $invidious_pid $fallback_pid' EXIT
+    # A third with a remux cache and the media app the screen would fetch from.
+    mkdir -p cache
+    ${ytShow}/bin/yt-show serve --port 18204 --media-port 18205 \
+      --invidious http://127.0.0.1:18201 --invidious-public https://youtube.example \
+      --ytdlp ${fakeYtDlp} --ffmpeg ${fakeFfmpeg} --cache-dir "$PWD/cache" \
+      --media-url-base http://127.0.0.1:18205 --remux-seconds 20 &
+    remux_pid=$!
+    trap 'kill $show_pid $invidious_pid $fallback_pid $remux_pid' EXIT
 
-    for _ in $(seq 50); do
-      curl -fs -o /dev/null http://127.0.0.1:18202/healthz && break
-      sleep 0.2
-    done
-    for _ in $(seq 50); do
-      curl -fs -o /dev/null http://127.0.0.1:18203/healthz && break
-      sleep 0.2
+    for port in 18202 18203 18204; do
+      for _ in $(seq 50); do
+        curl -fs -o /dev/null http://127.0.0.1:$port/healthz && break
+        sleep 0.2
+      done
     done
 
     ${post "p1.json" 18202 "/search" ''{"query":"kittens"}''}
@@ -129,6 +163,9 @@ pkgs.runCommand "yt-show-check"
     ${post "play.json" 18202 "/resolve" ''{"video_id":"vid00000003"}''}
     ${post "down.json" 18203 "/search" ''{"query":"kittens"}''}
     ${post "downplay.json" 18203 "/resolve" ''{"video_id":"vid00000003"}''}
+    ${post "remux.json" 18204 "/resolve" ''{"video_id":"vid00000009"}''}
+    ${post "failed.json" 18204 "/resolve" ''{"video_id":"vid00000008"}''}
+    ${post "long.json" 18204 "/resolve" ''{"video_id":"vid00000006"}''}
 
     python3 - <<'PY'
     import json
@@ -166,7 +203,23 @@ pkgs.runCommand "yt-show-check"
     downplay = load("downplay.json")
     assert downplay == {"url": "https://googlevideo.example/videoplayback",
                         "title": "A yt-dlp title", "source": "yt-dlp"}, downplay
+
+    # 360p only, short: a remuxed 720p file, served with ranges.
+    remux = load("remux.json")
+    assert remux["source"] == "remux", remux
+    assert remux["url"] == "http://127.0.0.1:18205/media/vid00000009.mp4", remux
+    # 360p only, but the remux fails: the 360p address.
+    failed = load("failed.json")
+    assert failed["source"] == "invidious" and "itag=18" in failed["url"], failed
+    # 360p only, but too long to make the screen wait.
+    long = load("long.json")
+    assert long["source"] == "invidious" and "itag=18" in long["url"], long
     PY
+
+    # The media app serves the remuxed file, and nothing else.
+    test "$(curl -fs -r 0-3 http://127.0.0.1:18205/media/vid00000009.mp4)" = "0123"
+    test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18205/media/vid00000008.mp4)" = 404
+    test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18205/media/../../etc/passwd)" = 404
 
     # Bad input is refused, not guessed.
     status() { curl -s -o /dev/null -w '%{http_code}' -X POST \

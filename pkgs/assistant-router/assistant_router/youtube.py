@@ -117,7 +117,7 @@ class YtShow:
     """The yt-show helper on the loopback (services/yt-show.nix)."""
 
     def __init__(self, base: str, session: aiohttp.ClientSession | None = None,
-                 timeout: float = 35.0) -> None:
+                 timeout: float = 60.0) -> None:
         self.base = base.rstrip("/")
         self._session = session
         self._owns = session is None

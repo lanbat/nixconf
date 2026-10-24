@@ -72,16 +72,44 @@ class Invidious:
             })
         return out
 
-    async def stream(self, vid: str) -> tuple[str, str]:
-        """(title, address) of the video's best muxed stream."""
-        data = await self._get(f"/api/v1/videos/{vid}", {"fields": "title,formatStreams"})
+    async def stream(self, vid: str) -> tuple[str, str, str, int | None]:
+        """(title, address, itag, seconds) of the video's best muxed stream.
+
+        The itag says whether it is the 720p one (22) or the 360p fallback (18),
+        so the caller can try to remux a better one (remux.py)."""
+        data = await self._get(f"/api/v1/videos/{vid}",
+                               {"fields": "title,lengthSeconds,formatStreams"})
         if not isinstance(data, dict):
             raise InvidiousError("video: not an object")
         picked = pick_stream(data.get("formatStreams"))
         if picked is None:
             raise InvidiousError("video: no 720p or 360p MP4")
         title = data.get("title") if isinstance(data.get("title"), str) else ""
-        return title, self.url(vid, picked[0])
+        seconds = data.get("lengthSeconds")
+        return (title, self.url(vid, picked[0]), picked[0],
+                seconds if type(seconds) is int and seconds >= 0 else None)
+
+    async def dash(self, vid: str) -> tuple[str, str] | None:
+        """(video address, audio address) of a 720p AVC + m4a pair, or None.
+
+        Both are Invidious' proxied addresses, so Invidious companion mints the
+        PO token: a direct googlevideo download is refused (403) without one.
+        The pair is remuxed into one MP4 by remux.py."""
+        data = await self._get(f"/api/v1/videos/{vid}", {"fields": "adaptiveFormats"})
+        if not isinstance(data, dict):
+            raise InvidiousError("video: not an object")
+        formats = {
+            str(fmt.get("itag")): fmt
+            for fmt in (data.get("adaptiveFormats") or [])
+            if isinstance(fmt, dict) and fmt.get("itag") is not None
+        }
+        # 720p AVC, then 480p; m4a audio, then its low-bitrate sibling. The Show
+        # plays AVC/AAC in MP4 and nothing here is re-encoded.
+        video = next((itag for itag in ("136", "135") if itag in formats), None)
+        audio = next((itag for itag in ("140", "139") if itag in formats), None)
+        if video is None or audio is None:
+            return None
+        return self.url(vid, video), self.url(vid, audio)
 
     def url(self, vid: str, itag: str) -> str:
         """The proxied stream (local=true), on the address the Show fetches: its

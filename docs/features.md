@@ -38,7 +38,8 @@ external API, or the assistant router.
 - **Jellyfin** for video, **Immich** for photos, **Audiobookshelf** for
   audiobooks, and **RomM** for retro games (it starts on the first request).
 - **YouTube on the Echo Show** by voice: search with Invidious, pick from the
-  results, and play the H.264 MP4 the screen takes.
+  results, and play the H.264 MP4 the screen takes — remuxing a 720p one when
+  YouTube offers only 360p.
   [Echo Shows](techo5.md#playing-youtube-on-the-screen).
 - **qBittorrent**, **Jackett** for indexers, and **Bitmagnet** as an on-demand
   DHT index. Media files live on the Pi's encrypted drives.
