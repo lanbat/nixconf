@@ -45,14 +45,14 @@ let
             url, query = urlparse(self.path), parse_qs(urlparse(self.path).query)
             if url.path == "/api/v1/search":
                 page = int(query.get("page", ["1"])[0])
+                kind = query.get("type", ["video"])[0]
                 if page != 1:
                     return self.json([])
-                if query.get("q", [""])[0] == "playlist":
+                if kind == "playlist":
                     return self.json([
-                        {"type": "playlist", "playlistId": PLID,
-                         "title": "A playlist", "author": "C", "videoCount": 120},
-                        {"type": "video", "videoId": "vid00000000", "title": "Title 0",
-                         "author": "A channel", "lengthSeconds": 60},
+                        {"type": "playlist", "playlistId": "PL%022d" % i,
+                         "title": "Playlist %d" % i, "author": "C", "videoCount": 100 + i}
+                        for i in range(20)
                     ])
                 return self.json(VIDEOS)
             if url.path.startswith("/api/v1/playlists/"):
@@ -179,14 +179,13 @@ pkgs.runCommand "yt-show-check"
 
     ${post "p1.json" 18202 "/search" ''{"query":"kittens"}''}
     ${post "p4.json" 18202 "/search" ''{"query":"kittens","page":4}''}
-    ${post "p5.json" 18202 "/search" ''{"query":"kittens","page":5}''}
+    ${post "p5.json" 18202 "/search" ''{"query":"kittens","page":21}''}
     ${post "play.json" 18202 "/resolve" ''{"video_id":"vid00000003"}''}
     ${post "down.json" 18203 "/search" ''{"query":"kittens"}''}
     ${post "downplay.json" 18203 "/resolve" ''{"video_id":"vid00000003"}''}
     ${post "remux.json" 18204 "/resolve" ''{"video_id":"vid00000009"}''}
     ${post "failed.json" 18204 "/resolve" ''{"video_id":"vid00000008"}''}
     ${post "long.json" 18204 "/resolve" ''{"video_id":"vid00000006"}''}
-    ${post "mixed.json" 18202 "/search" ''{"query":"playlist"}''}
     ${post "contents.json" 18202 "/contents" ''{"playlist_id":"PLabcdefghijklmnopqrstuvwx"}''}
     ${post "contents2.json" 18202 "/contents" ''{"playlist_id":"PLabcdefghijklmnopqrstuvwx","page":2}''}
 
@@ -201,12 +200,16 @@ pkgs.runCommand "yt-show-check"
     assert first["source"] == "invidious", first
     assert first["has_next"] is True, first
     assert [i["n"] for i in first["items"]] == [1, 2, 3, 4, 5], first["items"]
+    assert [i["kind"] for i in first["items"]] == ["video"] * 4 + ["playlist"], first
     assert first["items"][0]["title"] == "Title 0", first["items"][0]
     assert first["items"][0]["duration"] == "1:00", first["items"][0]
+    assert first["items"][-1]["title"] == "Playlist 0", first["items"][-1]
+    assert first["items"][-1]["count"] == 100, first["items"][-1]
 
-    # Page 4 is items 16-20 of Invidious' first page of 20.
+    # Page 4 is videos 12-15 and playlist 3 (four videos a page, then one).
     fourth = load("p4.json")
-    assert [i["title"] for i in fourth["items"]] == ["Title %d" % i for i in range(15, 20)], fourth
+    assert [i["title"] for i in fourth["items"]] == [
+        "Title 12", "Title 13", "Title 14", "Title 15", "Playlist 3"], fourth
     assert [i["n"] for i in fourth["items"]] == [1, 2, 3, 4, 5], fourth
 
     fifth = load("p5.json")
@@ -238,10 +241,7 @@ pkgs.runCommand "yt-show-check"
     long = load("long.json")
     assert long["source"] == "invidious" and "itag=18" in long["url"], long
 
-    # Playlists come back alongside videos, and their videos come back a page at a time.
-    mixed = load("mixed.json")
-    assert [i["kind"] for i in mixed["items"]] == ["playlist", "video"], mixed
-    assert mixed["items"][0]["count"] == 120, mixed
+    # A playlist's videos come back a page at a time.
     c1 = load("contents.json")
     assert c1["title"] == "A playlist" and c1["has_next"] is True, c1
     assert [i["title"] for i in c1["items"]] == ["Video %d" % i for i in range(5)], c1

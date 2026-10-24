@@ -54,15 +54,20 @@ class Invidious:
         except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
             raise InvidiousError(f"{path}: {exc}") from exc
 
-    async def search(self, query: str, page: int) -> list[dict]:
-        """One Invidious page (20 results) of a search: videos and playlists."""
-        data = await self._get("/api/v1/search", {"q": query, "page": page, "type": "all"})
+    async def search(self, query: str, page: int, kind: str = "video") -> list[dict]:
+        """One Invidious page (20) of one kind: videos or playlists.
+
+        `type=all` returns videos and channels, not playlists, so the two are
+        asked for separately (server.search interleaves them)."""
+        data = await self._get("/api/v1/search", {
+            "q": query, "page": page, "type": "playlist" if kind == "playlist" else "video"})
         out: list[dict] = []
         for item in data if isinstance(data, list) else []:
             if not isinstance(item, dict):
                 continue
-            kind = item.get("type")
             if kind == "playlist":
+                if item.get("type") != "playlist":
+                    continue
                 plid = item.get("playlistId")
                 if not isinstance(plid, str):
                     continue
@@ -74,7 +79,9 @@ class Invidious:
                     "channel": item.get("author") if isinstance(item.get("author"), str) else "",
                     "count": count if type(count) is int and count >= 0 else None,
                 })
-            elif kind in (None, "video"):
+            else:
+                if item.get("type") not in (None, "video"):
+                    continue
                 vid = item.get("videoId")
                 if not isinstance(vid, str):
                     continue

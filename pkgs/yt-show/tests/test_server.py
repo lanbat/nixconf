@@ -10,23 +10,28 @@ ITEMS = [
     for i in range(20)
 ]
 PLID = "PLabcdefghijklmnopqrstuvwx"
-PLAYLIST_ITEM = {"kind": "playlist", "id": PLID, "title": "A playlist", "channel": "C", "count": 120}
+PLAYLISTS = [
+    {"kind": "playlist", "id": f"PLplaylist{i:013d}", "title": f"Playlist {i}",
+     "channel": "C", "count": 100 + i}
+    for i in range(20)
+]
 
 
 class FakeInvidious:
-    def __init__(self, items=None, fail=False, pages=None, itag="22", seconds=60):
-        self.items = ITEMS if items is None else items
+    def __init__(self, fail=False, pages=None, itag="22", seconds=60):
         self.fail = fail
         self.pages = pages
         self.itag = itag
         self.seconds = seconds
         self.calls = []
 
-    async def search(self, query, page):
-        self.calls.append(("search", query, page))
+    async def search(self, query, page, kind="video"):
+        self.calls.append(("search", query, page, kind))
         if self.fail:
             raise InvidiousError("down")
-        return self.pages.get(page, []) if self.pages is not None else self.items
+        if self.pages is not None:
+            return self.pages.get((page, kind), [])
+        return ITEMS if kind == "video" else PLAYLISTS
 
     async def stream(self, vid):
         self.calls.append(("stream", vid))
@@ -78,7 +83,7 @@ def app(invidious, ytdlp):
                     invidious=invidious, ytdlp=ytdlp)
 
 
-async def test_first_page_is_five_numbered_results(aiohttp_client):
+async def test_first_page_is_four_videos_and_a_playlist(aiohttp_client):
     invidious = FakeInvidious()
     client = await aiohttp_client(app(invidious, FakeYtDlp()))
     resp = await client.post("/search", json={"query": "kittens"})
@@ -87,27 +92,34 @@ async def test_first_page_is_five_numbered_results(aiohttp_client):
     assert body["source"] == "invidious"
     assert body["has_next"] is True
     assert [item["n"] for item in body["items"]] == [1, 2, 3, 4, 5]
+    assert [item["kind"] for item in body["items"]] == ["video"] * 4 + ["playlist"]
     assert body["items"][0]["title"] == "Title 0"
     assert body["items"][0]["duration"] == "1:00"
-    assert invidious.calls == [("search", "kittens", 1)]
+    assert body["items"][-1]["title"] == "Playlist 0"
+    assert body["items"][-1]["count"] == 100
+    assert invidious.calls == [
+        ("search", "kittens", 1, "video"),
+        ("search", "kittens", 1, "playlist"),
+    ]
 
 
 async def test_a_later_page_is_sliced_out_of_the_invidious_page(aiohttp_client):
-    # Our page 4 is items 15-19 of Invidious' first page of 20.
+    # Our page 4 is videos 12-15 and playlist 3 (four videos a page, then one).
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
     body = await (await client.post("/search", json={"query": "x", "page": 4})).json()
-    assert [item["title"] for item in body["items"]] == [f"Title {i}" for i in range(15, 20)]
+    assert [item["title"] for item in body["items"]] == [
+        *(f"Title {i}" for i in range(12, 16)), "Playlist 3"]
     assert [item["n"] for item in body["items"]] == [1, 2, 3, 4, 5]
 
 
 async def test_the_end_of_the_list_stops(aiohttp_client):
-    # Our page 5 needs Invidious' second page, which has nothing.
-    invidious = FakeInvidious(pages={1: ITEMS})
+    # Our page 6 needs Invidious' second video page, and past the playlists.
+    invidious = FakeInvidious(pages={(2, "video"): [], (1, "playlist"): []})
     client = await aiohttp_client(app(invidious, FakeYtDlp()))
-    body = await (await client.post("/search", json={"query": "x", "page": 5})).json()
+    body = await (await client.post("/search", json={"query": "x", "page": 6})).json()
     assert body["items"] == []
     assert body["has_next"] is False
-    assert invidious.calls[-1] == ("search", "x", 2)
+    assert invidious.calls[-1] == ("search", "x", 1, "playlist")
 
 
 async def test_invidious_down_falls_back_to_ytdlp(aiohttp_client):
@@ -230,14 +242,6 @@ async def test_bad_resolve_input_is_refused(aiohttp_client, payload):
 async def test_health_says_which_source_is_configured(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
     assert await (await client.get("/healthz")).json() == {"ok": True, "source": "invidious"}
-
-
-async def test_a_search_returns_playlists_alongside_videos(aiohttp_client):
-    items = ITEMS[:4] + [PLAYLIST_ITEM]
-    client = await aiohttp_client(app(FakeInvidious(items=items), FakeYtDlp()))
-    body = await (await client.post("/search", json={"query": "lo-fi"})).json()
-    assert [i["kind"] for i in body["items"]] == ["video", "video", "video", "video", "playlist"]
-    assert body["items"][-1]["count"] == 120
 
 
 async def test_a_playlist_lists_its_videos_a_page_at_a_time(aiohttp_client):
