@@ -88,6 +88,10 @@ in
       "/feed/popular*"
       "/feed/top*"
       "/api/*"
+      # Companion is the stream path: /api/manifest/dash/... redirects to
+      # /companion/api/manifest/dash/..., and local=true returns
+      # /companion/videoplayback URLs.  Gating those breaks Kodi's player.
+      "/companion/*"
       "/videoplayback*"
       "/latest_version*"
       "/token_ajax*"
