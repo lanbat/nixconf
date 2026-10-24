@@ -395,6 +395,7 @@ let
         dst = "{{ trigger.to_state.state }}";
         src_slug = "{{ src | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
         src_players = "{{ ${players "src"} | list }}";
+        src_player = "{{ src_players | select('is_state', 'playing') | first }}";
         dst_free = "{{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}";
       };
       conditions = [
@@ -428,9 +429,16 @@ let
             action = "music_assistant.transfer_queue";
             target.entity_id = "{{ dst_free | first }}";
             data = {
-              source_player = "{{ src_players | select('is_state', 'playing') | first }}";
+              source_player = "{{ src_player }}";
               auto_play = true;
             };
+          }
+          # transfer_queue does not reliably stop the source: a Snapcast client
+          # stays "playing", so the room it left never counts as free and the
+          # music cannot follow back. Stop it explicitly (a no-op if it did).
+          {
+            action = "media_player.media_stop";
+            target.entity_id = "{{ src_player }}";
           }
         ];
       };
