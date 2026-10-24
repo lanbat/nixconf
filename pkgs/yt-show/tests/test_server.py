@@ -289,12 +289,6 @@ class FakeMa:
             raise MaError("down")
         return _ma_items()
 
-    async def play(self, room, uri, player_name=None):
-        if self.fail:
-            from yt_show.ma import MaError
-            raise MaError("no player")
-        self.played.append((room, uri, player_name))
-        return player_name or "Echo Show 8"
 
 
 async def test_a_page_mixes_videos_playlists_and_music(aiohttp_client):
@@ -321,20 +315,3 @@ async def test_music_assistant_being_down_leaves_videos_and_playlists(aiohttp_cl
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa(fail=True)))
     body = await (await client.post("/search", json={"query": "x"})).json()
     assert [i["kind"] for i in body["items"]] == ["video"] * 4 + ["playlist"]
-
-
-async def test_a_music_item_is_played_on_the_room_player(aiohttp_client):
-    ma = FakeMa()
-    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=ma))
-    resp = await client.post("/play", json={"room": "Kitchen", "uri": "library://radio/0"})
-    assert resp.status == 200
-    assert await resp.json() == {"ok": True, "player": "Echo Show 8"}
-    assert ma.played == [("Kitchen", "library://radio/0", None)]
-
-
-async def test_playing_music_needs_music_assistant_and_a_uri(aiohttp_client):
-    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
-    assert (await client.post("/play", json={"uri": "library://radio/0"})).status == 502
-    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa()))
-    assert (await client.post("/play", json={"uri": "not a uri"})).status == 400
-    assert (await client.post("/play", json={"uri": "library://x/1"})).status == 200

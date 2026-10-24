@@ -227,10 +227,21 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
                    "room's screen (youtube.py); unset: no video")
     p.add_argument("--yt-play-service", help="esphome.<node>_play_video: the screen's video action, when more "
                    "than one screen and its name does not hold the room")
+    p.add_argument("--media-players", help='JSON {room: speaker name}: the Music Assistant players audio '
+                   "plays on, e.g. '{\"Kitchen\": \"Echo Show 8\"}'")
     a = p.parse_args(argv)
+    media_players: dict[str, str] = {}
+    if a.media_players:
+        try:
+            parsed = json.loads(a.media_players)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict):
+            media_players = {str(key).casefold(): str(value) for key, value in parsed.items()}
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,
                  log_dir=a.log_dir, log_days=a.log_days, log_text=not a.no_log_text,
-                 offer_to_meet=not a.no_offer_to_meet, yt_play_service=a.yt_play_service)
+                 offer_to_meet=not a.no_offer_to_meet, yt_play_service=a.yt_play_service,
+                 media_players=media_players)
     return cfg, a
 
 

@@ -129,23 +129,3 @@ class Ma:
                 return out
         except (MusicAssistantClientException, OSError) as exc:
             raise MaError(str(exc)) from exc
-
-    async def play(self, room: str, uri: str, player_name: str | None = None) -> str:
-        """Play `uri` on the room's player; return the player's name."""
-        session = await self._ensure()
-        try:
-            async with MusicAssistantClient(self.url, session, token=self._token()) as client:
-                players = [p for p in client.players.players if getattr(p, "available", True)]
-                wanted = (player_name or "").strip().casefold()
-                room_key = (room or "").strip().casefold()
-                match = None
-                if wanted:
-                    match = next((p for p in players if (p.name or "").casefold() == wanted), None)
-                if match is None and room_key:
-                    match = next((p for p in players if room_key in (p.name or "").casefold()), None)
-                if match is None:
-                    raise MaError(f"no player for {room or player_name or 'that room'}")
-                await client.player_queues.play_media(match.player_id, uri)
-                return match.name
-        except MusicAssistantClientException as exc:
-            raise MaError(str(exc)) from exc

@@ -45,10 +45,6 @@ let
   # The token music-assistant-setup minted (root, 0600): copied into the
   # service's runtime directory before it starts.
   maToken = "/var/lib/music-assistant/.lanbat-setup/ma-token";
-  # The room's Music Assistant player, by the name the profile gave it.
-  maPlayers = lib.mapAttrs' (_: d: lib.nameValuePair d.room d.playerName) (
-    lib.filterAttrs (_: d: d.playerName != null) (config.lanbat.deployment.techo5Devices or { })
-  );
 
   cfg = config.lanbat.services.${name}.settings;
 
@@ -170,15 +166,14 @@ in
             ++ lib.optionals maHere [
               "--ma-url http://127.0.0.1:${toString config.lanbat.services.music-assistant.port}"
               "--ma-token-file /run/${name}/ma-token"
-              "--ma-players ${lib.escapeShellArg (builtins.toJSON maPlayers)}"
             ]
           );
           RuntimeDirectory = name;
           RuntimeDirectoryMode = "0700";
           ExecStartPre = lib.optional maHere "+${pkgs.writeShellScript "yt-show-ma-token" ''
             if [ -r ${maToken} ]; then
-              uid=$(stat -c %u /run/${name})
-              install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
+              uid=$(${pkgs.coreutils}/bin/stat -c %u /run/${name})
+              ${pkgs.coreutils}/bin/install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
             fi
           ''}";
           Environment = [ "PATH=${path}" ];

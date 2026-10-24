@@ -55,6 +55,11 @@ let
   hasYt =
     config.lanbat.hasService "yt-show"
     && lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { }) != { };
+  # The room's Music Assistant speaker, by the name the profile gave it; the
+  # router finds the media_player entity from Home Assistant's states.
+  mediaPlayers = lib.mapAttrs' (_: d: lib.nameValuePair d.room d.playerName) (
+    lib.filterAttrs (_: d: d.playerName != null) (config.lanbat.deployment.techo5Devices or { })
+  );
 
   # Hosts whose services consume the router: the bodies. The same derivation
   # as modules/wiring/policy.nix, which opens bodyPort to exactly these.
@@ -522,7 +527,10 @@ in
               "--rung-state /var/lib/assistant-router/rung.json"
             ]
             ++ lib.optionals hasYt (
-              [ "--yt-show-url http://127.0.0.1:${toString config.lanbat.services.yt-show.port}" ]
+              [
+                "--yt-show-url http://127.0.0.1:${toString config.lanbat.services.yt-show.port}"
+                "--media-players ${lib.escapeShellArg (builtins.toJSON mediaPlayers)}"
+              ]
               ++ lib.optional (
                 cfg.ytPlayService != null
               ) "--yt-play-service ${lib.escapeShellArg cfg.ytPlayService}"
