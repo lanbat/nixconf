@@ -566,14 +566,18 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && !(lib.hasInfix "kodi" v)
       && !(lib.hasInfix "androidtv" v)
     )
-    + expect "music: live run moves the queue to the free player, and does not stop anything itself" (
+    + expect "music: live run moves the queue to the free player, then stops the source it left" (
       let
         a = json musicFollowLive.actions;
+        stop = lib.findFirst (
+          x: (x.action or "") == "media_player.media_stop"
+        ) null musicFollowLive.actions;
       in
       lib.hasInfix "music_assistant.transfer_queue" a
       && lib.hasInfix "source_player" a
       && lib.hasInfix "auto_play" a
-      && !(lib.hasInfix "media_stop" a)
+      && stop != null
+      && stop.target.entity_id == "{{ src_player }}"
       && !(lib.hasInfix "media_pause" a)
     )
     + expect "music: dry run only logs" (
