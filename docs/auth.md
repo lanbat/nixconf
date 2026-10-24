@@ -99,10 +99,13 @@ browser ──▶ service (sets its own session from the ID token)
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
 | Vaultwarden | app | (optional, not yet wired) | **own account system** (Bitwarden) |
-| Homepage, SearXNG, Redlib, Invidious, CA page | none | no | deliberately open |
+| Invidious | forward-auth | no | only the personal pages are gated; browsing, watching and the API bypass Authentik |
+| Homepage, SearXNG, Redlib, CA page | none | no | deliberately open |
 
 `auth` defaults to `"app"` (Caddy passes through, the service owns the login). Set it
-to `"forward-auth"` only for services that have no login of their own.
+to `"forward-auth"` for services that have no login of their own, or when the parts
+of a service that expose personal data should sit behind Authentik (Invidious uses it
+for its account pages only; `caddy.authBypassPaths` keeps browsing open).
 
 ## How the catalog is generated
 

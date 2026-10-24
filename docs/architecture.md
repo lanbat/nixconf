@@ -129,7 +129,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | RomM | Own accounts + native OIDC (Authentik) | App clients (Argosy Launcher) pair by code; admin email must match the Authentik user |
 | SearXNG | None (intentional) | Public LAN search |
 | Redlib | None (intentional) | Stateless Reddit front-end; open to the LAN |
-| Invidious | None (intentional) | YouTube front-end; its own accounts if used, open to the LAN |
+| Invidious | Forward-auth, path-bypassed | YouTube front-end; browsing, watching, search and the API are open to the LAN, while its own account pages (preferences, subscriptions, history, playlists) require Authentik |
 | Samba | Local smbpasswd (optionally Authentik LDAP) | SMB doesn't speak OIDC |
 | MQTT | Local password file | IoT devices don't speak OIDC |
 | Vaultwarden | Own account system + admin token | Bitwarden clients need direct API access; no forward auth |
