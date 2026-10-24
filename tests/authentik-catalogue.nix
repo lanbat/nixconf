@@ -191,6 +191,7 @@ let
   proxied = [
     "bitmagnet"
     "frigate"
+    "invidious"
     "jackett"
     "music-assistant"
     "qbittorrent"
@@ -201,6 +202,7 @@ let
   names = {
     bitmagnet = "Bitmagnet";
     frigate = "Frigate";
+    invidious = "Invidious";
     jackett = "Jackett";
     music-assistant = "Music Assistant";
     qbittorrent = "qBittorrent";

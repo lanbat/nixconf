@@ -2,9 +2,12 @@
 #
 # Invidious — privacy-respecting front-end for YouTube.
 #
-# Auth: intentionally NONE, like SearXNG.
-#   Invidious has no OIDC, and the LAN is trusted; its browser UI is served
-#   without the Authentik middleware. Accounts, if used, are its own.
+# Auth: forward-auth, but only for the personal pages.
+#   Invidious has no OIDC, so Authentik cannot sign a user into it: accounts,
+#   if used, are Invidious's own.  What Authentik gates are the routes that
+#   expose those accounts — preferences, subscriptions, history, playlists and
+#   the account pages.  Browsing, watching, search and the API stay open to the
+#   LAN (caddy.authBypassPaths), so the front-end works without a login.
 #
 # Always-on: yes, by choice.
 #   Its database holds cached video/channel metadata and, if someone creates
@@ -65,7 +68,49 @@ in
   lanbat.services.invidious = {
     subdomain = "youtube";
     inherit port;
-    auth = "none";
+    auth = "forward-auth";
+    # Anonymous browsing, watching, search and the API stay open; everything
+    # else (preferences, account, subscriptions, history, playlists) goes
+    # through Authentik.  Paths use Caddy's prefix matcher (`*`).
+    caddy.authBypassPaths = [
+      "/"
+      "/watch*"
+      "/embed*"
+      "/shorts*"
+      "/clip*"
+      "/channel*"
+      "/playlist*"
+      "/mix*"
+      "/hashtag*"
+      "/search*"
+      "/redirect*"
+      "/feed/trending*"
+      "/feed/popular*"
+      "/feed/top*"
+      "/api/*"
+      # Companion is the stream path: /api/manifest/dash/... redirects to
+      # /companion/api/manifest/dash/..., and local=true returns
+      # /companion/videoplayback URLs.  Gating those breaks Kodi's player.
+      "/companion/*"
+      "/videoplayback*"
+      "/latest_version*"
+      "/token_ajax*"
+      # Image, storyboard and caption proxies.
+      "/vi*"
+      "/ggpht*"
+      "/sb*"
+      "/storyboards*"
+      "/caption*"
+      # Static assets the pages need before anything else loads.
+      "/css*"
+      "/js*"
+      "/fonts*"
+      "/assets*"
+      "/favicon*"
+      "/apple-touch-icon*"
+      "/robots.txt"
+      "/opensearch.xml"
+    ];
     secrets = {
       # A bare password, one line. postgresql-always-on-setup creates the
       # role; invidious-db-password sets this on it, and the Invidious module
