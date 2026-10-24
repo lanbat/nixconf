@@ -12,10 +12,12 @@ ITEMS = [
 
 
 class FakeInvidious:
-    def __init__(self, items=None, fail=False, pages=None):
+    def __init__(self, items=None, fail=False, pages=None, itag="22", seconds=60):
         self.items = ITEMS if items is None else items
         self.fail = fail
         self.pages = pages
+        self.itag = itag
+        self.seconds = seconds
         self.calls = []
 
     async def search(self, query, page):
@@ -30,7 +32,17 @@ class FakeInvidious:
             raise InvidiousError("down")
         if vid == "NoMuxedAAA1":
             raise InvidiousError("no 720p or 360p MP4")
-        return "A title", f"https://youtube.test/latest_version?id={vid}&itag=22&local=true"
+        return ("A title", f"https://youtube.test/latest_version?id={vid}&itag={self.itag}&local=true",
+                self.itag, self.seconds)
+
+    async def dash(self, vid):
+        self.calls.append(("dash", vid))
+        if self.fail:
+            raise InvidiousError("down")
+        if vid == "NoDashAAAA1":
+            return None
+        return (f"https://youtube.test/latest_version?id={vid}&itag=136&local=true",
+                f"https://youtube.test/latest_version?id={vid}&itag=140&local=true")
 
 
 class FakeYtDlp:
@@ -104,6 +116,73 @@ async def test_resolve_prefers_invidious_and_wants_a_muxed_itag(aiohttp_client):
     body = await (await client.post("/resolve", json={"video_id": "dQw4w9WgXcQ"})).json()
     assert body["source"] == "invidious"
     assert body["url"].endswith("id=dQw4w9WgXcQ&itag=22&local=true")
+
+
+class FakeRemux:
+    max_seconds = 900
+
+    def __init__(self, path, fail=False):
+        self.path = path
+        self.fail = fail
+        self.made = 0
+        self.args = None
+
+    def cached(self, vid):
+        return None
+
+    async def make(self, vid, video, audio):
+        self.made += 1
+        self.args = (video, audio)
+        if self.fail:
+            from yt_show.remux import RemuxError
+            raise RemuxError("no such format")
+        return self.path
+
+
+async def test_a_360p_only_video_is_remuxed_and_served(aiohttp_client, tmp_path):
+    path = tmp_path / "dQw4w9WgXcQ.mp4"
+    path.write_bytes(b"video")
+    remux = FakeRemux(path)
+    cfg = Config(invidious_url="http://invidious.test", cache_dir=str(tmp_path),
+                 media_url_base="https://yt.test")
+    client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(itag="18"),
+                                           ytdlp=FakeYtDlp(), remux=remux))
+    body = await (await client.post("/resolve", json={"video_id": "dQw4w9WgXcQ"})).json()
+    assert body["source"] == "remux"
+    assert body["url"] == "https://yt.test/media/dQw4w9WgXcQ.mp4"
+    assert remux.made == 1
+    assert remux.args == (
+        "https://youtube.test/latest_version?id=dQw4w9WgXcQ&itag=136&local=true",
+        "https://youtube.test/latest_version?id=dQw4w9WgXcQ&itag=140&local=true")
+
+
+async def test_a_video_without_a_720p_pair_plays_360p(aiohttp_client):
+    cfg = Config(invidious_url="http://invidious.test", cache_dir="/tmp/x",
+                 media_url_base="https://yt.test")
+    client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(itag="18"),
+                                           ytdlp=FakeYtDlp(), remux=FakeRemux(None)))
+    body = await (await client.post("/resolve", json={"video_id": "NoDashAAAA1"})).json()
+    assert body["source"] == "invidious" and "itag=18" in body["url"]
+
+
+async def test_a_long_video_plays_360p_rather_than_keep_the_screen_waiting(aiohttp_client):
+    remux = FakeRemux(None)
+    cfg = Config(invidious_url="http://invidious.test", cache_dir="/tmp/x",
+                 media_url_base="https://yt.test")
+    client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(itag="18", seconds=3600),
+                                           ytdlp=FakeYtDlp(), remux=remux))
+    body = await (await client.post("/resolve", json={"video_id": "dQw4w9WgXcQ"})).json()
+    assert body["source"] == "invidious" and "itag=18" in body["url"]
+    assert remux.made == 0
+
+
+async def test_a_failed_remux_falls_back_to_360p(aiohttp_client):
+    cfg = Config(invidious_url="http://invidious.test", cache_dir="/tmp/x",
+                 media_url_base="https://yt.test")
+    client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(itag="18"),
+                                           ytdlp=FakeYtDlp(), remux=FakeRemux(None, fail=True)))
+    body = await (await client.post("/resolve", json={"video_id": "dQw4w9WgXcQ"})).json()
+    assert body["source"] == "invidious" and "itag=18" in body["url"]
 
 
 async def test_a_video_invidious_cannot_play_comes_from_ytdlp(aiohttp_client):

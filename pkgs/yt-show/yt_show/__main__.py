@@ -19,7 +19,7 @@ from aiohttp import web
 
 from .core import PAGE_SIZE, page as page_of
 from .invidious import Invidious, InvidiousError
-from .server import INVIDIOUS_PAGE, Config, make_app
+from .server import INVIDIOUS_PAGE, Config, make_app, make_media_app
 from .ytdlp import YtDlp, YtDlpError
 
 
@@ -28,11 +28,19 @@ def _options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--invidious-public", help="the address the Show fetches a stream from: Invidious' "
                    "own https domain (default: --invidious)")
     p.add_argument("--ytdlp", default="yt-dlp", help="the yt-dlp to run (default: on PATH)")
+    p.add_argument("--ffmpeg", default="ffmpeg", help="the ffmpeg to run for a 720p remux")
 
 
 def _config(a: argparse.Namespace) -> Config:
     return Config(invidious_url=a.invidious, invidious_public_url=a.invidious_public,
-                  ytdlp=a.ytdlp, page_size=PAGE_SIZE)
+                  ytdlp=a.ytdlp, ffmpeg=a.ffmpeg, page_size=getattr(a, "page_size", PAGE_SIZE),
+                  cache_dir=getattr(a, "cache_dir", None),
+                  media_url_base=getattr(a, "media_url_base", None),
+                  remux=not getattr(a, "no_remux", False),
+                  max_minutes=getattr(a, "max_minutes", 15),
+                  remux_seconds=getattr(a, "remux_seconds", 30),
+                  cache_days=getattr(a, "cache_days", 7),
+                  max_cache_mb=getattr(a, "max_cache_mb", 4096))
 
 
 async def _search(a: argparse.Namespace) -> int:
@@ -76,7 +84,7 @@ async def _resolve(a: argparse.Namespace) -> int:
     try:
         if invidious is not None:
             try:
-                title, url = await invidious.stream(vid)
+                title, url, _itag, _seconds = await invidious.stream(vid)
                 print(json.dumps({"url": url, "title": title, "source": "invidious"}))
                 return 0
             except InvidiousError as exc:
@@ -92,6 +100,24 @@ async def _resolve(a: argparse.Namespace) -> int:
             await invidious.aclose()
 
 
+async def _serve(a: argparse.Namespace) -> None:
+    cfg = _config(a)
+    runner = web.AppRunner(make_app(cfg))
+    await runner.setup()
+    await web.TCPSite(runner, a.host, a.port).start()
+    media = None
+    if cfg.remuxer() is not None:
+        media = web.AppRunner(make_media_app(cfg))
+        await media.setup()
+        await web.TCPSite(media, a.media_host, a.media_port).start()
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
+        if media is not None:
+            await media.cleanup()
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="yt-show")
     sub = p.add_subparsers(dest="command", required=True)
@@ -100,6 +126,20 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8102)
     serve.add_argument("--page-size", type=int, default=PAGE_SIZE)
+    # A 720p remux (remux.py): kept in --cache-dir, fetched by the screen at
+    # --media-url-base, and served by the second app below.
+    serve.add_argument("--cache-dir", help="where the 720p remuxes are kept; unset: no remux")
+    serve.add_argument("--media-url-base", help="the screen-facing base URL of the media app, "
+                       "https://yt.<domain> (services/yt-show.nix); unset: no remux")
+    serve.add_argument("--media-host", default="127.0.0.1")
+    serve.add_argument("--media-port", type=int, default=8103)
+    serve.add_argument("--no-remux", action="store_true")
+    serve.add_argument("--max-minutes", type=float, default=15.0,
+                       help="longer videos play as 360p rather than keep the screen waiting")
+    serve.add_argument("--remux-seconds", type=float, default=30.0,
+                       help="how long a remux may take before the 360p address is played")
+    serve.add_argument("--cache-days", type=float, default=7.0)
+    serve.add_argument("--max-cache-mb", type=float, default=4096.0)
     _options(serve)
 
     search = sub.add_parser("search", help="print one page of search results as JSON")
@@ -115,9 +155,7 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if a.command == "serve":
-        cfg = Config(invidious_url=a.invidious, invidious_public_url=a.invidious_public,
-                     ytdlp=a.ytdlp, page_size=a.page_size)
-        web.run_app(make_app(cfg), host=a.host, port=a.port, print=None)
+        asyncio.run(_serve(a))
     elif a.command == "search":
         raise SystemExit(asyncio.run(_search(a)))
     else:

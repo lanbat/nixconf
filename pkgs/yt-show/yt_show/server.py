@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from aiohttp import web
 
 from .core import PAGE_SIZE, page as page_of, video_id
 from .invidious import Invidious, InvidiousError
+from .remux import NAME, Remux, RemuxError
 from .ytdlp import YtDlp, YtDlpError
 
 LOG = logging.getLogger("yt-show")
@@ -31,14 +33,35 @@ class Config:
     invidious_url: str | None = None
     invidious_public_url: str | None = None
     ytdlp: str = "yt-dlp"
+    ffmpeg: str = "ffmpeg"
     page_size: int = PAGE_SIZE
+    # A 720p remux (remux.py) is made only when there is somewhere to keep it
+    # and an address the screen fetches it from (services/yt-show.nix).
+    cache_dir: str | None = None
+    media_url_base: str | None = None
+    remux: bool = True
+    max_minutes: float = 15.0
+    remux_seconds: float = 30.0
+    cache_days: float = 7.0
+    max_cache_mb: float = 4096.0
+
+    def remuxer(self) -> Remux | None:
+        if not (self.remux and self.cache_dir and self.media_url_base):
+            return None
+        return Remux(self.cache_dir, self.ffmpeg, timeout=self.remux_seconds,
+                     max_minutes=self.max_minutes, cache_days=self.cache_days,
+                     max_cache_mb=self.max_cache_mb)
 
 
 def make_app(cfg: Config, invidious: Invidious | None = None,
-             ytdlp: YtDlp | None = None) -> web.Application:
+             ytdlp: YtDlp | None = None, remux: Remux | None = None) -> web.Application:
     invidious = invidious if invidious is not None else (
         Invidious(cfg.invidious_url, cfg.invidious_public_url) if cfg.invidious_url else None)
     ytdlp = ytdlp if ytdlp is not None else YtDlp(cfg.ytdlp)
+    remux = remux if remux is not None else cfg.remuxer()
+
+    def media_url(path: Path) -> str:
+        return f"{cfg.media_url_base.rstrip('/')}/media/{path.name}"
 
     def bad(what: str) -> web.Response:
         return web.json_response({"error": what}, status=400)
@@ -67,11 +90,31 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         return [r.as_dict() for r in numbered], len(items) >= want + cfg.page_size, "yt-dlp"
 
     async def resolve(vid: str) -> tuple[str, str, str] | None:
-        """(title, address, source), or None when neither source could play it."""
+        """(title, address, source), or None when neither source could play it.
+
+        720p first when Invidious has the single-file one; otherwise a 720p
+        remux if it can be made in time, and the 360p address if not."""
         if invidious is not None:
             try:
-                title, url = await invidious.stream(vid)
-                return title, url, "invidious"
+                title, url, itag, seconds = await invidious.stream(vid)
+                if itag == "22" or remux is None or cfg.media_url_base is None:
+                    return title, url, "invidious"
+                if seconds is not None and seconds > remux.max_seconds:
+                    LOG.info("not remuxing %s: %s s is past the limit", vid, seconds)
+                    return title, url, "invidious"
+                hit = remux.cached(vid)
+                if hit is not None:
+                    return title, media_url(hit), "remux-cache"
+                pair = await invidious.dash(vid)
+                if pair is None:
+                    LOG.info("no 720p DASH pair for %s, playing 360p", vid)
+                    return title, url, "invidious"
+                try:
+                    hit = await remux.make(vid, *pair)
+                except RemuxError as exc:
+                    LOG.info("no 720p for %s, playing 360p: %s", vid, exc)
+                    return title, url, "invidious"
+                return title, media_url(hit), "remux"
             except InvidiousError as exc:
                 LOG.warning("invidious could not play %s, trying yt-dlp: %s", vid, exc)
         try:
@@ -124,4 +167,30 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
     app.router.add_get("/healthz", on_health)
     app.router.add_post("/search", on_search)
     app.router.add_post("/resolve", on_resolve)
+    return app
+
+
+def make_media_app(cfg: Config) -> web.Application:
+    """The remuxed files, for the screen only (services/yt-show.nix, Caddy).
+
+    A file that exists is served with ranges, so the screen can seek; nothing
+    else on the cache directory is reachable. The API is a separate app on the
+    loopback, and never proxied."""
+    cache = Path(cfg.cache_dir) if cfg.cache_dir else None
+
+    async def media(request: web.Request) -> web.StreamResponse:
+        name = request.match_info["name"]
+        if cache is None or not NAME.match(name):
+            raise web.HTTPNotFound()
+        path = cache / name
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path)
+
+    async def health(_request: web.Request) -> web.Response:
+        return web.json_response({"ok": True, "cache": bool(cache)})
+
+    app = web.Application()
+    app.router.add_get("/media/{name}", media)
+    app.router.add_get("/healthz", health)
     return app

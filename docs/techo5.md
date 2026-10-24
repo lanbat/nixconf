@@ -176,8 +176,18 @@ minutes, per room; speaking in another room still answers it, because there is o
 `https://youtube.<domain>`, which the screen already trusts (the bridge installs the CA) and
 which does not expire. It falls back to **yt-dlp** when Invidious is off, unreachable, or
 cannot play that video, which gives a googlevideo address good for a few hours. Only the helper
-needs the internet: the router's sandbox admits the loopback alone. It asks for the 720p or
-360p muxed MP4s; a DASH pair (video-only plus audio) is not something the screen can play.
+needs the internet: the router's sandbox admits the loopback alone. It asks for the 720p
+single-file MP4 (itag 22) and plays the 360p one (itag 18) when that is all Invidious has.
+
+Many videos have no 720p single-file stream any more. For those, `yt-show` asks Invidious for
+the 720p H.264 video and m4a audio streams (its companion proxies them with the PO token a
+direct download is refused without) and joins them into one MP4 with ffmpeg (a stream copy, no
+re-encode), for a video of up to 15 minutes and within 30 seconds of downloading; it keeps the
+file in `/var/cache/yt-show`, and the screen fetches it from `https://yt.<domain>/media/…` (the
+search/resolve API stays on the loopback and is not on that vhost). A longer video, a failed
+download or a slow link plays as 360p instead.
+`lanbat.services.yt-show.settings` sets `remux`, `maxMinutes`, `remuxSeconds`, `cacheDays` and
+`maxCacheMB`.
 
 The screen's `esphome.<node>_play_video` action is found by itself when there is one Echo Show.
 With several, each action's name must hold its room, or name it in
