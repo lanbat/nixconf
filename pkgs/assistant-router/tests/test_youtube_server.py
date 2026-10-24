@@ -156,3 +156,110 @@ async def test_cancel_forgets_the_list(aiohttp_client, world):
     cloud["reply"] = {"role": "assistant", "content": "Sorry, what would you like?"}
     await client.post("/v1/chat/completions", json=req("play two", conv="c3"))
     assert len(seen["cloud"]) == 2
+
+
+MIXED = [
+    {"n": 1, "kind": "video", "id": "vid00000001", "title": "A video", "channel": "C", "duration": "3:00"},
+    {"n": 2, "kind": "playlist", "id": "PLabcdefghijklmnopqrstuvwx", "title": "A playlist",
+     "channel": "C", "count": 2},
+]
+
+
+@pytest.fixture
+async def mixed_world(aiohttp_server):
+    seen = {"yt": [], "ha": []}
+    cloud = {"reply": None}
+
+    async def yt_search(request):
+        seen["yt"].append(("search", await request.json()))
+        return web.json_response({"items": MIXED, "has_next": False, "source": "invidious"})
+
+    async def yt_contents(request):
+        seen["yt"].append(("contents", await request.json()))
+        return web.json_response({
+            "title": "A playlist", "has_next": False, "source": "invidious",
+            "items": [
+                {"n": 1, "kind": "video", "id": "vid00000007", "title": "Video 7",
+                 "channel": "C", "duration": "1:00"},
+                {"n": 2, "kind": "video", "id": "vid00000008", "title": "Video 8",
+                 "channel": "C", "duration": "2:00"},
+            ]})
+
+    async def yt_resolve(request):
+        body = await request.json()
+        seen["yt"].append(("resolve", body))
+        return web.json_response({"url": "https://youtube.example/video.mp4",
+                                  "title": "Video 7", "source": "invidious"})
+
+    yt = web.Application()
+    yt.router.add_post("/search", yt_search)
+    yt.router.add_post("/contents", yt_contents)
+    yt.router.add_post("/resolve", yt_resolve)
+    yt_url = f"http://127.0.0.1:{(await aiohttp_server(yt)).port}"
+
+    async def ha_services(request):
+        return web.json_response([{"domain": "esphome",
+                                   "services": {"kitchen_play_video": {}}}])
+
+    async def ha_play(request):
+        seen["ha"].append(await request.json())
+        return web.json_response([])
+
+    ha = web.Application()
+    ha.router.add_get("/api/services", ha_services)
+    ha.router.add_post("/api/services/esphome/kitchen_play_video", ha_play)
+    ha_url = f"http://127.0.0.1:{(await aiohttp_server(ha)).port}"
+
+    async def cloud_chat(request):
+        return web.json_response({"choices": [{"index": 0, "finish_reason": "stop",
+                                               "message": cloud["reply"]}]})
+
+    llm = web.Application()
+    llm.router.add_post("/v1/chat/completions", cloud_chat)
+    llm_url = f"http://127.0.0.1:{(await aiohttp_server(llm)).port}/v1/chat/completions"
+    return seen, cloud, yt_url, ha_url, llm_url
+
+
+async def test_a_playlist_opens_its_videos_and_one_of_them_plays(aiohttp_client, mixed_world):
+    seen, cloud, yt_url, ha_url, llm_url = mixed_world
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
+    client = await aiohttp_client(router(yt_url, ha_url, llm_url, bodies))
+
+    cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "search_youtube_videos", "arguments": '{"query": "lo-fi"}'}}]}
+    first = await (await client.post("/v1/chat/completions", json=req("play lo-fi"))).json()
+    said = first["choices"][0]["message"]["content"]
+    assert "[playlist]" in sock.sent[-1]["act"]["caption"]
+    assert "playlist" in said
+
+    # "play two" is the playlist: its videos replace the list on the screen.
+    opened = await (await client.post("/v1/chat/completions", json=req("play two", conv="c2"))).json()
+    assert seen["yt"][-1] == ("contents", {"playlist_id": "PLabcdefghijklmnopqrstuvwx", "page": 1})
+    assert "Video 7" in opened["choices"][0]["message"]["content"]
+    assert sock.sent[-1]["act"]["caption"].startswith("1. Video 7")
+
+    # "play one" plays the first of the playlist.
+    played = await (await client.post("/v1/chat/completions", json=req("play one", conv="c3"))).json()
+    assert played["choices"][0]["message"]["content"] == "Playing Video 7."
+    assert seen["yt"][-1] == ("resolve", {"video_id": "vid00000007"})
+    assert seen["ha"][-1] == {"url": "https://youtube.example/video.mp4", "title": "Video 7"}
+
+
+async def test_going_back_returns_to_the_search_results(aiohttp_client, mixed_world):
+    seen, cloud, yt_url, ha_url, llm_url = mixed_world
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
+    client = await aiohttp_client(router(yt_url, ha_url, llm_url, bodies))
+
+    cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "search_youtube_videos", "arguments": '{"query": "lo-fi"}'}}]}
+    await client.post("/v1/chat/completions", json=req("play lo-fi"))
+    await client.post("/v1/chat/completions", json=req("play two", conv="c2"))
+    back = await (await client.post("/v1/chat/completions", json=req("go back", conv="c3"))).json()
+    assert "playlist" in sock.sent[-1]["act"]["caption"]
+    assert "A playlist" in back["choices"][0]["message"]["content"]

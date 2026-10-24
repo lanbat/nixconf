@@ -54,6 +54,7 @@ REFUSED = "I can't do that."
 YOUTUBE_DOWN = "I couldn't search YouTube just now."
 YOUTUBE_NO_SCREEN = "I can't find a screen to play that on."
 YOUTUBE_NO_VIDEO = "I couldn't find a video there that this screen will play."
+YOUTUBE_PLAYLIST_DOWN = "I couldn't open that playlist just now."
 YOUTUBE_PICK = "Which one? Say the number."
 
 # What a cloud model may ask Home Assistant to run: the agent's two functions,
@@ -376,6 +377,25 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
         return finish(device, youtube_mod.spoken(results), [])
 
+    async def _yt_contents(device: str, room: str, playlist: str, page: int,
+                           title: str = "") -> dict:
+        data = await yt_show.contents(playlist, page)
+        if data is None:
+            return finish(device, YOUTUBE_PLAYLIST_DOWN, [])
+        if not data.get("items"):
+            return finish(device, "That's the end of the playlist." if page > 1
+                          else "That playlist looks empty.", [])
+        results = youtube_mod.Results(
+            str(data.get("title") or title or "playlist"), page, tuple(data["items"]),
+            bool(data.get("has_next")), clock(), playlist=playlist)
+        current = yt_lists.get(room)
+        if current is not None and current.playlist == playlist:
+            yt_lists.replace(room, results)  # another page of the same playlist
+        else:
+            yt_lists.push(room, results)     # opened from the search above it
+        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
+        return finish(device, youtube_mod.spoken(results), [])
+
     async def _yt_play(device: str, room: str, video: str, title: str = "") -> dict:
         found = await yt_show.resolve(video)
         if found is None:
@@ -399,18 +419,31 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if kind == "raw":
             return await _yt_play(device, room, str(value))
         results = yt_lists.get(room)
+        if kind == "back":
+            if not yt_lists.pop(room):
+                return finish(device, "That's the first list.", [])
+            results = yt_lists.get(room)
+            if results is None:
+                return finish(device, STOPPED, [])
+            await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
+            return finish(device, youtube_mod.spoken(results), [])
         if results is None:
             return finish(device, "There's no list to pick from. What should I look for?", [])
         if kind == "play":
             item = results.item(int(value or 0))
             if item is None:
                 return finish(device, YOUTUBE_PICK, [])
+            if item.get("kind") == "playlist":
+                return await _yt_contents(device, room, str(item.get("id") or ""), 1,
+                                          str(item.get("title") or ""))
             return await _yt_play(device, room, str(item.get("id") or ""), str(item.get("title") or ""))
         if kind in ("next", "prev", "page"):
             page = (results.page + 1 if kind == "next"
                     else results.page - 1 if kind == "prev" else int(value or 1))
             if page < 1:
                 return finish(device, "That's the first page of results.", [])
+            if results.playlist is not None:
+                return await _yt_contents(device, room, results.playlist, page, results.query)
             return await _yt_search(device, room, results.query, page)
         return finish(device, YOUTUBE_PICK, [])
 

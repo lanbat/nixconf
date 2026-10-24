@@ -169,6 +169,11 @@ the assistant reads them out. Then:
 | "previous page", "back a page" | back |
 | "cancel", "never mind" | forgets the list |
 
+Results can be **videos or playlists**; a playlist is marked `[playlist]` on the screen
+("2. [playlist] Lo-fi beats (120)"). Saying its number opens it: the screen shows its videos,
+five at a time, and "play 3" plays one of those. "Go back" (or "back to results") returns to
+the search above it; "previous page" stays within whichever list is open.
+
 A link or id may be given instead ("play `https://youtu.be/…`"). The list is kept for ten
 minutes, per room; speaking in another room still answers it, because there is one screen.
 

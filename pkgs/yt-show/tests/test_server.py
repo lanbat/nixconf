@@ -6,9 +6,11 @@ from yt_show.server import Config, make_app
 from yt_show.ytdlp import YtDlpError
 
 ITEMS = [
-    {"id": f"vid{i:08d}", "title": f"Title {i}", "channel": "A channel", "seconds": 60 + i}
+    {"kind": "video", "id": f"vid{i:08d}", "title": f"Title {i}", "channel": "A channel", "seconds": 60 + i}
     for i in range(20)
 ]
+PLID = "PLabcdefghijklmnopqrstuvwx"
+PLAYLIST_ITEM = {"kind": "playlist", "id": PLID, "title": "A playlist", "channel": "C", "count": 120}
 
 
 class FakeInvidious:
@@ -43,6 +45,16 @@ class FakeInvidious:
             return None
         return (f"https://youtube.test/latest_version?id={vid}&itag=136&local=true",
                 f"https://youtube.test/latest_version?id={vid}&itag=140&local=true")
+
+    async def playlist(self, plid, page):
+        self.calls.append(("playlist", plid, page))
+        if self.fail or plid != PLID:
+            raise InvidiousError("down")
+        return "A playlist", [
+            {"kind": "video", "id": f"vid{i:08d}", "title": f"Video {i}",
+             "channel": "C", "seconds": 60 + i}
+            for i in range(120)
+        ]
 
 
 class FakeYtDlp:
@@ -218,3 +230,34 @@ async def test_bad_resolve_input_is_refused(aiohttp_client, payload):
 async def test_health_says_which_source_is_configured(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
     assert await (await client.get("/healthz")).json() == {"ok": True, "source": "invidious"}
+
+
+async def test_a_search_returns_playlists_alongside_videos(aiohttp_client):
+    items = ITEMS[:4] + [PLAYLIST_ITEM]
+    client = await aiohttp_client(app(FakeInvidious(items=items), FakeYtDlp()))
+    body = await (await client.post("/search", json={"query": "lo-fi"})).json()
+    assert [i["kind"] for i in body["items"]] == ["video", "video", "video", "video", "playlist"]
+    assert body["items"][-1]["count"] == 120
+
+
+async def test_a_playlist_lists_its_videos_a_page_at_a_time(aiohttp_client):
+    invidious = FakeInvidious()
+    client = await aiohttp_client(app(invidious, FakeYtDlp()))
+    first = await (await client.post("/contents", json={"playlist_id": PLID})).json()
+    assert first["title"] == "A playlist" and first["has_next"] is True
+    assert [i["title"] for i in first["items"]] == [f"Video {i}" for i in range(5)]
+    assert [i["n"] for i in first["items"]] == [1, 2, 3, 4, 5]
+    second = await (await client.post("/contents", json={"playlist_id": PLID, "page": 2})).json()
+    assert [i["title"] for i in second["items"]] == [f"Video {i}" for i in range(5, 10)]
+    # Our page 2 is still inside Invidious' first page of 100.
+    assert invidious.calls[-1] == ("playlist", PLID, 1)
+
+
+async def test_a_bad_playlist_id_is_refused(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
+    assert (await client.post("/contents", json={"playlist_id": "not a playlist"})).status == 400
+
+
+async def test_a_playlist_that_cannot_be_listed_is_a_bad_gateway(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(fail=True), FakeYtDlp()))
+    assert (await client.post("/contents", json={"playlist_id": PLID})).status == 502

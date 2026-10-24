@@ -27,6 +27,7 @@ let
          "author": "A channel", "lengthSeconds": 60 + i}
         for i in range(20)
     ]
+    PLID = "PLabcdefghijklmnopqrstuvwx"
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -44,7 +45,26 @@ let
             url, query = urlparse(self.path), parse_qs(urlparse(self.path).query)
             if url.path == "/api/v1/search":
                 page = int(query.get("page", ["1"])[0])
-                return self.json(VIDEOS if page == 1 else [])
+                if page != 1:
+                    return self.json([])
+                if query.get("q", [""])[0] == "playlist":
+                    return self.json([
+                        {"type": "playlist", "playlistId": PLID,
+                         "title": "A playlist", "author": "C", "videoCount": 120},
+                        {"type": "video", "videoId": "vid00000000", "title": "Title 0",
+                         "author": "A channel", "lengthSeconds": 60},
+                    ])
+                return self.json(VIDEOS)
+            if url.path.startswith("/api/v1/playlists/"):
+                if url.path.rsplit("/", 1)[-1] != PLID:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                return self.json({"title": "A playlist", "videos": [
+                    {"videoId": "vid%08d" % i, "title": "Video %d" % i,
+                     "author": "C", "lengthSeconds": 60 + i}
+                    for i in range(120)
+                ]})
             if url.path.startswith("/api/v1/videos/"):
                 vid = url.path.rsplit("/", 1)[-1]
                 fields = query.get("fields", [""])[0]
@@ -166,6 +186,9 @@ pkgs.runCommand "yt-show-check"
     ${post "remux.json" 18204 "/resolve" ''{"video_id":"vid00000009"}''}
     ${post "failed.json" 18204 "/resolve" ''{"video_id":"vid00000008"}''}
     ${post "long.json" 18204 "/resolve" ''{"video_id":"vid00000006"}''}
+    ${post "mixed.json" 18202 "/search" ''{"query":"playlist"}''}
+    ${post "contents.json" 18202 "/contents" ''{"playlist_id":"PLabcdefghijklmnopqrstuvwx"}''}
+    ${post "contents2.json" 18202 "/contents" ''{"playlist_id":"PLabcdefghijklmnopqrstuvwx","page":2}''}
 
     python3 - <<'PY'
     import json
@@ -214,6 +237,16 @@ pkgs.runCommand "yt-show-check"
     # 360p only, but too long to make the screen wait.
     long = load("long.json")
     assert long["source"] == "invidious" and "itag=18" in long["url"], long
+
+    # Playlists come back alongside videos, and their videos come back a page at a time.
+    mixed = load("mixed.json")
+    assert [i["kind"] for i in mixed["items"]] == ["playlist", "video"], mixed
+    assert mixed["items"][0]["count"] == 120, mixed
+    c1 = load("contents.json")
+    assert c1["title"] == "A playlist" and c1["has_next"] is True, c1
+    assert [i["title"] for i in c1["items"]] == ["Video %d" % i for i in range(5)], c1
+    c2 = load("contents2.json")
+    assert [i["title"] for i in c2["items"]] == ["Video %d" % i for i in range(5, 10)], c2
     PY
 
     # The media app serves the remuxed file, and nothing else.
@@ -228,6 +261,7 @@ pkgs.runCommand "yt-show-check"
     test "$(status /search '{"query":""}')" = 400
     test "$(status /search '{"query":"x","page":0}')" = 400
     test "$(status /resolve '{"video_id":"not a video"}')" = 400
+    test "$(status /contents '{"playlist_id":"not a playlist"}')" = 400
     test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18202/healthz)" = 200
 
     touch $out
