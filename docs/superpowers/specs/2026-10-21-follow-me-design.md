@@ -12,7 +12,7 @@ dark room should light up when someone walks in. Today the house senses where pe
 - **Presence.** The assistant router publishes `sensor.lanbat_people_where_<key>` per
   person (`pkgs/assistant-router/assistant_router/mqtt.py`). Its state is a room name
   (the keys of `lanbat.deployment.voiceRooms`: `Office`, `Bedroom 1`, plus the Kitchen's
-  Echo Show), `home` or `away`. A phone counts as in a room 45 seconds after it was last
+  Echo Show), `home` or `away`. A phone counts as in a room 25 seconds after it was last
   heard, a face on a camera ten seconds. Only rooms with a sensor can be reported: today
   Office, Bedroom 1 and Kitchen. Living Room, Bathroom, Landing and Hall have none.
 - **People.** `lanbat.deployment.people` has one entry, `akadmin`. Follow-me is only
@@ -46,10 +46,10 @@ Per room, per person tracked. Defaults are the author's choice; every number is 
    (22:30 to 06:30): 20 %, warm. Daytime: nothing.
 2. **Lights off when empty.** R has had no tracked person for 5 minutes and follow-me
    itself turned its lights on. Lights someone switched on by hand are never touched.
-3. **Music follows.** A person moves from room A to room B (stable 20 s) while A has a
+3. **Music follows.** A person moves from room A to room B (stable 8 s) while A has a
    Music Assistant player playing, that person was the only tracked person in A, and B
    has a Music Assistant player that is not playing. The queue moves to B and A stops.
-   With someone else still in A, nothing moves: A keeps playing. A 60 s cooldown per
+   With someone else still in A, nothing moves: A keeps playing. A 45 s cooldown per
    person stops it from bouncing between two adjacent rooms.
 4. **Music pauses when empty.** A room with a covered presence sensor has had no tracked
    person (see "Occupied" below) for 15 minutes: its Music Assistant players are paused, not stopped, so
