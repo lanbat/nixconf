@@ -44,6 +44,9 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
 - **Jellyfin can play to it** (`techo5Devices.<room>.dlna`, on by default): the bridge turns
   on the device's DLNA, Video and DLNA video switches, and Jellyfin's firewall lets its
   address reach Jellyfin's discovery and event ports. See "Playing Jellyfin on the screen".
+- **YouTube can be asked for by voice** ("play … on the kitchen screen"): the assistant
+  searches through Invidious, shows the first five results on the screen and plays the one
+  picked, as the H.264 MP4 the screen takes. See "Playing YouTube on the screen".
 
 ## What the person's screen shows
 
@@ -146,6 +149,44 @@ name. Music and video both work.
   setting `EnablePlayTo` and its other options were read from the plugin package itself, DLNA
   10.0.0.0, not guessed.)
 
+## Playing YouTube on the screen
+
+The screen has no browser, no YouTube app and no Google Cast, so YouTube reaches it the only
+way TECHO5 takes video (`docs/video.md` in TECHO5): as one H.264 MP4, 720p at best. The
+assistant router turns a spoken request into that address (`pkgs/yt-show`,
+`services/yt-show.nix`, `pkgs/assistant-router youtube.py`). Say, to any microphone in the
+house:
+
+> Play the new Computerphile video on the kitchen screen.
+
+The cloud model searches YouTube; the screen shows the first five results as a caption while
+the assistant reads them out. Then:
+
+| Say | It does |
+| --- | --- |
+| "play two", "the second one", "number 2" | plays that result |
+| "next page", "page 2", "more results" | the next five |
+| "previous page", "back a page" | back |
+| "cancel", "never mind" | forgets the list |
+
+A link or id may be given instead ("play `https://youtu.be/…`"). The list is kept for ten
+minutes, per room; speaking in another room still answers it, because there is one screen.
+
+`yt-show` resolves the video through **Invidious first**: the address is on
+`https://youtube.<domain>`, which the screen already trusts (the bridge installs the CA) and
+which does not expire. It falls back to **yt-dlp** when Invidious is off, unreachable, or
+cannot play that video, which gives a googlevideo address good for a few hours. Only the helper
+needs the internet: the router's sandbox admits the loopback alone. It asks for the 720p or
+360p muxed MP4s; a DASH pair (video-only plus audio) is not something the screen can play.
+
+The screen's `esphome.<node>_play_video` action is found by itself when there is one Echo Show.
+With several, each action's name must hold its room, or name it in
+`lanbat.services.assistant-router.settings.ytPlayService`.
+
+Not: Netflix, Prime Video, Disney+ and the like (TECHO5 plays no protected video), and the
+browser (`crown` has none on TECHO5). YouTube as *music* is audio, through Music Assistant's
+`media-feed-bridge` (`services/music-assistant.nix`).
+
 ## Checking it on a live system
 
 After a deploy, three journal lines say whether the personal screen, lists and reminders can work:
@@ -154,7 +195,13 @@ After a deploy, three journal lines say whether the personal screen, lists and r
 journalctl -u assistant-router -b | grep '"home_assistant"'
 journalctl -u jellyfin-bootstrap -b | grep -i dlna
 journalctl -u home-assistant-post-setup -b | grep -i -E 'to-do|dlna'
+journalctl -u yt-show -b | grep -i 'invidious'
 ```
+
+- **`yt-show`'s log** is quiet when Invidious answers. "invidious search failed, trying
+  yt-dlp" or "invidious could not play …, trying yt-dlp" means Invidious is down or has
+  fallen behind YouTube: the request still works, through the fallback, while the fix is a
+  newer Invidious (services/invidious.nix).
 
 - **`{"home_assistant": "ok", "todo": "ok", "calendar": "ok"}`** (the router, once after it starts,
   and again every 30 s while Home Assistant isn't up): the voice satellites' token is accepted,

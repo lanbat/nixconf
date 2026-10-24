@@ -78,3 +78,24 @@ async def test_no_answer_is_an_error():
         await ha.states()
     assert not ha.refused
     await ha.aclose()
+
+
+async def test_a_refused_service_list_does_not_stop_the_other_calls(aiohttp_server):
+    """An ordinary user may not read Home Assistant's service list on some
+    versions; that must not take the lists and reminders down with it."""
+    async def refused(request):
+        return web.Response(status=403, text="403: Forbidden")
+
+    async def empty(request):
+        return web.json_response([])
+
+    app = web.Application()
+    app.router.add_get("/api/services", refused)
+    app.router.add_get("/api/states", empty)
+    server = await aiohttp_server(app)
+    ha = Hass(f"http://127.0.0.1:{server.port}", "good")
+    with pytest.raises(HassError):
+        await ha.services("esphome")
+    assert not ha.refused
+    assert await ha.states() == []
+    await ha.aclose()

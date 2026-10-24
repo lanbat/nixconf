@@ -205,6 +205,7 @@
         };
         music-assistant = import ./tests/music-assistant.nix { inherit pkgs; };
         media-feed-bridge = import ./tests/media-feed-bridge.nix { inherit pkgs; };
+        yt-show = import ./tests/yt-show.nix { inherit pkgs; };
         pkgs-build = import ./tests/pkgs-build.nix { inherit pkgs; };
         ha-dashboards = import ./tests/ha-dashboards.nix { inherit pkgs; };
         home-assistant-post-setup-todo-lists = import ./tests/home-assistant-post-setup-todo-lists.nix {

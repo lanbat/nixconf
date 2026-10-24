@@ -62,7 +62,8 @@ class Hass:
             await self._session.close()
             self._session = None
 
-    async def _call(self, method: str, path: str, payload: dict | None = None) -> Any:
+    async def _call(self, method: str, path: str, payload: dict | None = None,
+                    poison: bool = True) -> Any:
         if self.refused:
             raise HassError(f"{method} {path}", status=401, detail="the token was refused before")
         session = await self._ensure()
@@ -72,7 +73,7 @@ class Hass:
                 status, text = resp.status, await resp.text()
         except (aiohttp.ClientError, TimeoutError) as e:
             raise HassError(f"{method} {path}", detail=str(e)) from e
-        if status in (401, 403):
+        if status in (401, 403) and poison:
             self.refused = True
             LOG.warning(json.dumps({"home_assistant": "token refused", "status": status,
                                     "calls": "stopped until the router restarts"}))
@@ -109,3 +110,22 @@ class Hass:
         if response and isinstance(body, dict) and isinstance(body.get("service_response"), dict):
             return body["service_response"]
         return {}
+
+    async def services(self, domain: str) -> list[str]:
+        """The service names of one domain, as Home Assistant lists them
+        (`esphome`'s `<node>_play_video` actions, for instance), sorted.
+
+        A refusal here (an ordinary user may not read the service list on some
+        versions) is not a token refusal: it fails this lookup only, and the
+        client keeps calling Home Assistant for lists and reminders."""
+        if not _NAME.match(domain):
+            raise HassError(f"bad domain {domain!r}")
+        data = await self._call("GET", "/api/services", poison=False)
+        for entry in data if isinstance(data, list) else []:
+            if not isinstance(entry, dict) or entry.get("domain") != domain:
+                continue
+            found = entry.get("services")
+            if isinstance(found, dict):
+                return sorted(key for key in found if isinstance(key, str) and _NAME.match(key))
+        return []
+

@@ -48,6 +48,13 @@ let
   bodyPort = 8770;
   tapPort = 8772;
   router = pkgs.callPackage ../pkgs/assistant-router { };
+  # YouTube on a room's screen (services/yt-show.nix): the cloud's search and
+  # play tools (pkgs/assistant-router youtube.py). Read from the deployment,
+  # not from config.lanbat.services.yt-show: asking that here would force the
+  # description whose consumes asks this (infinite recursion).
+  hasYt =
+    config.lanbat.hasService "yt-show"
+    && lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { }) != { };
 
   # Hosts whose services consume the router: the bodies. The same derivation
   # as modules/wiring/policy.nix, which opens bodyPort to exactly these.
@@ -116,6 +123,17 @@ let
       Rooms whose techo5 screen item sensors are cleared at router start
       (reminders, to-dos, events on the room's screen device in Home
       Assistant). Filled from lanbat.deployment.techo5Devices on the server.
+    '';
+  };
+  routerSettings.options.ytPlayService = mkOption {
+    type = types.nullOr types.str;
+    default = null;
+    example = "esphome.kitchen_play_video";
+    description = ''
+      The screen's `esphome.<node>_play_video` action, when it cannot be found
+      by itself (pkgs/assistant-router youtube.py): with one Echo Show it is,
+      and with several each action's name must hold its room unless this names
+      one.
     '';
   };
   routerSettings.options.offerToMeet = mkOption {
@@ -356,6 +374,9 @@ in
       ];
       lanbat.services.assistant-router = {
         inherit port;
+        # YouTube on a screen resolves through yt-show, which needs the internet
+        # (services/yt-show.nix); the rest of the router does not.
+        consumes = lib.optional hasYt "yt-show";
         settings.screenRooms = screenRooms;
         # What other hosts consume: the bodies' socket, not Home Assistant's
         # endpoint, which stays on the loopback.
@@ -412,8 +433,9 @@ in
         after = [
           "llama-cpp.service"
           "llm-gateway.service"
-        ];
-        wants = [ "llama-cpp.service" ];
+        ]
+        ++ lib.optional hasYt "yt-show.service";
+        wants = [ "llama-cpp.service" ] ++ lib.optional hasYt "yt-show.service";
         serviceConfig = {
           ExecStart = lib.concatStringsSep " " (
             [
@@ -499,6 +521,12 @@ in
               "--reminder-lists-file ${reminderListsFile}"
               "--rung-state /var/lib/assistant-router/rung.json"
             ]
+            ++ lib.optionals hasYt (
+              [ "--yt-show-url http://127.0.0.1:${toString config.lanbat.services.yt-show.port}" ]
+              ++ lib.optional (
+                cfg.ytPlayService != null
+              ) "--yt-play-service ${lib.escapeShellArg cfg.ytPlayService}"
+            )
           );
           DynamicUser = true;
           StateDirectory = "assistant-router";

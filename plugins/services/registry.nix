@@ -48,5 +48,6 @@
   voice-id = ../../services/voice-id.nix;
   wifi-presence = ../../services/wifi-presence.nix;
   wyoming = ../../services/wyoming.nix;
+  yt-show = ../../services/yt-show.nix;
   zigbee2mqtt = ../../services/zigbee2mqtt.nix;
 }

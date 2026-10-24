@@ -68,7 +68,7 @@ ROBOT_CAN = frozenset(CAPABILITIES) - {"here", "items"}
 # An act's fields and the capability each needs; the rest (brightness, led,
 # yaw, nap, ...) are a robot's own.
 ACT_NEEDS = {"mood": "mood", "gesture": "gesture", "look": "look", "sleep": "sleep", "caption": "caption",
-             "greet": "greet"}
+             "caption_seconds": "caption", "greet": "greet"}
 
 # How long to wait for a body's face before a capture is reported as failed.
 CAPTURE_TIMEOUT_S = 10.0

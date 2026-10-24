@@ -144,6 +144,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Wyoming pipeline (STT/TTS/wake word) | No auth (localhost only) | Never exposed outside server |
 | Assistant router (`assistant-router`, 8092) | No auth (localhost only) | Home Assistant's conversation agent when `haLlm.baseUrl` is `http://127.0.0.1:8092/v1`; calls llama.cpp and the gateway |
 | Assistant router bodies (`assistant-router`, 8770) | No auth; open only to the hosts that consume it (a Stack-chan's Pi) | Robot bodies (`lva-stackchan`) report presence and receive moods, gestures and body commands; fixed fields only (docs/stackchan.md) |
+| YouTube for the Echo Show (`yt-show`, 8102) | No auth (localhost only) | The assistant router asks it for a search and for the MP4 an Echo Show plays; it talks to Invidious (`127.0.0.1:8083`) first and yt-dlp second, so only it reaches the internet (docs/techo5.md) |
 | LLM gateway (`llm-gateway`, LiteLLM, 8093) | No auth (localhost only); provider keys in `llm-gateway-env` (agenix) | Only the assistant router calls it; it calls cloud LLM APIs outbound, with fallbacks and a monthly budget |
 | Speaker identification (`voice-id`, 10303) | No auth (localhost only) | Home Assistant's speech-to-text; a Wyoming proxy in front of faster-whisper |
 | Speaker identification API (`voice-id`, 10304) | No auth (localhost only) | The assistant router enrols, refines and forgets voiceprints; voice-id reports each sentence's scores to the router's `/v1/voice` |

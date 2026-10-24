@@ -323,7 +323,12 @@ class Brain:
                 out.append(self._notify("", f"Hi {greet['name'].strip()[:40]}!", "mdi:hand-wave", GREET_SECONDS))
                 self._code_until = None  # one at a time: the greeting replaces the code
             if isinstance(act.get("caption"), str) and act["caption"].strip():
-                out.append(self._notify("", act["caption"].strip()[:200], "mdi:message-text-outline", GREET_SECONDS))
+                # A caption shows for GREET_SECONDS unless the sender says longer
+                # (a list of videos the person is choosing from, say).
+                seconds = act.get("caption_seconds")
+                if type(seconds) is not int or not 1 <= seconds <= 600:
+                    seconds = GREET_SECONDS
+                out.append(self._notify("", act["caption"].strip()[:200], "mdi:message-text-outline", seconds))
         return out
 
     def _face_result(self, result: dict, now: float) -> list:
