@@ -43,7 +43,11 @@ def _config(a: argparse.Namespace) -> Config:
                   max_cache_mb=getattr(a, "max_cache_mb", 4096),
                   ma_url=getattr(a, "ma_url", None),
                   ma_token_file=getattr(a, "ma_token_file", None),
-                  ma_limit=getattr(a, "ma_limit", 40))
+                  ma_limit=getattr(a, "ma_limit", 40),
+                  jellyfin_url=getattr(a, "jellyfin_url", None),
+                  jellyfin_public_url=getattr(a, "jellyfin_public_url", None),
+                  jellyfin_key_file=getattr(a, "jellyfin_key_file", None),
+                  jellyfin_limit=getattr(a, "jellyfin_limit", 20))
 
 
 async def _search(a: argparse.Namespace) -> int:
