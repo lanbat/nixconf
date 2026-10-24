@@ -48,6 +48,12 @@ def test_going_back():
     assert control("back a page") == ("prev", None)
 
 
+def test_going_back_to_the_list_below():
+    assert control("go back") == ("back", None)
+    assert control("back to results") == ("back", None)
+    assert control("back to the search") == ("back", None)
+
+
 @pytest.mark.parametrize("said", ["cancel", "never mind", "forget it", "stop"])
 def test_cancelling(said):
     assert control(said) == ("cancel", None)
@@ -93,6 +99,47 @@ def test_the_spoken_list_names_the_numbers_and_what_to_say():
     assert "1, " in said and "5, " in said
     assert "next page" in said
     assert "next page" not in spoken(results(has_next=False))
+
+
+def test_a_playlist_is_labelled_on_the_screen_and_in_speech():
+    mixed = Results("lo-fi", 1, (
+        {"n": 1, "kind": "video", "id": "dQw4w9WgXcQ", "title": "A video", "duration": "3:00"},
+        {"n": 2, "kind": "playlist", "id": "PLabcdefghijklmnopqrstuvwx",
+         "title": "A playlist", "count": 12},
+    ), False, time.monotonic())
+    screen = caption(mixed)
+    assert len(screen) <= 200
+    assert "[playlist]" in screen and "(12)" in screen
+    said = spoken(mixed)
+    assert "playlist" in said and "12 videos" in said
+
+
+def test_a_playlist_list_sits_over_the_search_and_goes_back():
+    sessions = Sessions()
+    search = results()
+    sessions.set("Kitchen", search)
+    playlist = Results("A playlist", 1, (
+        {"n": 1, "kind": "video", "id": "vid00000001", "title": "Video 1", "duration": "1:00"},
+    ), False, time.monotonic(), playlist="PLabcdefghijklmnopqrstuvwx")
+    sessions.push("Kitchen", playlist)
+    assert sessions.get("Kitchen") == playlist
+    assert sessions.pop("Kitchen")
+    assert sessions.get("Kitchen") == search
+    assert not sessions.pop("Kitchen")  # already the first list
+
+
+def test_a_playlist_page_replaces_the_one_above_it():
+    sessions = Sessions()
+    sessions.set("Kitchen", results())
+    first = Results("A playlist", 1, (), True, time.monotonic(),
+                    playlist="PLabcdefghijklmnopqrstuvwx")
+    sessions.push("Kitchen", first)
+    second = Results("A playlist", 2, (), False, time.monotonic(),
+                     playlist="PLabcdefghijklmnopqrstuvwx")
+    sessions.replace("Kitchen", second)
+    assert sessions.get("Kitchen") == second
+    assert sessions.pop("Kitchen")  # still just one level over the search
+    assert not sessions.pop("Kitchen")
 
 
 def test_a_list_is_forgotten_after_a_while():

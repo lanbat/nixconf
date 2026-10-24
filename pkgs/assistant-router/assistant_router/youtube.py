@@ -77,9 +77,10 @@ def _key(room: str) -> str:
 class Results:
     query: str
     page: int
-    items: tuple[dict, ...]  # as yt-show numbered them: n, id, title, duration
+    items: tuple[dict, ...]  # as yt-show numbered them: n, kind, id, title, duration/count
     has_next: bool
     at: float
+    playlist: str | None = None  # set when this list is a playlist's videos
 
     def item(self, n: int) -> dict | None:
         """The nth result, counting from 1; -1 is the last one."""
@@ -89,22 +90,47 @@ class Results:
 
 
 class Sessions:
-    """The open list in each room, forgotten after a while."""
+    """The open list in each room — a stack, so a playlist's videos sit over
+    the search that found it — forgotten after a while."""
 
     def __init__(self, seconds: float = LIST_SECONDS, clock=time.monotonic) -> None:
         self._seconds = seconds
         self._clock = clock
-        self._rooms: dict[str, Results] = {}
+        self._rooms: dict[str, list[Results]] = {}
 
     def set(self, room: str, results: Results) -> None:
-        self._rooms[_key(room)] = results
+        """A new search: it replaces whatever was open."""
+        self._rooms[_key(room)] = [results]
+
+    def push(self, room: str, results: Results) -> None:
+        """A list opened from the current one (a playlist's videos)."""
+        self._rooms.setdefault(_key(room), []).append(results)
+
+    def replace(self, room: str, results: Results) -> None:
+        """Another page of the list already open."""
+        stack = self._rooms.get(_key(room))
+        if stack:
+            stack[-1] = results
+        else:
+            self._rooms[_key(room)] = [results]
 
     def get(self, room: str) -> Results | None:
-        hit = self._rooms.get(_key(room))
-        if hit is not None and self._clock() - hit.at > self._seconds:
+        stack = self._rooms.get(_key(room))
+        if not stack:
+            return None
+        hit = stack[-1]
+        if self._clock() - hit.at > self._seconds:
             del self._rooms[_key(room)]
             return None
         return hit
+
+    def pop(self, room: str) -> bool:
+        """Back to the list below, if there is one."""
+        stack = self._rooms.get(_key(room))
+        if not stack or len(stack) < 2:
+            return False
+        stack.pop()
+        return True
 
     def has(self, room: str) -> bool:
         return self.get(room) is not None
@@ -150,6 +176,13 @@ class YtShow:
             return None
         return data
 
+    async def contents(self, playlist: str, page: int) -> dict | None:
+        """A playlist's videos, numbered from 1 on each page."""
+        data = await self._post("/contents", {"playlist_id": playlist, "page": page})
+        if data is None or not isinstance(data.get("items"), list):
+            return None
+        return data
+
     async def resolve(self, video: str) -> dict | None:
         """The playable address of a video, by id or link."""
         data = await self._post("/resolve", {"video_id": video})
@@ -163,6 +196,14 @@ def _clip(text: object, width: int) -> str:
     return said if len(said) <= width else said[: max(width - 3, 0)].rstrip() + "..."
 
 
+def _line(item: dict, width: int) -> str:
+    if item.get("kind") == "playlist":
+        count = item.get("count")
+        more = f" ({count})" if isinstance(count, int) else ""
+        return f"{item['n']}. [playlist] {_clip(item['title'], width)}{more}"
+    return f"{item['n']}. {_clip(item['title'], width)}"
+
+
 def caption(results: Results) -> str:
     """The list on the screen, in one caption (the bridge truncates at 200,
     pkgs/techo5-bridge/brain.py). Narrower titles until it fits. Plain ASCII:
@@ -170,16 +211,25 @@ def caption(results: Results) -> str:
     hint = "   say 'next page'" if results.has_next else ""
     width = 30
     while width >= 10:
-        text = "   ".join(f"{r['n']}. {_clip(r['title'], width)}" for r in results.items) + hint
+        text = "   ".join(_line(item, width) for item in results.items) + hint
         if len(text) <= 200:
             return text
         width -= 4
-    return ("   ".join(f"{r['n']}. {_clip(r['title'], 10)}" for r in results.items) + hint)[:200]
+    return ("   ".join(_line(item, 10) for item in results.items) + hint)[:200]
 
 
 def spoken(results: Results) -> str:
     """What the assistant reads out: the list, and what to say next."""
-    said = "; ".join(f"{r['n']}, {_clip(r['title'], 60)}" for r in results.items)
+    parts = []
+    for item in results.items:
+        title = _clip(item["title"], 60)
+        if item.get("kind") == "playlist":
+            count = item.get("count")
+            parts.append(f"{item['n']}, playlist, {title}"
+                         + (f", {count} videos" if isinstance(count, int) else ""))
+        else:
+            parts.append(f"{item['n']}, {title}")
+    said = "; ".join(parts)
     next_step = "Say the number to play, or next page." if results.has_next else "Which number?"
     return f"Here are {len(results.items)} for {_clip(results.query, 40)}: {said}. {next_step}"
 
@@ -202,6 +252,7 @@ _NUMBER = re.compile(
 )
 _NEXT = re.compile(r"^(?:next|more)(?:\s+(?:page|results))?$|^page\s+down$")
 _PREV = re.compile(r"^(?:previous|back)(?:\s+(?:a\s+)?page)?$|^page\s+up$")
+_BACK = re.compile(r"^(?:back to (?:the )?(?:results|list|search)|go back|back out)$")
 _PAGE = re.compile(r"^(?:page|results)\s+(?P<n>\d+)$")
 _CANCEL = re.compile(r"^(?:cancel|never\s+mind|forget\s+it|stop|close)$")
 _RAW = re.compile(r"(?:youtu\.be/|youtube\.com/|[A-Za-z0-9_-]{11}$)")
@@ -219,6 +270,8 @@ def control(text: str) -> tuple[str, int | None] | None:
         return ("cancel", None)
     if _NEXT.match(said):
         return ("next", None)
+    if _BACK.match(said):
+        return ("back", None)
     if _PREV.match(said):
         return ("prev", None)
     found = _PAGE.match(said)

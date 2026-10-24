@@ -15,16 +15,18 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .core import PAGE_SIZE, page as page_of, video_id
+from .core import PAGE_SIZE, is_id, page as page_of, video_id
 from .invidious import Invidious, InvidiousError
 from .remux import NAME, Remux, RemuxError
 from .ytdlp import YtDlp, YtDlpError
 
 LOG = logging.getLogger("yt-show")
 
-# Invidious answers 20 results a page; the screen shows page_size of them, so a
-# request for our page N lands inside its page and is sliced.
+# Invidious answers 20 search results a page; the screen shows page_size of them,
+# so a request for our page N lands inside its page and is sliced. A playlist is
+# 100 videos a page.
 INVIDIOUS_PAGE = 20
+INVIDIOUS_PLAYLIST_PAGE = 100
 MAX_PAGE = 50
 
 
@@ -89,6 +91,22 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         numbered, _ = page_of(chunk, 1, cfg.page_size)
         return [r.as_dict() for r in numbered], len(items) >= want + cfg.page_size, "yt-dlp"
 
+    async def contents(plid: str, want: int) -> tuple[str, list[dict], bool, str] | None:
+        """(title, videos numbered from 1, another page follows, source) of a
+        playlist, or None when it cannot be listed."""
+        if invidious is None:
+            return None
+        try:
+            title, items = await invidious.playlist(plid, want // INVIDIOUS_PLAYLIST_PAGE + 1)
+        except InvidiousError as exc:
+            LOG.warning("invidious could not list %s: %s", plid, exc)
+            return None
+        offset = want % INVIDIOUS_PLAYLIST_PAGE
+        chunk = items[offset : offset + cfg.page_size]
+        more = len(items) > offset + cfg.page_size or len(items) >= INVIDIOUS_PLAYLIST_PAGE
+        numbered, _ = page_of(chunk, 1, cfg.page_size)
+        return title, [r.as_dict() for r in numbered], more, "invidious"
+
     async def resolve(vid: str) -> tuple[str, str, str] | None:
         """(title, address, source), or None when neither source could play it.
 
@@ -143,6 +161,26 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         items, more, source = found
         return web.json_response({"items": items, "has_next": more, "page": page, "source": source})
 
+    async def on_contents(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return bad("not JSON")
+        if not isinstance(body, dict):
+            return bad("not an object")
+        raw = body.get("playlist_id")
+        if not is_id(raw, "playlist"):
+            return bad("playlist_id")
+        page = body.get("page", 1)
+        if type(page) is not int or not 1 <= page <= MAX_PAGE:
+            return bad("page")
+        found = await contents(raw, (page - 1) * cfg.page_size)
+        if found is None:
+            return web.json_response({"error": "the playlist could not be listed"}, status=502)
+        title, items, more, source = found
+        return web.json_response({"title": title, "items": items, "has_next": more,
+                                  "page": page, "source": source})
+
     async def on_resolve(request: web.Request) -> web.Response:
         try:
             body = await request.json()
@@ -166,6 +204,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
     app = web.Application()
     app.router.add_get("/healthz", on_health)
     app.router.add_post("/search", on_search)
+    app.router.add_post("/contents", on_contents)
     app.router.add_post("/resolve", on_resolve)
     return app
 

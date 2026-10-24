@@ -55,6 +55,7 @@ class YtDlp:
             if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
                 continue
             out.append({
+                "kind": "video",
                 "id": entry["id"],
                 "title": entry.get("title") if isinstance(entry.get("title"), str) else "",
                 "channel": entry.get("channel") or entry.get("uploader") or "",

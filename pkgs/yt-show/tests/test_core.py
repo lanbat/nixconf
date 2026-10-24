@@ -48,6 +48,18 @@ def test_page_skips_a_result_that_is_not_a_video_id():
     assert [r.id for r in results] == ["dQw4w9WgXcQ"]
 
 
+def test_page_accepts_playlists_alongside_videos():
+    items = [
+        {"kind": "video", "id": "dQw4w9WgXcQ", "title": "A video", "seconds": 60},
+        {"kind": "playlist", "id": "PLabcdefghijklmnopqrstuvwx", "title": "A playlist", "count": 12},
+    ]
+    results, _ = page(items, 1, 5)
+    assert [r.kind for r in results] == ["video", "playlist"]
+    assert results[1].count == 12
+    assert results[1].as_dict()["count"] == 12
+    assert "count" not in results[0].as_dict()
+
+
 def test_pick_stream_prefers_720p_and_wants_one_muxed_file():
     formats = [
         {"itag": "137", "url": "https://x/1080-video-only"},

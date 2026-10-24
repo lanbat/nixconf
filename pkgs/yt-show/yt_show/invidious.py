@@ -55,22 +55,59 @@ class Invidious:
             raise InvidiousError(f"{path}: {exc}") from exc
 
     async def search(self, query: str, page: int) -> list[dict]:
-        """One Invidious page (20 videos) of a search."""
-        data = await self._get("/api/v1/search", {"q": query, "page": page, "type": "video"})
+        """One Invidious page (20 results) of a search: videos and playlists."""
+        data = await self._get("/api/v1/search", {"q": query, "page": page, "type": "all"})
         out: list[dict] = []
         for item in data if isinstance(data, list) else []:
-            if not isinstance(item, dict) or item.get("type") not in (None, "video"):
+            if not isinstance(item, dict):
+                continue
+            kind = item.get("type")
+            if kind == "playlist":
+                plid = item.get("playlistId")
+                if not isinstance(plid, str):
+                    continue
+                count = item.get("videoCount")
+                out.append({
+                    "kind": "playlist",
+                    "id": plid,
+                    "title": item.get("title") if isinstance(item.get("title"), str) else "",
+                    "channel": item.get("author") if isinstance(item.get("author"), str) else "",
+                    "count": count if type(count) is int and count >= 0 else None,
+                })
+            elif kind in (None, "video"):
+                vid = item.get("videoId")
+                if not isinstance(vid, str):
+                    continue
+                out.append({
+                    "kind": "video",
+                    "id": vid,
+                    "title": item.get("title") if isinstance(item.get("title"), str) else "",
+                    "channel": item.get("author") if isinstance(item.get("author"), str) else "",
+                    "seconds": item.get("lengthSeconds"),
+                })
+        return out
+
+    async def playlist(self, plid: str, page: int) -> tuple[str, list[dict]]:
+        """(title, videos) of one Invidious page (100 videos) of a playlist."""
+        data = await self._get(f"/api/v1/playlists/{plid}", {"page": page})
+        if not isinstance(data, dict):
+            raise InvidiousError("playlist: not an object")
+        title = data.get("title") if isinstance(data.get("title"), str) else ""
+        out: list[dict] = []
+        for item in data.get("videos") or []:
+            if not isinstance(item, dict):
                 continue
             vid = item.get("videoId")
             if not isinstance(vid, str):
                 continue
             out.append({
+                "kind": "video",
                 "id": vid,
                 "title": item.get("title") if isinstance(item.get("title"), str) else "",
                 "channel": item.get("author") if isinstance(item.get("author"), str) else "",
                 "seconds": item.get("lengthSeconds"),
             })
-        return out
+        return title, out
 
     async def stream(self, vid: str) -> tuple[str, str, str, int | None]:
         """(title, address, itag, seconds) of the video's best muxed stream.
