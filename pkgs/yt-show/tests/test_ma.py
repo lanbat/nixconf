@@ -29,3 +29,30 @@ def test_an_item_without_a_uri_or_a_name_is_dropped():
     assert _item("radio", SimpleNamespace(uri="", name="x")) is None
     assert _item("radio", SimpleNamespace(uri="library://radio/1", name="")) is None
     assert _item("radio", SimpleNamespace(uri="not a uri", name="x")) is None
+
+
+class FailingClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    @property
+    def music(self):
+        return self
+
+    async def search(self, query, limit=40):
+        from music_assistant_models.errors import MusicAssistantError
+        raise MusicAssistantError("TimeoutError")
+
+
+async def test_a_music_assistant_error_becomes_a_ma_error(tmp_path, monkeypatch):
+    key = tmp_path / "key"
+    key.write_text("k\n")
+    monkeypatch.setattr("yt_show.ma.MusicAssistantClient", lambda *a, **k: FailingClient())
+    from yt_show.ma import Ma, MaError
+    ma = Ma("http://127.0.0.1:8095", str(key))
+    with __import__("pytest").raises(MaError):
+        await ma.search("x")
+    await ma.aclose()
