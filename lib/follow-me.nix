@@ -394,9 +394,23 @@ let
         src = "{{ trigger.from_state.state }}";
         dst = "{{ trigger.to_state.state }}";
         src_slug = "{{ src | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
+        room_players = builtins.toJSON (
+          lib.mapAttrs (_: rc: rc.player or null) (
+            lib.filterAttrs (_: rc: (rc.player or null) != null) cfg.rooms
+          )
+        );
         src_players = "{{ ${players "src"} | list }}";
         src_player = "{{ src_players | select('is_state', 'playing') | first }}";
-        dst_free = "{{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}";
+        # A room can hold more than one Music Assistant player (a TV box and
+        # the room's speakers). When the room names its player, use that one;
+        # otherwise the first free one.
+        dst_free = ''
+          {%- set configured = (room_players | from_json).get(dst) -%}
+          {%- if configured -%}
+            {{ [] if is_state(configured, ['playing', 'unavailable', 'unknown']) else [configured] }}
+          {%- else -%}
+            {{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}
+          {%- endif -%}'';
       };
       conditions = [
         notPaused

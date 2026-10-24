@@ -101,6 +101,16 @@ in
               default = true;
               description = "Let music follow people into and out of this room, and pause it when empty.";
             };
+            player = mkOption {
+              type = types.nullOr (types.strMatching "media_player\\.[a-z0-9_]+");
+              default = null;
+              example = "media_player.binturong";
+              description = ''
+                The Music Assistant player to use for this room's music, instead
+                of the first free one. A room can hold more than one (a Pi's
+                speakers and a TV box); name the real speaker.
+              '';
+            };
           };
         }
       );

@@ -145,6 +145,18 @@ let
     };
     inherit people;
   };
+  # A room can name its player (Bedroom 1 has the Pi's speakers and a TV box).
+  genPlayerCfg = genCfg // {
+    rooms = genCfg.rooms // {
+      "Bedroom 1" = genCfg.rooms."Bedroom 1" // {
+        player = "media_player.binturong";
+      };
+    };
+  };
+  genPlayer = fmLib.mkFollowMe {
+    cfg = genPlayerCfg;
+    inherit people;
+  };
   genAnyCfg = genCfg // {
     lightsOffAny = true;
     lightsOffAnyMinutes = 10;
@@ -565,6 +577,12 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       lib.hasInfix "integration_entities('music_assistant')" v
       && !(lib.hasInfix "kodi" v)
       && !(lib.hasInfix "androidtv" v)
+    )
+    + expect "music: a room may name its player, instead of the first free one" (
+      let
+        a = lib.findFirst (x: (x.id or "") == "followme_music_follow_alex") null genPlayer.automation;
+      in
+      a != null && lib.hasInfix "media_player.binturong" (json a.variables)
     )
     + expect "music: live run moves the queue to the free player, then stops the source it left" (
       let
