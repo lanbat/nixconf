@@ -162,9 +162,10 @@ house:
 > Play BBC Radio 4.
 > Play Kind of Blue.
 
-The cloud model searches **YouTube and Music Assistant together**: the screen shows the first
-five results as a caption while the assistant reads them out, labelled by kind — `[playlist]`,
-`[radio]`, `[track]`, `[album]`, `[artist]`, `[podcast]`, `[music playlist]`. Then:
+The cloud model searches **YouTube, Music Assistant and Jellyfin together**: the screen shows
+the first five results as a caption while the assistant reads them out, labelled by kind —
+`[playlist]`, `[radio]`, `[track]`, `[album]`, `[artist]`, `[podcast]`, `[music playlist]`,
+`[movie]`, `[series]`, `[episode]`. Then:
 
 | Say | It does |
 | --- | --- |
@@ -173,20 +174,24 @@ five results as a caption while the assistant reads them out, labelled by kind �
 | "previous page", "back a page" | back |
 | "cancel", "never mind" | forgets the list |
 
-A **video** plays on the screen; **radio, music, podcasts and audiobooks** play on the room's
-Music Assistant player, so they are audio. A **YouTube playlist** is marked `[playlist]`
-("2. [playlist] Lo-fi beats (120)"): saying its number opens it, the screen shows its videos,
-and "play 3" plays one of those. A **Music Assistant playlist** (`[music playlist]`) is played
-as a queue. "Go back" (or "back to results") returns to the search above it; "previous page"
-stays within whichever list is open.
+A **video** — a YouTube video or a Jellyfin movie/episode — plays on the screen;
+**radio, music, podcasts and audiobooks** play on the room's Music Assistant player, so they
+are audio. A **YouTube playlist** is marked `[playlist]` ("2. [playlist] Lo-fi beats (120)"):
+saying its number opens it, the screen shows its videos, and "play 3" plays one of those. A
+**Jellyfin series** (`[series]`) opens its episodes the same way. A **Music Assistant
+playlist** (`[music playlist]`) is played as a queue. "Go back" (or "back to results") returns
+to the search above it; "previous page" stays within whichever list is open.
 
 A link or id may be given instead ("play `https://youtu.be/…`"). The list is kept for ten
 minutes, per room; speaking in another room still answers it, because there is one screen.
 
 The audio half comes from Music Assistant's own API (radio, tracks, albums, artists, podcasts,
 audiobooks and playlists), with the token `music-assistant-setup` minted; the room's player is
-the `playerName` of its `techo5Devices` entry ("Echo Show 8" in the Kitchen). If Music
-Assistant is off or cannot answer, the page is just YouTube, and videos keep working.
+the `playerName` of its `techo5Devices` entry ("Echo Show 8" in the Kitchen). The video half
+also includes Jellyfin's libraries (movies, series, episodes), searched with an API key
+`jellyfin-bootstrap` mints; a title plays from a Jellyfin transcode URL (H.264/AAC, 720p) on
+the server's LAN address, which the Show reaches without a browser login. If Music Assistant
+or Jellyfin is off or cannot answer, the page is what remains, and videos keep working.
 
 `yt-show` resolves the video through **Invidious first**: the address is on
 `https://youtube.<domain>`, which the screen already trusts (the bridge installs the CA) and
