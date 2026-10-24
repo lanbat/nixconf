@@ -73,6 +73,7 @@ class Invidious:
                     continue
                 count = item.get("videoCount")
                 out.append({
+                    "source": "youtube",
                     "kind": "playlist",
                     "id": plid,
                     "title": item.get("title") if isinstance(item.get("title"), str) else "",
@@ -86,6 +87,7 @@ class Invidious:
                 if not isinstance(vid, str):
                     continue
                 out.append({
+                    "source": "youtube",
                     "kind": "video",
                     "id": vid,
                     "title": item.get("title") if isinstance(item.get("title"), str) else "",
@@ -108,6 +110,7 @@ class Invidious:
             if not isinstance(vid, str):
                 continue
             out.append({
+                "source": "youtube",
                 "kind": "video",
                 "id": vid,
                 "title": item.get("title") if isinstance(item.get("title"), str) else "",

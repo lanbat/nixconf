@@ -10,13 +10,14 @@ be up but unable to play a particular video (services/invidious.nix).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from aiohttp import web
 
 from .core import PAGE_SIZE, is_id, page as page_of, video_id
 from .invidious import Invidious, InvidiousError
+from .ma import Ma, MaError
 from .remux import NAME, Remux, RemuxError
 from .ytdlp import YtDlp, YtDlpError
 
@@ -46,6 +47,11 @@ class Config:
     remux_seconds: float = 30.0
     cache_days: float = 7.0
     max_cache_mb: float = 4096.0
+    # Music Assistant (ma.py): audio results and playback on the room's player.
+    ma_url: str | None = None
+    ma_token_file: str | None = None
+    ma_players: dict[str, str] = field(default_factory=dict)  # room -> player name
+    ma_limit: int = 40
 
     def remuxer(self) -> Remux | None:
         if not (self.remux and self.cache_dir and self.media_url_base):
@@ -56,11 +62,14 @@ class Config:
 
 
 def make_app(cfg: Config, invidious: Invidious | None = None,
-             ytdlp: YtDlp | None = None, remux: Remux | None = None) -> web.Application:
+             ytdlp: YtDlp | None = None, remux: Remux | None = None,
+             ma: Ma | None = None) -> web.Application:
     invidious = invidious if invidious is not None else (
         Invidious(cfg.invidious_url, cfg.invidious_public_url) if cfg.invidious_url else None)
     ytdlp = ytdlp if ytdlp is not None else YtDlp(cfg.ytdlp)
     remux = remux if remux is not None else cfg.remuxer()
+    ma = ma if ma is not None else (
+        Ma(cfg.ma_url, cfg.ma_token_file) if cfg.ma_url and cfg.ma_token_file else None)
 
     def media_url(path: Path) -> str:
         return f"{cfg.media_url_base.rstrip('/')}/media/{path.name}"
@@ -70,24 +79,46 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
 
     async def search(query: str, want: int) -> tuple[list[dict], bool, str] | None:
         """(items numbered from 1, another page follows, source), or None when
-        neither source could answer."""
+        neither source could answer.
+
+        A page mixes YouTube with Music Assistant: up to two videos, two audio
+        items and one playlist.  Music Assistant is skipped when it is not
+        configured or did not answer, and the videos take its slots."""
+        block = want // cfg.page_size
+        music: list[dict] = []
+        if ma is not None:
+            try:
+                music = await ma.search(query, cfg.ma_limit)
+            except MaError as exc:
+                LOG.warning("music assistant search failed: %s", exc)
+        music_slots = min(2, max(cfg.page_size - 2, 0)) if music else 0
+        video_slots = max(cfg.page_size - 1 - music_slots, 0)
         if invidious is not None:
             try:
-                # One page is (page_size - 1) videos plus one playlist, when
-                # there is one: `type=all` does not include playlists.
-                block = want // cfg.page_size
-                video_want = block * (cfg.page_size - 1)
+                # `type=all` returns videos and channels, not playlists, so the
+                # two are asked for separately.
+                video_want = block * video_slots
                 videos = await invidious.search(query, video_want // INVIDIOUS_PAGE + 1, "video")
                 offset = video_want % INVIDIOUS_PAGE
-                chunk = videos[offset : offset + cfg.page_size - 1]
+                chunk_v = videos[offset : offset + video_slots]
                 playlists = await invidious.search(query, block // INVIDIOUS_PAGE + 1, "playlist")
                 playlist_offset = block % INVIDIOUS_PAGE
-                chunk = chunk + playlists[playlist_offset : playlist_offset + 1]
+                chunk_p = playlists[playlist_offset : playlist_offset + 1]
+                music_offset = block * music_slots
+                chunk_m = music[music_offset : music_offset + music_slots]
+                chunk: list[dict] = []
+                for i in range(max(len(chunk_v), len(chunk_m))):
+                    if i < len(chunk_v):
+                        chunk.append(chunk_v[i])
+                    if i < len(chunk_m):
+                        chunk.append(chunk_m[i])
+                chunk += chunk_p
                 more = (
-                    len(videos) > offset + cfg.page_size - 1
+                    len(videos) > offset + video_slots
                     or len(videos) >= INVIDIOUS_PAGE
                     or len(playlists) > playlist_offset + 1
                     or len(playlists) >= INVIDIOUS_PAGE
+                    or len(music) > music_offset + music_slots
                 )
                 numbered, _ = page_of(chunk, 1, cfg.page_size)
                 return [r.as_dict() for r in numbered], more, "invidious"
@@ -209,13 +240,39 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         title, url, source = found
         return web.json_response({"url": url, "title": title, "source": source})
 
+    async def on_play(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return bad("not JSON")
+        if not isinstance(body, dict):
+            return bad("not an object")
+        uri = body.get("uri")
+        if not isinstance(uri, str) or "://" not in uri:
+            return bad("uri")
+        room = body.get("room") if isinstance(body.get("room"), str) else ""
+        if ma is None:
+            return web.json_response({"error": "Music Assistant is not configured"}, status=502)
+        players = {key.casefold(): value for key, value in cfg.ma_players.items()}
+        try:
+            player = await ma.play(room, uri, players.get(room.strip().casefold()))
+        except MaError as exc:
+            LOG.warning("music assistant could not play %s: %s", uri, exc)
+            return web.json_response({"error": "Music Assistant could not play it"}, status=502)
+        return web.json_response({"ok": True, "player": player})
+
     async def on_health(_request: web.Request) -> web.Response:
-        return web.json_response({"ok": True, "source": "invidious" if invidious is not None else "yt-dlp"})
+        return web.json_response({
+            "ok": True,
+            "source": "invidious" if invidious is not None else "yt-dlp",
+            "music": ma is not None,
+        })
 
     app = web.Application()
     app.router.add_get("/healthz", on_health)
     app.router.add_post("/search", on_search)
     app.router.add_post("/contents", on_contents)
+    app.router.add_post("/play", on_play)
     app.router.add_post("/resolve", on_resolve)
     return app
 

@@ -105,7 +105,7 @@ async def test_the_cloud_fills_the_list_and_the_next_sentence_plays_it(aiohttp_c
     # "Play kittens": the cloud calls the search tool.
     cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call_1", "type": "function",
-         "function": {"name": "search_youtube_videos", "arguments": '{"query": "kittens"}'}}]}
+         "function": {"name": "search_media", "arguments": '{"query": "kittens"}'}}]}
     body = await (await client.post("/v1/chat/completions", json=req("play kittens"))).json()
     said = body["choices"][0]["message"]["content"]
     assert said.startswith("Here are 5 for kittens"), said
@@ -133,7 +133,7 @@ async def test_next_page_asks_the_helper_for_the_next_page(aiohttp_client, world
 
     cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call_1", "type": "function",
-         "function": {"name": "search_youtube_videos", "arguments": '{"query": "kittens"}'}}]}
+         "function": {"name": "search_media", "arguments": '{"query": "kittens"}'}}]}
     await client.post("/v1/chat/completions", json=req("play kittens"))
     await client.post("/v1/chat/completions", json=req("next page", conv="c2"))
     assert seen["yt"][-1] == ("search", {"query": "kittens", "page": 2})
@@ -148,7 +148,7 @@ async def test_cancel_forgets_the_list(aiohttp_client, world):
 
     cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call_1", "type": "function",
-         "function": {"name": "search_youtube_videos", "arguments": '{"query": "kittens"}'}}]}
+         "function": {"name": "search_media", "arguments": '{"query": "kittens"}'}}]}
     await client.post("/v1/chat/completions", json=req("play kittens"))
     cancelled = await (await client.post("/v1/chat/completions", json=req("cancel", conv="c2"))).json()
     assert cancelled["choices"][0]["message"]["content"] == "Okay."
@@ -159,9 +159,12 @@ async def test_cancel_forgets_the_list(aiohttp_client, world):
 
 
 MIXED = [
-    {"n": 1, "kind": "video", "id": "vid00000001", "title": "A video", "channel": "C", "duration": "3:00"},
-    {"n": 2, "kind": "playlist", "id": "PLabcdefghijklmnopqrstuvwx", "title": "A playlist",
-     "channel": "C", "count": 2},
+    {"n": 1, "kind": "video", "source": "youtube", "id": "vid00000001", "title": "A video",
+     "channel": "C", "duration": "3:00"},
+    {"n": 2, "kind": "playlist", "source": "youtube", "id": "PLabcdefghijklmnopqrstuvwx",
+     "title": "A playlist", "channel": "C", "count": 2},
+    {"n": 3, "kind": "radio", "source": "music-assistant", "id": "library://radio/1",
+     "title": "BBC Radio 4", "channel": "RadioBrowser"},
 ]
 
 
@@ -192,9 +195,14 @@ async def mixed_world(aiohttp_server):
                                   "title": "Video 7", "source": "invidious"})
 
     yt = web.Application()
+    async def yt_play(request):
+        seen["yt"].append(("play", await request.json()))
+        return web.json_response({"ok": True, "player": "Echo Show 8"})
+
     yt.router.add_post("/search", yt_search)
     yt.router.add_post("/contents", yt_contents)
     yt.router.add_post("/resolve", yt_resolve)
+    yt.router.add_post("/play", yt_play)
     yt_url = f"http://127.0.0.1:{(await aiohttp_server(yt)).port}"
 
     async def ha_services(request):
@@ -229,7 +237,7 @@ async def test_a_playlist_opens_its_videos_and_one_of_them_plays(aiohttp_client,
 
     cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call_1", "type": "function",
-         "function": {"name": "search_youtube_videos", "arguments": '{"query": "lo-fi"}'}}]}
+         "function": {"name": "search_media", "arguments": '{"query": "lo-fi"}'}}]}
     first = await (await client.post("/v1/chat/completions", json=req("play lo-fi"))).json()
     said = first["choices"][0]["message"]["content"]
     assert "[playlist]" in sock.sent[-1]["act"]["caption"]
@@ -257,9 +265,26 @@ async def test_going_back_returns_to_the_search_results(aiohttp_client, mixed_wo
 
     cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
         {"id": "call_1", "type": "function",
-         "function": {"name": "search_youtube_videos", "arguments": '{"query": "lo-fi"}'}}]}
+         "function": {"name": "search_media", "arguments": '{"query": "lo-fi"}'}}]}
     await client.post("/v1/chat/completions", json=req("play lo-fi"))
     await client.post("/v1/chat/completions", json=req("play two", conv="c2"))
     back = await (await client.post("/v1/chat/completions", json=req("go back", conv="c3"))).json()
     assert "playlist" in sock.sent[-1]["act"]["caption"]
     assert "A playlist" in back["choices"][0]["message"]["content"]
+
+
+async def test_a_music_result_plays_on_the_room_player(aiohttp_client, mixed_world):
+    seen, cloud, yt_url, ha_url, llm_url = mixed_world
+    bodies = Bodies("You are Nabu.")
+    bodies.connect("Kitchen", Sock(), "screen", SCREEN_CAN)
+    client = await aiohttp_client(router(yt_url, ha_url, llm_url, bodies))
+
+    cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "search_media", "arguments": '{"query": "radio 4"}'}}]}
+    await client.post("/v1/chat/completions", json=req("play radio 4"))
+    played = await (await client.post("/v1/chat/completions", json=req("play three", conv="c2"))).json()
+    assert played["choices"][0]["message"]["content"] == "Playing BBC Radio 4."
+    assert seen["yt"][-1] == ("play", {"room": "Kitchen", "uri": "library://radio/1",
+                                       "title": "BBC Radio 4"})
+    assert seen["ha"] == []

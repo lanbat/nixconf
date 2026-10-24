@@ -15,7 +15,10 @@ python3Packages.buildPythonApplication {
   pyproject = true;
   src = ./.;
   build-system = [ python3Packages.setuptools ];
-  dependencies = [ python3Packages.aiohttp ];
+  dependencies = [
+    python3Packages.aiohttp
+    python3Packages.music-assistant-client
+  ];
   nativeCheckInputs = [
     python3Packages.pytestCheckHook
     python3Packages.pytest-aiohttp

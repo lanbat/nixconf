@@ -44,9 +44,10 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
 - **Jellyfin can play to it** (`techo5Devices.<room>.dlna`, on by default): the bridge turns
   on the device's DLNA, Video and DLNA video switches, and Jellyfin's firewall lets its
   address reach Jellyfin's discovery and event ports. See "Playing Jellyfin on the screen".
-- **YouTube can be asked for by voice** ("play … on the kitchen screen"): the assistant
-  searches through Invidious, shows the first five results on the screen and plays the one
-  picked, as the H.264 MP4 the screen takes. See "Playing YouTube on the screen".
+- **Media can be asked for by voice** ("play … on the kitchen screen"): the assistant searches
+  YouTube and Music Assistant, shows the first five results on the screen, plays a video as
+  the H.264 MP4 the screen takes, and music/radio/podcasts on the room's speaker. See "Playing
+  video, music, radio and podcasts on the screen".
 
 ## What the person's screen shows
 
@@ -149,7 +150,7 @@ name. Music and video both work.
   setting `EnablePlayTo` and its other options were read from the plugin package itself, DLNA
   10.0.0.0, not guessed.)
 
-## Playing YouTube on the screen
+## Playing video, music, radio and podcasts on the screen
 
 The screen has no browser, no YouTube app and no Google Cast, so YouTube reaches it the only
 way TECHO5 takes video (`docs/video.md` in TECHO5): as one H.264 MP4, 720p at best. The
@@ -158,9 +159,12 @@ assistant router turns a spoken request into that address (`pkgs/yt-show`,
 house:
 
 > Play the new Computerphile video on the kitchen screen.
+> Play BBC Radio 4.
+> Play Kind of Blue.
 
-The cloud model searches YouTube; the screen shows the first five results as a caption while
-the assistant reads them out. Then:
+The cloud model searches **YouTube and Music Assistant together**: the screen shows the first
+five results as a caption while the assistant reads them out, labelled by kind — `[playlist]`,
+`[radio]`, `[track]`, `[album]`, `[artist]`, `[podcast]`, `[music playlist]`. Then:
 
 | Say | It does |
 | --- | --- |
@@ -169,13 +173,20 @@ the assistant reads them out. Then:
 | "previous page", "back a page" | back |
 | "cancel", "never mind" | forgets the list |
 
-Results can be **videos or playlists**; a playlist is marked `[playlist]` on the screen
-("2. [playlist] Lo-fi beats (120)"). Saying its number opens it: the screen shows its videos,
-five at a time, and "play 3" plays one of those. "Go back" (or "back to results") returns to
-the search above it; "previous page" stays within whichever list is open.
+A **video** plays on the screen; **radio, music, podcasts and audiobooks** play on the room's
+Music Assistant player, so they are audio. A **YouTube playlist** is marked `[playlist]`
+("2. [playlist] Lo-fi beats (120)"): saying its number opens it, the screen shows its videos,
+and "play 3" plays one of those. A **Music Assistant playlist** (`[music playlist]`) is played
+as a queue. "Go back" (or "back to results") returns to the search above it; "previous page"
+stays within whichever list is open.
 
 A link or id may be given instead ("play `https://youtu.be/…`"). The list is kept for ten
 minutes, per room; speaking in another room still answers it, because there is one screen.
+
+The audio half comes from Music Assistant's own API (radio, tracks, albums, artists, podcasts,
+audiobooks and playlists), with the token `music-assistant-setup` minted; the room's player is
+the `playerName` of its `techo5Devices` entry ("Echo Show 8" in the Kitchen). If Music
+Assistant is off or cannot answer, the page is just YouTube, and videos keep working.
 
 `yt-show` resolves the video through **Invidious first**: the address is on
 `https://youtube.<domain>`, which the screen already trusts (the bridge installs the CA) and

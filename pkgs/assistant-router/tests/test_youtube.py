@@ -114,6 +114,22 @@ def test_a_playlist_is_labelled_on_the_screen_and_in_speech():
     assert "playlist" in said and "12 videos" in said
 
 
+def test_music_results_are_labelled_on_the_screen_and_in_speech():
+    mixed = Results("jazz", 1, (
+        {"n": 1, "kind": "radio", "source": "music-assistant", "id": "library://radio/1",
+         "title": "BBC Radio 4", "channel": "RadioBrowser"},
+        {"n": 2, "kind": "track", "source": "music-assistant", "id": "library://track/1",
+         "title": "So What", "channel": "Miles Davis"},
+        {"n": 3, "kind": "playlist", "source": "music-assistant", "id": "library://playlist/1",
+         "title": "Jazz", "count": 20},
+    ), False, time.monotonic())
+    screen = caption(mixed)
+    assert "[radio]" in screen and "[track]" in screen and "[music playlist]" in screen
+    said = spoken(mixed)
+    assert "radio, BBC Radio 4" in said and "track, So What" in said
+    assert "music playlist" in said
+
+
 def test_a_playlist_list_sits_over_the_search_and_goes_back():
     sessions = Sessions()
     search = results()
@@ -226,14 +242,22 @@ async def test_the_helper_client_finds_the_helper_and_survives_its_absence(aioht
     async def broken(request):
         return web.Response(status=502)
 
+    async def play(request):
+        body = await request.json()
+        assert body == {"room": "Kitchen", "uri": "library://radio/1", "title": "BBC Radio 4"}
+        return web.json_response({"ok": True, "player": "Echo Show 8"})
+
     app = web.Application()
     app.router.add_post("/search", search)
     app.router.add_post("/resolve", resolve)
+    app.router.add_post("/play", play)
     app.router.add_post("/broken", broken)
     server = await aiohttp_server(app)
     client = YtShow(f"http://127.0.0.1:{server.port}")
     found = await client.search("kittens", 1)
     assert found["items"][0]["title"] == "A"
     assert (await client.resolve("dQw4w9WgXcQ"))["url"] == "https://x/video"
+    assert await client.play_media("Kitchen", "library://radio/1", "BBC Radio 4") == "Echo Show 8"
+    assert await client.play_media("Kitchen", "library://nope/1") is None
     assert await client._post("/broken", {}) is None
     await client.aclose()
