@@ -48,6 +48,20 @@ def test_page_skips_a_result_that_is_not_a_video_id():
     assert [r.id for r in results] == ["dQw4w9WgXcQ"]
 
 
+def test_page_accepts_music_assistant_items_with_their_own_uri():
+    items = [
+        {"source": "music-assistant", "kind": "radio", "id": "library://radio/1",
+         "title": "BBC Radio 4"},
+        {"source": "music-assistant", "kind": "track", "id": "spotify://track/2",
+         "title": "A song", "channel": "An artist", "seconds": 200},
+    ]
+    results, _ = page(items, 1, 5)
+    assert [(r.source, r.kind) for r in results] == [
+        ("music-assistant", "radio"), ("music-assistant", "track")]
+    assert results[1].duration == "3:20"
+    assert results[0].as_dict()["source"] == "music-assistant"
+
+
 def test_page_accepts_playlists_alongside_videos():
     items = [
         {"kind": "video", "id": "dQw4w9WgXcQ", "title": "A video", "seconds": 60},

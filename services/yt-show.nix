@@ -39,7 +39,16 @@ let
   screens = lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { });
   enabled = hasRouter && screens != { };
   invidiousHere = config.lanbat.hasService "invidious";
+  maHere = config.lanbat.hasService "music-assistant";
   domain = config.lanbat.deployment.domain;
+
+  # The token music-assistant-setup minted (root, 0600): copied into the
+  # service's runtime directory before it starts.
+  maToken = "/var/lib/music-assistant/.lanbat-setup/ma-token";
+  # The room's Music Assistant player, by the name the profile gave it.
+  maPlayers = lib.mapAttrs' (_: d: lib.nameValuePair d.room d.playerName) (
+    lib.filterAttrs (_: d: d.playerName != null) (config.lanbat.deployment.techo5Devices or { })
+  );
 
   cfg = config.lanbat.services.${name}.settings;
 
@@ -115,8 +124,16 @@ in
       systemd.services.${name} = {
         description = "YouTube for the Echo Show: a search, and the MP4 it can play";
         wantedBy = [ "multi-user.target" ];
-        after = [ "network-online.target" ] ++ lib.optional invidiousHere "invidious.service";
-        wants = [ "network-online.target" ] ++ lib.optional invidiousHere "invidious.service";
+        after = [
+          "network-online.target"
+        ]
+        ++ lib.optional invidiousHere "invidious.service"
+        ++ lib.optional maHere "music-assistant.service";
+        wants = [
+          "network-online.target"
+        ]
+        ++ lib.optional invidiousHere "invidious.service"
+        ++ lib.optional maHere "music-assistant.service";
         serviceConfig = {
           DynamicUser = true;
           # The remuxed files; the media app serves them from here.
@@ -147,7 +164,23 @@ in
               "--invidious http://127.0.0.1:${toString config.lanbat.services.invidious.port}"
               "--invidious-public https://${config.lanbat.services.invidious.subdomain}.${domain}"
             ]
+            # Music Assistant: audio results, played on the room's player. The
+            # token is copied in by ExecStartPre below (the setup wrote it as
+            # root), and a missing one just leaves videos working.
+            ++ lib.optionals maHere [
+              "--ma-url http://127.0.0.1:${toString config.lanbat.services.music-assistant.port}"
+              "--ma-token-file /run/${name}/ma-token"
+              "--ma-players ${lib.escapeShellArg (builtins.toJSON maPlayers)}"
+            ]
           );
+          RuntimeDirectory = name;
+          RuntimeDirectoryMode = "0700";
+          ExecStartPre = lib.optional maHere "+${pkgs.writeShellScript "yt-show-ma-token" ''
+            if [ -r ${maToken} ]; then
+              uid=$(stat -c %u /run/${name})
+              install -m 0400 -o "$uid" ${maToken} /run/${name}/ma-token
+            fi
+          ''}";
           Environment = [ "PATH=${path}" ];
           Restart = "always";
           RestartSec = "2s";

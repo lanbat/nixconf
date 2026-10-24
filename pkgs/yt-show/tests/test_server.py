@@ -78,9 +78,9 @@ class FakeYtDlp:
         return "Yt title", "https://googlevideo.test/videoplayback"
 
 
-def app(invidious, ytdlp):
+def app(invidious, ytdlp, ma=None):
     return make_app(Config(invidious_url="http://invidious.test", page_size=5),
-                    invidious=invidious, ytdlp=ytdlp)
+                    invidious=invidious, ytdlp=ytdlp, ma=ma)
 
 
 async def test_first_page_is_four_videos_and_a_playlist(aiohttp_client):
@@ -241,7 +241,8 @@ async def test_bad_resolve_input_is_refused(aiohttp_client, payload):
 
 async def test_health_says_which_source_is_configured(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
-    assert await (await client.get("/healthz")).json() == {"ok": True, "source": "invidious"}
+    assert await (await client.get("/healthz")).json() == {
+        "ok": True, "source": "invidious", "music": False}
 
 
 async def test_a_playlist_lists_its_videos_a_page_at_a_time(aiohttp_client):
@@ -265,3 +266,75 @@ async def test_a_bad_playlist_id_is_refused(aiohttp_client):
 async def test_a_playlist_that_cannot_be_listed_is_a_bad_gateway(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(fail=True), FakeYtDlp()))
     assert (await client.post("/contents", json={"playlist_id": PLID})).status == 502
+
+
+def _ma_items():
+    out = []
+    for i in range(10):
+        out.append({"source": "music-assistant", "kind": "radio", "id": f"library://radio/{i}",
+                    "title": f"Radio {i}", "channel": "MA"})
+        out.append({"source": "music-assistant", "kind": "track", "id": f"library://track/{i}",
+                    "title": f"Track {i}", "channel": "An artist"})
+    return out
+
+
+class FakeMa:
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.played = []
+
+    async def search(self, query, limit=40):
+        if self.fail:
+            from yt_show.ma import MaError
+            raise MaError("down")
+        return _ma_items()
+
+    async def play(self, room, uri, player_name=None):
+        if self.fail:
+            from yt_show.ma import MaError
+            raise MaError("no player")
+        self.played.append((room, uri, player_name))
+        return player_name or "Echo Show 8"
+
+
+async def test_a_page_mixes_videos_playlists_and_music(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa()))
+    body = await (await client.post("/search", json={"query": "lo-fi"})).json()
+    assert [(i["kind"], i["source"]) for i in body["items"]] == [
+        ("video", "youtube"),
+        ("radio", "music-assistant"),
+        ("video", "youtube"),
+        ("track", "music-assistant"),
+        ("playlist", "youtube"),
+    ]
+    assert [i["n"] for i in body["items"]] == [1, 2, 3, 4, 5]
+
+
+async def test_music_keeps_its_own_offsets_on_later_pages(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa()))
+    body = await (await client.post("/search", json={"query": "x", "page": 2})).json()
+    assert [i["title"] for i in body["items"]] == [
+        "Title 2", "Radio 1", "Title 3", "Track 1", "Playlist 1"]
+
+
+async def test_music_assistant_being_down_leaves_videos_and_playlists(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa(fail=True)))
+    body = await (await client.post("/search", json={"query": "x"})).json()
+    assert [i["kind"] for i in body["items"]] == ["video"] * 4 + ["playlist"]
+
+
+async def test_a_music_item_is_played_on_the_room_player(aiohttp_client):
+    ma = FakeMa()
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=ma))
+    resp = await client.post("/play", json={"room": "Kitchen", "uri": "library://radio/0"})
+    assert resp.status == 200
+    assert await resp.json() == {"ok": True, "player": "Echo Show 8"}
+    assert ma.played == [("Kitchen", "library://radio/0", None)]
+
+
+async def test_playing_music_needs_music_assistant_and_a_uri(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
+    assert (await client.post("/play", json={"uri": "library://radio/0"})).status == 502
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp(), ma=FakeMa()))
+    assert (await client.post("/play", json={"uri": "not a uri"})).status == 400
+    assert (await client.post("/play", json={"uri": "library://x/1"})).status == 200

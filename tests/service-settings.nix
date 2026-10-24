@@ -30,11 +30,12 @@
 #     and a profile moves them.
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
-#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch and
-#     subtitle addons are off and need no key by default; settings.youtube,
-#     settings.twitch and settings.opensubtitles require kodi-youtube-env,
-#     kodi-twitch-token and kodi-opensubtitles-env and put their addon into the
-#     Kodi package.
+#   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch,
+#     subtitle and Invidious addons are off and need no key by default;
+#     settings.youtube, settings.twitch and settings.opensubtitles require
+#     kodi-youtube-env, kodi-twitch-token and kodi-opensubtitles-env and put
+#     their addon into the Kodi package; settings.invidious puts the addon in
+#     Kodi and points it at the deployment's instance over the internal CA.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -562,6 +563,11 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.opensubtitles = true; } ];
     })).configurations.example-pi-storage.config;
+  # The TV box with the local Invidious instance's add-on.
+  tvBoxInvidious =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.invidious = true; } ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -593,6 +599,19 @@ let
   kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
     addons.a4ksubtitles
+  ]);
+  # The Invidious add-on is newer than nixpkgs' pin; the repository builds it.
+  invidiousPkgs = aarchPkgs.kodi-gbm.packages;
+  invidiousAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-invidious {
+    buildKodiAddon = invidiousPkgs.buildKodiAddon;
+    infotagger = invidiousPkgs.infotagger;
+    requests = invidiousPkgs.requests;
+    inputstream-adaptive = invidiousPkgs.inputstream-adaptive;
+    inputstreamhelper = invidiousPkgs.inputstreamhelper;
+  };
+  kodiInvidious = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    invidiousAddon
   ]);
   kodiOf =
     config:
@@ -1536,12 +1555,14 @@ let
 
     # The streaming addons are off by default, so the box runs plain Kodi and
     # its profile needs no key for them.
-    (expect "tv: the YouTube, Twitch and subtitle addons are off by default and need no key" (
-      !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
-      && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
-      && !(lvaTvBox.lanbat.secrets ? "kodi-opensubtitles-env")
-      && kodiOf lvaTvBox == kodiBase.outPath
-    ))
+    (expect "tv: the YouTube, Twitch, subtitle and Invidious addons are off by default and need no key"
+      (
+        !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
+        && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
+        && !(lvaTvBox.lanbat.secrets ? "kodi-opensubtitles-env")
+        && kodiOf lvaTvBox == kodiBase.outPath
+      )
+    )
 
     (expect "tv: settings.youtube provisions the YouTube key and puts the addon in Kodi" (
       tvBoxYoutube.lanbat.secrets ? "kodi-youtube-env"
@@ -1571,6 +1592,24 @@ let
         && failedAssertions tvBoxSubtitles == [ ]
       )
     )
+
+    # The add-on must not autodetect a public instance, and its HTTPS address
+    # is the internal CA's: the Python side needs the bundle path and
+    # inputstream.adaptive needs the CA in the system bundle.
+    (expect "tv: settings.invidious points the add-on at the deployment's instance and trusts its CA" (
+      kodiOf tvBoxInvidious == kodiInvidious.outPath
+      &&
+        tvBoxInvidious.systemd.services.tv-kodi.environment.INVIDIOUS_URL
+        == "https://youtube.home.example.com"
+      &&
+        tvBoxInvidious.systemd.services.tv-kodi.environment.REQUESTS_CA_BUNDLE
+        == "/etc/ssl/certs/ca-certificates.crt"
+      && lib.elem (toString tvBoxInvidious.lanbat.deployment.secrets.caCertificate) (
+        map toString tvBoxInvidious.security.pki.certificateFiles
+      )
+      && !(tvBoxInvidious.lanbat.secrets ? "kodi-youtube-env")
+      && failedAssertions tvBoxInvidious == [ ]
+    ))
 
     (expect "voice-id: identifies speakers into the router, voiceprints on the workload layer" (
       let

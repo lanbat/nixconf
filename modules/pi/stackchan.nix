@@ -121,6 +121,17 @@ in
         dozes after 5 minutes).
       '';
     };
+    quietLux = mkOption {
+      type = types.ints.unsigned;
+      default = 1;
+      description = ''
+        Lux at or below which the room counts as dark: the robot goes still,
+        head down and dimmed, and stops moving around looking for people. The
+        camera stays on, so person ID (and the phones it hears) still work.
+        1 is effectively pitch dark; raise it for a dim room. Has no effect
+        without the light sensor (the Stack-chan's LTR-553).
+      '';
+    };
     nightHours = {
       start = mkOption {
         type = types.nullOr hhmm;
@@ -350,6 +361,7 @@ in
         AUTO_BRIGHTNESS = flag cfg.autoBrightness;
         NIGHT_BRIGHTNESS = toString cfg.nightBrightness;
         NAP_AFTER_S = toString (if cfg.napAfter == null then 0 else cfg.napAfter * 60);
+        QUIET_LUX = toString cfg.quietLux;
         SOUND_DIRECTION = flag cfg.soundDirection;
         SOUND_OFFSET_DEG = cfg.soundOffsetDeg;
         # The keys of the phones paired once, from the router.

@@ -375,9 +375,13 @@ let
     cfg: person:
     let
       rooms = lib.attrNames (lib.filterAttrs (_: rc: rc.music) cfg.rooms);
+      # A room with a named player uses it; the rest use their area's Music
+      # Assistant players. (The Bedroom's area also holds the TV box's player,
+      # and the first free one there was the box, not the M20s.)
+      named = builtins.toJSON (lib.mapAttrs (_: rc: rc.player or null) cfg.rooms);
       players =
         room:
-        "integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${room}))";
+        "([${named}.get(${room})] if ${named}.get(${room}) else (integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${room})) | list))";
     in
     {
       id = "followme_music_follow_${person.slug}";
@@ -394,23 +398,9 @@ let
         src = "{{ trigger.from_state.state }}";
         dst = "{{ trigger.to_state.state }}";
         src_slug = "{{ src | lower | regex_replace('[^a-z0-9]+', '_') | regex_replace('^_+|_+$', '') }}";
-        room_players = builtins.toJSON (
-          lib.mapAttrs (_: rc: rc.player or null) (
-            lib.filterAttrs (_: rc: (rc.player or null) != null) cfg.rooms
-          )
-        );
-        src_players = "{{ ${players "src"} | list }}";
+        src_players = "{{ ${players "src"} }}";
         src_player = "{{ src_players | select('is_state', 'playing') | first }}";
-        # A room can hold more than one Music Assistant player (a TV box and
-        # the room's speakers). When the room names its player, use that one;
-        # otherwise the first free one.
-        dst_free = ''
-          {%- set configured = (room_players | from_json).get(dst) -%}
-          {%- if configured -%}
-            {{ [] if is_state(configured, ['playing', 'unavailable', 'unknown']) else [configured] }}
-          {%- else -%}
-            {{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}
-          {%- endif -%}'';
+        dst_free = "{{ ${players "dst"} | reject('is_state', ['playing', 'unavailable', 'unknown']) | list }}";
       };
       conditions = [
         notPaused
@@ -465,6 +455,7 @@ let
     cfg: room:
     let
       r = slug room;
+      named = cfg.rooms.${room}.player or null;
     in
     {
       id = "followme_music_pause_${r}";
@@ -479,7 +470,7 @@ let
           for.minutes = cfg.musicPauseMinutes;
         }
       ];
-      variables.players = "{{ integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${toJSON room})) | select('is_state', 'playing') | list }}";
+      variables.players = "{{ ([${toJSON named}] if ${toJSON named} else (integration_entities('music_assistant') | select('match', 'media_player\\.') | select('in', area_entities(${toJSON room})) | list)) | select('is_state', 'playing') | list }}";
       conditions = [
         notPaused
         notGuests

@@ -313,8 +313,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             out["tools"] = list(out.get("tools") or []) + [ENROLL_TOOL]
         if voice is not None or frigate is not None:
             out["tools"] = list(out.get("tools") or []) + [FORGET_TOOL]
-        # A screen in the house can play a video: let the cloud find one and
-        # then play the one the person picks (youtube.py).
+        # A screen in the house can play a video and Music Assistant can play
+        # audio: let the cloud find it and then play what the person picks.
         if yt_show is not None and hass is not None and _any_screen():
             out["tools"] = list(out.get("tools") or []) + [
                 youtube_mod.SEARCH_TOOL, youtube_mod.PLAY_TOOL]
@@ -326,8 +326,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if yt_show is not None and hass is not None and _any_screen():
             block = "\n".join(part for part in (
                 block,
-                "A screen in the house can play a YouTube video: when someone asks to watch or "
-                "play something on it, call search_youtube_videos, and play the number they say.",
+                "The house can play videos on a screen and music, radio and podcasts on a "
+                "speaker. When someone asks to watch, play or listen to something named, call "
+                "search_media and play the number they say; a clear station or song may be "
+                "played directly on Music Assistant.",
             ) if part)
         msgs = out.get("messages") or []
         if block and msgs and msgs[0].get("role") == "system":
@@ -411,6 +413,24 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         yt_lists.clear(room)
         return finish(device, f"Playing {chosen[:80]}.", ["Success"])
 
+    async def _ma_play(device: str, room: str, item: dict) -> dict:
+        title = str(item.get("title") or "that")
+        player = await yt_show.play_media(room, str(item.get("id") or ""), title)
+        if player is None:
+            return finish(device, "I couldn't play that just now.", [])
+        yt_lists.clear(room)
+        return finish(device, f"Playing {title[:80]}.", ["Success"])
+
+    async def _media_play(device: str, room: str, item: dict) -> dict:
+        """A picked result: a video on the screen, music on a speaker, or a
+        playlist opened into its videos."""
+        if item.get("source") == "music-assistant":
+            return await _ma_play(device, room, item)
+        if item.get("kind") == "playlist":
+            return await _yt_contents(device, room, str(item.get("id") or ""), 1,
+                                      str(item.get("title") or ""))
+        return await _yt_play(device, room, str(item.get("id") or ""), str(item.get("title") or ""))
+
     async def _yt_control(device: str, room: str, pick: tuple[str, object]) -> dict:
         kind, value = pick
         if kind == "cancel":
@@ -433,10 +453,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             item = results.item(int(value or 0))
             if item is None:
                 return finish(device, YOUTUBE_PICK, [])
-            if item.get("kind") == "playlist":
-                return await _yt_contents(device, room, str(item.get("id") or ""), 1,
-                                          str(item.get("title") or ""))
-            return await _yt_play(device, room, str(item.get("id") or ""), str(item.get("title") or ""))
+            return await _media_play(device, room, item)
         if kind in ("next", "prev", "page"):
             page = (results.page + 1 if kind == "next"
                     else results.page - 1 if kind == "prev" else int(value or 1))

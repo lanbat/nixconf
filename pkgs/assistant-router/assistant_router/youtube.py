@@ -23,15 +23,16 @@ LIST_SECONDS = 600.0
 SEARCH_TOOL = {
     "type": "function",
     "function": {
-        "name": "search_youtube_videos",
+        "name": "search_media",
         "description": (
-            "Find videos on YouTube and show them, numbered, on a room's Echo Show screen. "
-            "Use it when someone asks to watch, play or put on a YouTube video or to look for "
-            "one on a screen. The person then says which number to play."),
+            "Find something to play and show it, numbered, on a room's Echo Show: videos and "
+            "playlists from YouTube, and radio stations, tracks, albums, artists, podcasts and "
+            "playlists from Music Assistant. Use it when someone asks to watch, play or listen "
+            "to something they name. The person then says which number to play."),
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "What to look for on YouTube."},
+                "query": {"type": "string", "description": "What to look for."},
                 "page": {"type": "integer",
                          "description": "1 for a new search, 2 and up for the next pages of the same search."},
                 "room": {"type": "string",
@@ -46,20 +47,22 @@ SEARCH_TOOL = {
 PLAY_TOOL = {
     "type": "function",
     "function": {
-        "name": "play_youtube_video",
+        "name": "play_media",
         "description": (
-            "Play the video someone chose from search_youtube_videos on the room's Echo Show, "
-            "go to another page of results, or play a YouTube address they gave. Use it for "
-            "\"play two\", \"the second one\", \"next page\", \"go back\", and for a link or id."),
+            "Play the item someone chose from search_media: a video or a playlist on the Echo "
+            "Show's screen, or music, radio, a podcast or an audiobook on the room's Music "
+            "Assistant speaker. Also for \"play two\", \"the second one\", \"next page\", "
+            "\"go back\", and for a YouTube address they gave."),
         "parameters": {
             "type": "object",
             "properties": {
                 "selection": {"type": "string",
                               "description": "The result's number (1-5), \"first\", \"last\", "
-                                             "\"next page\", \"previous page\", or a YouTube address or id."},
+                                             "\"next page\", \"previous page\", \"back\", or a "
+                                             "YouTube address or id."},
                 "room": {"type": "string",
-                         "description": "The room whose screen plays it. Leave it out for the "
-                                        "speaker's room, or when there is only one screen."},
+                         "description": "The room whose screen or speaker plays it. Leave it out "
+                                        "for the speaker's room, or when there is only one screen."},
             },
             "required": ["selection"],
         },
@@ -190,18 +193,32 @@ class YtShow:
             return None
         return data
 
+    async def play_media(self, room: str, uri: str, title: str = "") -> str | None:
+        """Play a Music Assistant item on the room's player; its name, or None."""
+        data = await self._post("/play", {"room": room, "uri": uri, "title": title})
+        if data is None or data.get("ok") is not True:
+            return None
+        return data.get("player") if isinstance(data.get("player"), str) else ""
+
 
 def _clip(text: object, width: int) -> str:
     said = " ".join(str(text or "").split())
     return said if len(said) <= width else said[: max(width - 3, 0)].rstrip() + "..."
 
 
+def _tag(item: dict) -> str:
+    kind = item.get("kind")
+    if kind in (None, "video"):
+        return ""
+    if kind == "playlist" and item.get("source") == "music-assistant":
+        return "[music playlist] "
+    return f"[{kind}] "
+
+
 def _line(item: dict, width: int) -> str:
-    if item.get("kind") == "playlist":
-        count = item.get("count")
-        more = f" ({count})" if isinstance(count, int) else ""
-        return f"{item['n']}. [playlist] {_clip(item['title'], width)}{more}"
-    return f"{item['n']}. {_clip(item['title'], width)}"
+    count = item.get("count")
+    more = f" ({count})" if isinstance(count, int) else ""
+    return f"{item['n']}. {_tag(item)}{_clip(item['title'], width)}{more}"
 
 
 def caption(results: Results) -> str:
@@ -223,12 +240,17 @@ def spoken(results: Results) -> str:
     parts = []
     for item in results.items:
         title = _clip(item["title"], 60)
-        if item.get("kind") == "playlist":
-            count = item.get("count")
-            parts.append(f"{item['n']}, playlist, {title}"
-                         + (f", {count} videos" if isinstance(count, int) else ""))
-        else:
+        kind = item.get("kind") or "video"
+        if kind == "video":
             parts.append(f"{item['n']}, {title}")
+        elif kind == "playlist":
+            label = "music playlist" if item.get("source") == "music-assistant" else "playlist"
+            unit = "items" if item.get("source") == "music-assistant" else "videos"
+            count = item.get("count")
+            parts.append(f"{item['n']}, {label}, {title}"
+                         + (f", {count} {unit}" if isinstance(count, int) else ""))
+        else:
+            parts.append(f"{item['n']}, {kind}, {title}")
     said = "; ".join(parts)
     next_step = "Say the number to play, or next page." if results.has_next else "Which number?"
     return f"Here are {len(results.items)} for {_clip(results.query, 40)}: {said}. {next_step}"
