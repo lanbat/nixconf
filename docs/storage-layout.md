@@ -179,7 +179,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | RomM | server-local | workload PostgreSQL | Pi/b/media/roms (ROM library), Pi/b/media/roms-browser (arcade zips) |
 | SearXNG | server-local | — | — |
 | Redlib | server-local (none) | — | — |
-| Invidious | server-local (hmac key) | always-on PostgreSQL | — |
+| Invidious | server-local (hmac key) | always-on PostgreSQL | — (the companion container's cache is disposable) |
 | Homepage | server-local | — | — |
 | Samba | (via nss) | — | Pi/a + Pi/b (the drives of its shares, `lanbat.services.samba.settings`) |
 | MQTT | server-local | — | — |
