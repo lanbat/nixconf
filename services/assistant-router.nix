@@ -87,6 +87,23 @@ let
     lib.catAttrs "room" (lib.attrValues (config.lanbat.deployment.techo5Devices or { }))
   );
   screenRoomsFile = pkgs.writeText "assistant-router-screen-rooms.json" (builtins.toJSON screenRooms);
+  # The media players in each room, for the robots' quiet mode (media.py): the
+  # room's hosts' Music Assistant players (media_player.<hostname>) and Kodi's
+  # (media_player.kodi_<hostname>), which is absent where Kodi does not run.
+  mediaRooms = lib.mapAttrs (
+    _room: hosts:
+    lib.concatMap (
+      h:
+      let
+        hn = config.lanbat.hosts.${h}.networking.hostname;
+      in
+      [
+        "media_player.${hn}"
+        "media_player.kodi_${hn}"
+      ]
+    ) (lib.toList hosts)
+  ) (config.lanbat.deployment.voiceRooms or { });
+  mediaRoomsFile = pkgs.writeText "assistant-router-media-rooms.json" (builtins.toJSON mediaRooms);
   routerSettings.options.localTimeout = mkOption {
     type = types.numbers.positive;
     default = 2.5;
@@ -525,6 +542,7 @@ in
               "--lists-state ${routerListsFile}"
               "--reminder-lists-file ${reminderListsFile}"
               "--rung-state /var/lib/assistant-router/rung.json"
+              "--media-rooms-file ${mediaRoomsFile}"
             ]
             ++ lib.optionals hasYt (
               [
