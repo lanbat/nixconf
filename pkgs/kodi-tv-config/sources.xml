@@ -26,6 +26,11 @@
       <allowsharing>true</allowsharing>
     </source>
     <source>
+      <name>Documentary Series</name>
+      <path pathversion="1">/mnt/storage-b/media/documentary-series/</path>
+      <allowsharing>true</allowsharing>
+    </source>
+    <source>
       <name>Gym</name>
       <path pathversion="1">/mnt/storage-b/media/gym/</path>
       <allowsharing>true</allowsharing>
