@@ -62,6 +62,12 @@ let
   withModule =
     module: blueprintsWith (host: host // { modules = (host.modules or [ ]) ++ [ module ]; });
 
+  # The example profile with its deployment block changed by f.
+  deploymentWith =
+    f:
+    (lanbatLib.mkProfile "example" (exampleDeploy // { deployment = f exampleDeploy.deployment; }))
+    .configurations.example-server.config.lanbat.authentik.blueprints;
+
   demo = extra: {
     lanbat.services.demo = {
       subdomain = "demo";
@@ -128,6 +134,52 @@ let
     }
   );
 
+  # ── deployment.authentik variants ─────────────────────────────────────────
+  # The example profile declares one user (momchilov). These change it.
+  noUsers = deploymentWith (d: d // { authentik = { }; });
+  withUsers = deploymentWith (
+    d:
+    d
+    // {
+      authentik = {
+        users = {
+          momchilov = {
+            name = "Kiril";
+            email = "momchilov@example.com";
+            groups = [
+              "home-assistant"
+              "syncthing"
+            ];
+          };
+          # No groups declared: membership is left as it is.
+          akadmin = {
+            name = "Kiril";
+            email = "root@example.com";
+          };
+        };
+        # A group no user belongs to, created on its own.
+        groups = {
+          family = { };
+        };
+      };
+    }
+  );
+  # Two users sharing a group, which must be created once.
+  withSharedGroup = deploymentWith (
+    d:
+    d
+    // {
+      authentik = {
+        users.alex.groups = [ "family" ];
+        users.alex.name = "Alex";
+        users.alex.email = "alex@example.com";
+        users.sam.groups = [ "family" ];
+        users.sam.name = "Sam";
+        users.sam.email = "sam@example.com";
+      };
+    }
+  );
+
   # ── Views of a blueprint ─────────────────────────────────────────────────
   untag = v: v.value;
 
@@ -157,6 +209,18 @@ let
 
   outpostProviders =
     bp: map untag (lib.head (entriesOf "authentik_outposts.outpost" bp.proxy)).attrs.providers;
+
+  # The users blueprint.
+  userEntries = bp: entriesOf "authentik_core.user" bp.users;
+  userGroupEntries = bp: entriesOf "authentik_core.group" bp.users;
+  userAt = username: bp: lib.findFirst (e: e.identifiers.username == username) null (userEntries bp);
+  # A user's groups, as [ "name" <group> ] pairs, in declaration order.
+  userGroupRefs =
+    bp: username:
+    let
+      attrs = (userAt username bp).attrs;
+    in
+    map (g: lib.last (untag g)) (if attrs ? groups then attrs.groups else [ ]);
 
   # Every identifier Authentik matches on, per blueprint.
   identity = bp: {
@@ -324,7 +388,8 @@ let
           acc: e:
           let
             refs =
-              lib.optional (e.attrs ? provider) (untag e.attrs.provider) ++ map untag (e.attrs.providers or [ ]);
+              lib.optional (e.attrs ? provider) (untag e.attrs.provider)
+              ++ map untag (if e.attrs ? providers then e.attrs.providers else [ ]);
           in
           {
             seen = acc.seen ++ lib.optional (e ? id) e.id;
@@ -558,6 +623,102 @@ let
       map (e: e.id) (proxyProviders placed) == [ "provider-frigate" ]
       && outpostProviders placed == [ "provider-frigate" ]
       && map (e: e.id) (oidcProviders placed) == [ "provider-grafana" ]
+    ))
+
+    # ── The users blueprint (deployment.authentik) ─────────────────────────
+    (expect "the example profile's declared user is adopted by username, without a password" (
+      let
+        u = userAt "momchilov" base;
+      in
+      u != null
+      && u.state == "present"
+      && u.attrs.username == "momchilov"
+      && u.attrs.name == "Kiril"
+      && u.attrs.email == "momchilov@example.com"
+      && !(u.attrs ? password)
+    ))
+
+    (expect "no deployment.authentik means an empty users blueprint" (noUsers.users.entries == [ ]))
+
+    (expect "user entries are sorted by username, after every group entry" (
+      let
+        entries = withUsers.users.entries;
+        usernames = map (e: e.identifiers.username) (userEntries withUsers);
+        firstUser = lib.lists.findFirstIndex (e: e.model == "authentik_core.user") null entries;
+        lastGroup = lib.last (
+          lib.filter (i: i != null) (
+            lib.imap0 (i: e: if e.model == "authentik_core.group" then i else null) entries
+          )
+        );
+      in
+      usernames == [
+        "akadmin"
+        "momchilov"
+      ]
+      && firstUser != null
+      && lastGroup != null
+      && lastGroup < firstUser
+    ))
+
+    (expect "a user's groups reference entries created earlier in the blueprint" (
+      let
+        entries = withUsers.users.entries;
+        at = name: lib.lists.findFirstIndex (e: e.identifiers.name or null == name) null entries;
+        userAt0 = lib.lists.findFirstIndex (e: e.identifiers.username or null == "momchilov") null entries;
+      in
+      userGroupRefs withUsers "momchilov" == [
+        [
+          "name"
+          "home-assistant"
+        ]
+        [
+          "name"
+          "syncthing"
+        ]
+      ]
+      && userAt0 != null
+      && (at "home-assistant") != null
+      && (at "home-assistant") < userAt0
+      && (at "syncthing") != null
+      && (at "syncthing") < userAt0
+    ))
+
+    (expect "a user's groups is its full membership: null and empty omit the attribute" (
+      let
+        u = userAt "momchilov" withUsers;
+      in
+      !(userAt "akadmin" withUsers).attrs ? groups && u.attrs ? groups
+    ))
+
+    (expect "every named group is created once, including a group no user belongs to" (
+      sorted (map (e: e.identifiers.name) (userGroupEntries withUsers)) == [
+        "family"
+        "home-assistant"
+        "syncthing"
+      ]
+      && lib.all (e: e.state == "created") (userGroupEntries withUsers)
+    ))
+
+    (expect "a group shared by several users is created once" (
+      let
+        families = lib.filter (e: e.identifiers.name == "family") (userGroupEntries withSharedGroup);
+      in
+      lib.length families == 1
+      && (lib.head families).state == "created"
+      &&
+        userGroupRefs withSharedGroup "alex" == [
+          [
+            "name"
+            "family"
+          ]
+        ]
+      &&
+        userGroupRefs withSharedGroup "sam" == [
+          [
+            "name"
+            "family"
+          ]
+        ]
     ))
   ];
 

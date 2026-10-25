@@ -229,14 +229,13 @@ between the two is a per-service mapping of the authentik username / email / gro
 
 ## The owner identity and the bootstrap chain
 
-There is one identity that everything else hangs off: the **owner**, `akadmin`
-(`lanbat.homeAssistant.ssoUsers` defaults to `["akadmin"]`).
+Two identities are in play:
 
-- In authentik, `akadmin` is the owner account (the initial admin, created in the
-  authentik UI). `authentik-env` carries only the PostgreSQL password and secret key —
-  no user is created by Nix.
-- HA is the **pivot service**. Because its bootstrap can call the HA REST API with the
-  owner's credentials, several *other* services bootstrap themselves **through Home
+- **The break-glass owner, `akadmin`** — the initial admin, created in the authentik
+  UI, and the account the whole bootstrap chain hangs off
+  (`lanbat.homeAssistant.ssoUsers` defaults to `["akadmin"]`). HA is the **pivot
+  service**: because its bootstrap can call the HA REST API with the owner's
+  credentials, several *other* services bootstrap themselves **through Home
   Assistant** rather than directly against authentik:
   - Music Assistant, Jellyfin and Audiobookshelf read `HA_LONG_LIVED_TOKEN` and
     `OWNER_USERNAME`/`OWNER_PASSWORD` from the shared `hass-bootstrap-env` secret
@@ -245,12 +244,31 @@ There is one identity that everything else hangs off: the **owner**, `akadmin`
     owner (the root account `audiobookshelf-bootstrap` creates) for its Audiobookshelf
     provider.
   - The Immich and Jellyfin admin emails are derived from the owner's identity.
+  `authentik-env` carries only the PostgreSQL password and secret key.
+- **The day-to-day owner, `momchilov`** — the account the household actually signs in
+  with. It gets the owner's per-service access (Home Assistant, the Syncthing web UI,
+  ...) but is **not** part of the bootstrap chain: `akadmin` keeps `ssoUsers`,
+  `OWNER_USERNAME`, the Immich/Jellyfin admin emails and the RomM admin unchanged.
 
-In practice: create `akadmin` in authentik, put it in the groups for the services the
-owner should reach, sign in to HA once (which provisions the owner there), and the
-downstream services that bootstrap through HA pick up the owner automatically. Every
-*other* user is then added the ordinary way (authentik UI + groups + per-service
-accounts).
+`akadmin` stays break-glass: if the day-to-day account is ever locked out, it still
+has full owner access.
+
+### Declarative users and groups
+
+The instance's users and groups are managed declaratively by the
+`lanbat.deployment.authentik` option, rendered into the `users` blueprint
+(`30-users.yaml`) by `services/authentik/catalogue.nix`. Each declared user is created
+**without a password** — set that in the instance's UI — and is then brought to exactly
+its declared name, email and full group membership, so the declared values are the
+account's whole truth afterwards; the groups it names are created if missing.
+Blueprints only add and update: removing a user or group from the option does not
+delete it, so delete those in the UI.
+
+In practice: declare `momchilov` (and `akadmin`) under `deployment.authentik`, set
+momchilov's password in the authentik UI, sign in to HA once (which provisions the
+owner there), and the downstream services that bootstrap through HA pick the owner up
+automatically. Every *other* user is added the same way: one entry under
+`deployment.authentik`, a password in the UI, and the per-service accounts.
 
 ## Non-SSO identity: POSIX accounts and storage
 
@@ -295,6 +313,7 @@ browser ─▶ Caddy (grafana.<domain>, auth="app") ─▶ Grafana
 |---|---|
 | authentik containers, secrets, bootstrap | `services/authentik/default.nix` |
 | catalog → blueprint generation | `services/authentik/catalogue.nix` |
+| declarative users & groups (`deployment.authentik`) | the `users` blueprint, `30-users.yaml` |
 | blueprint import (worker) | `services/authentik/blueprints.nix` |
 | YAML writer (`!Find`/`!KeyOf`/`!Env`) | `services/authentik/yaml.nix` |
 | auth-provider contract | `modules/core/auth.nix` |

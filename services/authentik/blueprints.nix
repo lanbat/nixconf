@@ -1,6 +1,7 @@
 # services/authentik/blueprints.nix
 #
-# Authentik blueprints: providers, applications and the embedded outpost.
+# Authentik blueprints: providers, applications, the embedded outpost, and the
+# instance's users and groups (deployment.authentik).
 #
 # Applied by Authentik on startup from /blueprints/custom/, with state
 # "present" (idempotent create/update) throughout.
@@ -13,6 +14,12 @@
 #   - an OAuth2 provider and an application when it sets oidc.
 # Services placed on this host are included, and so is every service with a
 # subdomain that runs only on other hosts, whose vhost Caddy serves from here.
+#
+# The deployment.authentik option (lanbat.deployment.authentik) is turned into
+# the users blueprint the same way: every named group is created if missing,
+# and every declared user is created with — or brought to — exactly its
+# declared name, email and full group membership. Passwords are never set by
+# the blueprint; they are set in the instance's UI.
 #
 # Secrets
 # -------
@@ -74,7 +81,7 @@ let
       );
 
   catalogue = import ./catalogue.nix { inherit lib; } {
-    inherit (config.lanbat.deployment) domain;
+    inherit (config.lanbat.deployment) domain authentik;
     authentikHost = "https://${config.lanbat.services.authentik.subdomain}.${config.lanbat.deployment.domain}";
     services = config.lanbat.services // remoteServices;
   };
@@ -85,11 +92,13 @@ let
 
   proxyBlueprint = pkgs.writeText "10-proxy-providers.yaml" (header + yaml.render catalogue.proxy);
   oidcBlueprint = pkgs.writeText "20-oidc-providers.yaml" (header + yaml.render catalogue.oidc);
+  usersBlueprint = pkgs.writeText "30-users.yaml" (header + yaml.render catalogue.users);
 
   blueprintsDir = pkgs.runCommand "authentik-blueprints" { } ''
     mkdir -p $out
     cp ${proxyBlueprint} $out/10-proxy-providers.yaml
     cp ${oidcBlueprint}  $out/20-oidc-providers.yaml
+    cp ${usersBlueprint} $out/30-users.yaml
   '';
 in
 {
@@ -98,8 +107,8 @@ in
     internal = true;
     readOnly = true;
     description = ''
-      The generated blueprints as Nix values, keyed "proxy" and "oidc", so
-      tests can inspect the catalogue without building the YAML.
+      The generated blueprints as Nix values, keyed "proxy", "oidc" and
+      "users", so tests can inspect the catalogue without building the YAML.
     '';
   };
 

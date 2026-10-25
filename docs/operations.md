@@ -504,12 +504,15 @@ The full model — what Nix declares vs. what is manual, the two access mechanis
 how each service maps the authentik identity to in-app permissions — is in
 [docs/auth.md](auth.md). The day-to-day flow:
 
-Go to **Directory → Users → Create**. Fill in username, name, email.
-Set a password via **Actions → Update Password**, or send an invitation email
-(requires email backend configuration in Authentik).
+Declare the user under `lanbat.deployment.authentik` (username, name, email, and its
+full group membership) and deploy. The `users` blueprint creates the user and any
+missing groups, but never a password.
 
-To restrict access to specific applications, use **Groups** and bind them to
-providers via the provider's **Policy/Group Bindings** tab.
+Then set a password via **Directory → Users → \<user\> → Actions → Update Password**,
+or send an invitation email (requires email backend configuration in Authentik).
+
+To restrict access to specific applications, put the groups that gate them in the
+user's `groups` — a service's `access.groups` are what its application is bound to.
 
 ### Resetting a user password
 
