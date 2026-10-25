@@ -183,6 +183,34 @@ async def t_music_room_slug_matches_the_nix_slug() -> None:
         assert got == want, f"{room!r}: {got!r}, wanted {want!r}"
 
 
+async def t_music_follow_renders_source_player_in_order() -> None:
+    """Home Assistant renders a `variables` mapping one key at a time, in file
+    order, and a key sees only the ones before it (script_variables.py). A Nix
+    attribute set is sorted when serialised, so this renders the generated keys
+    in their real order: src_player must not read a variable sorted after it.
+    """
+    auto = next(a for a in GEN["automationPlayer"] if a.get("id") == "followme_music_follow_alex")
+    with tempfile.TemporaryDirectory() as cfg:
+        hass = HomeAssistant(cfg)
+        hass.config.time_zone = "UTC"
+        hass.states.async_set("media_player.binturong", "playing")
+        rendered = {
+            "trigger": SimpleNamespace(
+                from_state=SimpleNamespace(state="Bedroom 1"),
+                to_state=SimpleNamespace(state="Office"),
+            )
+        }
+        try:
+            for key, value in auto["variables"].items():
+                rendered[key] = Template(str(value), hass).async_render(rendered, parse_result=False).strip()
+        finally:
+            await hass.async_stop(force=True)
+    assert rendered["src_player"] == "media_player.binturong", (
+        f"src_player rendered to {rendered['src_player']!r}, not the playing source: "
+        "it depends on src_players, which Home Assistant renders later"
+    )
+
+
 async def t_music_cooldown() -> None:
     cond = next(c for c in automation("followme_music_follow_alex")["conditions"]
                 if "last_triggered" in json.dumps(c))

@@ -151,6 +151,10 @@ let
       "Bedroom 1" = genCfg.rooms."Bedroom 1" // {
         player = "media_player.binturong";
       };
+      # Also name the Office's player, so the ordering test needs no area lookup.
+      "Office" = genCfg.rooms."Office" // {
+        player = "media_player.pi3";
+      };
     };
   };
   genPlayer = fmLib.mkFollowMe {
@@ -217,6 +221,7 @@ let
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
       inherit (gen) template automation;
+      automationPlayer = genPlayer.automation;
       automationLightsOffAny = genAny.automation;
       automationLightsOffAnyLive = genAnyLive.automation;
       inherit (genCfg)
