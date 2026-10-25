@@ -1816,8 +1816,14 @@ in
       enable = true;
       openFirewall = false; # Caddy handles exposure.
 
-      # PostgreSQL driver for the recorder.
-      extraPackages = ps: [ ps.psycopg2 ];
+      # PostgreSQL driver for the recorder, and `ical` for the calendar platform
+      # that the local to-do and calendar lists sit on: without it local_todo
+      # fails with "No module named 'ical'", so reminders and the house calendar
+      # show up as restored-but-unavailable.
+      extraPackages = ps: [
+        ps.psycopg2
+        ps.ical
+      ];
 
       # Install extra Python components declaratively.
       customComponents = [
