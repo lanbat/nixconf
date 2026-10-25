@@ -213,6 +213,7 @@ class Config:
     night_brightness: int = 10
     notice_guests: bool = True
     nap_after_s: int = 900  # nobody seen this long: the robot naps (0: never)
+    quiet_lux: int = 1  # at or below this many lux, the room is dark: still, no looking around
     auto_brightness: bool = True  # the screen follows the room's light
     sad_words: tuple[str, ...] = DEFAULT_SAD_WORDS
     sound_direction: bool = True  # the head turns to the voice (the satellite's mics)
@@ -239,6 +240,7 @@ class Config:
             night_brightness=int(env.get("NIGHT_BRIGHTNESS", "10")),
             notice_guests=flag("NOTICE_GUESTS", True),
             nap_after_s=int(env.get("NAP_AFTER_S", "900")),
+            quiet_lux=int(env.get("QUIET_LUX", "1")),
             auto_brightness=flag("AUTO_BRIGHTNESS", True),
             sad_words=tuple(w.strip().lower() for w in sad.split(",") if w.strip()) if sad else DEFAULT_SAD_WORDS,
             sound_direction=flag("SOUND_DIRECTION", True),
@@ -372,6 +374,7 @@ class Brain:
     muted: bool = False
     online: bool = True
     asleep: bool = False
+    quiet: bool = False  # media playing (the router's act): still, head down, dark
     timers: dict[str, Timer] = field(default_factory=dict)
     night_seen: bool = False  # night or day at the last look: asleep follows its changes
     router_mood: str | None = None
@@ -547,10 +550,12 @@ class Brain:
                 "brightness": self.config.night_brightness if self.asleep else self.config.brightness,
                 "notice": self.config.notice_guests,
                 "nap_after_s": self.config.nap_after_s,
+                "quiet_lux": self.config.quiet_lux,
                 "auto_brightness": self.config.auto_brightness,
             }}),
             self._status(),
             ("device", {"sleep": self.asleep and not self.in_turn}),
+            ("device", {"quiet": self.quiet}),
             ("device", {"mood": self.mood}),
             ("device", {"look": "user" if self.in_turn else "track"}),
             self._timers(now),
@@ -706,6 +711,10 @@ class Brain:
             out.append(("device", {"scan": True}))  # someone is here, out of its sight: it looks round
         if type(act.get("nap")) is bool:
             out.append(("device", {"nap": act["nap"]}))
+        if type(act.get("quiet")) is bool and act["quiet"] != self.quiet:
+            # Media playing in this room (the router): still, head down, dark.
+            self.quiet = act["quiet"]
+            out.append(("device", {"quiet": self.quiet}))
         if type(act.get("auto_turn")) is bool and act["auto_turn"] != self.auto_turn:
             self.auto_turn = act["auto_turn"]
             out.append(("save", {"auto_turn": self.auto_turn}))

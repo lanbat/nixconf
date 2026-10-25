@@ -160,6 +160,17 @@ int lastBatteryLevel = -100;
 uint32_t napAfterMs = 15 * 60000;
 uint32_t nextWander = 0;
 uint32_t touchDownZone = 0;
+// When to re-anchor the touch sensor's capacitive baseline (runTouchRecal).
+uint32_t nextTouchRecal = 0;
+// Quiet: media playing in this room, or the room is dark. Head down, still
+// and dimmed, no looking around; the camera stays on, so a face in view is
+// still reported (person ID). The Pi sets quietMedia; the light sensor sets
+// the dark half (quietLux, lux at or below which the room counts as dark).
+bool quietMedia = false;
+int quietLux = 1;
+bool quiet = false;
+bool quietPosed = false;  // the quiet pose is on (head down, screen dark)
+constexpr uint32_t kQuietSettleMs = 8000;  // quiet once this long without a turn
 
 int targetYaw = 0, targetPitch = kPitchRest;
 
@@ -390,7 +401,7 @@ void endNap() {
 // Someone it knows came by: awake, happy, a wag and a nod, three green breaths.
 // Not at night: the night's rest goes on.
 void greet() {
-  if (asleep) return;
+  if (asleep || quiet) return;
   endNap();  // and counts as activity
   if (drowsy) {
     drowsy = false;
@@ -579,6 +590,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
     if (doc["nap"].as<bool>() && !napping && !asleep) startNap();
     if (!doc["nap"].as<bool>()) endNap();
   }
+  if (doc["quiet"].is<bool>()) quietMedia = doc["quiet"].as<bool>();  // media playing in this room
   if (doc["nfc_read"].is<int>() && hasNfc) {
     // {"nfc_read": seconds}: read cards for a while ("remember this card").
     nfc::readFor((uint32_t)constrain(doc["nfc_read"].as<int>(), 0, 120) * 1000);
@@ -623,6 +635,7 @@ void handle(JsonDocument& doc, pilink::Via via) {
       if (!asleep && !napping) M5.Display.setBrightness(dayBrightness());
     }
     if (doc["config"]["nap_after_s"].is<int>()) napAfterMs = (uint32_t)doc["config"]["nap_after_s"].as<int>() * 1000;
+    if (doc["config"]["quiet_lux"].is<int>()) quietLux = max(0, doc["config"]["quiet_lux"].as<int>());
   }
 }
 
@@ -715,7 +728,7 @@ void runSenses() {
     w["wave"] = true;
     send(w);
   }
-  if (r.near && !wasNear && !asleep) {
+  if (r.near && !wasNear && !asleep && !quiet) {
     lastActive = millis();
     if (napping) {
       endNap();
@@ -727,7 +740,7 @@ void runSenses() {
       GESTURE(kPerk);
     }
   }
-  if (!asleep && !napping) M5.Display.setBrightness(dayBrightness());
+  if (!asleep && !napping && !quietPosed) M5.Display.setBrightness(dayBrightness());
 }
 
 // A tag tapped on it: to the Pi (Home Assistant's tag scanner, a person's
@@ -820,6 +833,45 @@ void readTouch() {
   }
 }
 
+// The Si12T's capacitive baseline drifts when the power rail switches (the
+// robot's own charger): a head it is not touching then reads as touched, and
+// a "tap" nobody made starts a listen on the Pi ("Sorry, I didn't catch
+// that"). Re-anchor the baseline every couple of minutes while nothing is
+// touching it and the head is still; busy, try again shortly.
+// (touch_sensor.h: recalibrate() is for "external disturbance (e.g.
+// power-rail switching)".)
+void runTouchRecal() {
+  uint32_t now = millis();
+  if (now < nextTouchRecal) return;
+  const auto& in = M5StackChan.TouchSensor.getIntensities();
+  if (in[0] || in[1] || in[2] || gesture || (now - lastActive) < 5000) {
+    nextTouchRecal = now + 30000;
+    return;
+  }
+  M5StackChan.TouchSensor.recalibrate();
+  nextTouchRecal = now + 120000;
+}
+
+// The quiet pose: media playing in this room, or the room is dark. Head down,
+// screen dark, still; the camera keeps running, so a face in view is still
+// reported for person ID. A turn or a tap wakes it, and it settles back after
+// kQuietSettleMs without one.
+void runQuiet() {
+  bool dark = hasSenses && senses::latest().ok && senses::latest().lux <= (float)quietLux;
+  quiet = quietMedia || dark;
+  bool pose = quiet && !asleep && !napping && !gesture && mood == "neutral" &&
+              millis() - lastActive > kQuietSettleMs;
+  if (pose == quietPosed) return;
+  quietPosed = pose;
+  if (pose) {
+    pointHead(0, kPitchMin, 150);
+    M5.Display.setBrightness(min<int>(brightness, 10));
+  } else if (!asleep && !napping) {
+    M5.Display.setBrightness(dayBrightness());
+    if (mood == "neutral" && !gesture) pointHead(0, kPitchRest, 300);
+  }
+}
+
 void follow() {
   uint32_t now = millis();
   if (!hasCamera || asleep) return;
@@ -851,22 +903,24 @@ void follow() {
     }
     if (!faceVisible) {
       faceVisible = true;
-      sendEvent("face", "new");
-      endNap();
-      if (drowsy) {
-        drowsy = false;
-        setMood("neutral");
-      }
-      if (wasAway && noticeGuests && look == "track" && mood == "neutral") {
-        // Someone came in: look at them, a glow, a nod.
-        avatar.setExpression(Expression::Happy);
-        lights::setScene(lights::Scene::Greeting);
-        pointHead(lastFaceYaw, lastFacePitch, 700);
-        GESTURE(kNod);
-        noticedAt = millis();
+      sendEvent("face", "new");  // person ID: the router still learns who is here
+      if (!quiet) {
+        endNap();
+        if (drowsy) {
+          drowsy = false;
+          setMood("neutral");
+        }
+        if (wasAway && noticeGuests && look == "track" && mood == "neutral") {
+          // Someone came in: look at them, a glow, a nod.
+          avatar.setExpression(Expression::Happy);
+          lights::setScene(lights::Scene::Greeting);
+          pointHead(lastFaceYaw, lastFacePitch, 700);
+          GESTURE(kNod);
+          noticedAt = millis();
+        }
       }
     }
-    if (look == "track" && !gesture) {
+    if (look == "track" && !gesture && !quiet) {
       // Follow gently; ignore small offsets so the head isn't nervous.
       if (fabsf(s.x) > 0.12f || fabsf(s.y) > 0.15f) {
         pointHead(targetYaw + s.x * kHalfFovYaw * 0.6f, targetPitch + s.y * kHalfFovPitch * 0.6f, 350);
@@ -881,7 +935,7 @@ void follow() {
 }
 
 bool scanBlocked() {
-  return !hasCamera || asleep || napping || gesture || look != "track" || mood != "neutral";
+  return !hasCamera || asleep || napping || quiet || gesture || look != "track" || mood != "neutral";
 }
 
 void startScan() {
@@ -920,7 +974,7 @@ void scan() {
 // Something moved where it can see, and no face: it looks there (explore()).
 void explore() {
   uint32_t now = millis();
-  if (!hasCamera || asleep || debugCamera || faceVisible || gesture || look != "track" || scanStep >= 0) return;
+  if (!hasCamera || asleep || quiet || debugCamera || faceVisible || gesture || look != "track" || scanStep >= 0) return;
   if ((int32_t)(now - lastMoveAt) < (int32_t)kMotionStillMs || (int32_t)(now - nextExploreAt) < 0) return;
   Sighting s = vision::latest();
   if (s.motion < kMotionMin || s.motion > kMotionMax || now - s.at > 500) return;
@@ -942,7 +996,7 @@ void explore() {
 
 void wander() {
   uint32_t now = millis();
-  if (asleep || napping || look != "track" || faceVisible || gesture || mood != "neutral" || scanStep >= 0) return;
+  if (asleep || napping || quiet || look != "track" || faceVisible || gesture || mood != "neutral" || scanStep >= 0) return;
   uint32_t idle = now - max(lastFaceSeen, lastActive);
   if (napAfterMs && idle > napAfterMs) {
     startNap();
@@ -1022,6 +1076,11 @@ void setup() {
   // DMA memory asks for it by its caps, as the drivers do.
   heap_caps_malloc_extmem_enable(0);
   M5StackChan.begin();  // M5Unified, servo power, touch, LEDs
+  // A longer response cycle demands more consecutive samples before a touch
+  // counts, rejecting the single-sample spikes the charger's power-rail
+  // switching makes (touch_sensor.h: response cycle = cycles + 2). The
+  // periodic baseline recalibration is runTouchRecal().
+  M5StackChan.TouchSensor.setResponseCycles(3);
   // The Pi speaks and listens; the robot's own speaker stays off. Its
   // amplifier keeps whatever state the last firmware left it in (the stock
   // one leaves it on), and on with no signal it amplifies noise: switching it
@@ -1084,6 +1143,8 @@ void loop() {
   runSenses();
   runNfc();
   readTouch();
+  runTouchRecal();
+  runQuiet();
   readBattery();
   follow();
   scan();
