@@ -446,7 +446,11 @@ From now on, deploy with `deploy --skip-checks path:.#homelab-pi-storage`.
 - Verify Snapclient: `systemctl status snapclient`
 - With the TV plugin (`lanbatPlugins.tv`) enabled on the storage Pi, Kodi should
   appear on HDMI (if a screen is attached). Holding a controller's Guide button
-  for 2 seconds switches to EmulationStation and back.
+  for 2 seconds switches to EmulationStation and back. Kodi's library sources
+  are the same folders and content types as Jellyfin's libraries: TV Shows is
+  `/mnt/storage-a/media/tv` (qBittorrent's "Video/TV Shows" category),
+  Documentaries is `/mnt/storage-b/media/documentaries`, and Documentary Series
+  is `/mnt/storage-b/media/documentary-series` as a TV library.
 
 ---
 

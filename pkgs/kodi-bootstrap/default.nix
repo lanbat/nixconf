@@ -6,6 +6,7 @@
   gnugrep,
   sqlite,
   util-linux,
+  xmlstarlet,
 }:
 
 stdenv.mkDerivation {
@@ -27,6 +28,7 @@ stdenv.mkDerivation {
           gnugrep
           sqlite
           util-linux
+          xmlstarlet
         ]
       }"
   '';

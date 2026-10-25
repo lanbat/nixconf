@@ -63,8 +63,11 @@ let
   home = config.users.users.media.home;
 
   # Kodi's library sources (kodi-bootstrap writes them into its databases on
-  # every boot). The defaults are the repository's media layout; a profile
-  # sets only what differs, e.g. lanbat.services.kodi.settings.videoSources.tv.path.
+  # every boot). The defaults mirror the libraries jellyfin-bootstrap creates,
+  # folder for folder and content type for content type (except Games and Misc,
+  # which Jellyfin mixes and Kodi scans as movies), so both clients show the
+  # same media from the same NFS mounts; a profile sets only what differs,
+  # e.g. lanbat.services.kodi.settings.videoSources.tv.path.
   scrapers = {
     movies = "metadata.themoviedb.org.python";
     tvshows = "metadata.tvshows.themoviedb.org.python";
@@ -93,7 +96,8 @@ let
     };
     gym = {
       path = "/mnt/storage-b/media/gym/";
-      content = "movies";
+      # Jellyfin's Gym library is a TV library, so Kodi scans it the same way.
+      content = "tvshows";
     };
     games = {
       path = "/mnt/storage-b/media/games/";
@@ -138,7 +142,7 @@ let
           )
         );
         default = { };
-        example = lib.literalExpression ''{ tv.path = "/mnt/storage-a/media/tv/misc/"; }'';
+        example = lib.literalExpression ''{ tv.path = "/mnt/storage-a/media/tv/shows/"; }'';
         description = ''
           Kodi's video library sources by name. The repository's layout is set
           by default; set a field to change one, or add a source.
@@ -655,6 +659,13 @@ in
             extraAfter = [ "kodi-bootstrap.service" ] ++ unlockUnits;
           })
           {
+            # kodi-bootstrap rewrites the library sources: stop Kodi before it
+            # does, and let a deploy that changes a source bring Kodi back with
+            # the new library instead of leaving the old one running.
+            partOf = [
+              "pipewire.service"
+              "kodi-bootstrap.service"
+            ];
             serviceConfig.ExecStartPre = [ "+${kodiRemote}" ];
             # Kodi's requests module trusts its bundled certifi, not the system
             # bundle, so the Invidious add-on could not reach the instance's

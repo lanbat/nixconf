@@ -11,6 +11,37 @@ let
   dashboards = pkgs.callPackage ../pkgs/grafana-dashboards { };
   kodiTvConfig = pkgs.callPackage ../pkgs/kodi-tv-config { };
   kodiBootstrap = pkgs.callPackage ../pkgs/kodi-bootstrap { };
+  # The bootstrap adds a video source the seeded sources.xml predates (the
+  # documentary series) and leaves the rest of the file alone.
+  kodiBootstrapSources =
+    pkgs.runCommand "kodi-bootstrap-sources-xml"
+      {
+        nativeBuildInputs = [ kodiBootstrap ];
+      }
+      ''
+        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos
+        cat > $TMPDIR/.kodi/userdata/sources.xml <<EOF
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <sources>
+          <video>
+            <default pathversion="1"></default>
+            <source>
+              <name>old-name</name>
+              <path>$TMPDIR/media/music-videos/</path>
+            </source>
+          </video>
+        </sources>
+        EOF
+        KODI_HOME=$TMPDIR \
+          KODI_VIDEO_SOURCES="documentary-series|$TMPDIR/media/documentary-series/|tvshows|metadata.tvshows.themoviedb.org.python|0|0
+        music-videos|$TMPDIR/media/music-videos/|musicvideos|metadata.local|1|0" \
+          kodi-bootstrap sources-xml
+        grep -q "<name>Documentary Series</name>" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "$TMPDIR/media/documentary-series/" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "<name>Music Videos</name>" $TMPDIR/.kodi/userdata/sources.xml
+        ! grep -q "old-name" $TMPDIR/.kodi/userdata/sources.xml
+        touch $out
+      '';
   kodiInvidious = pkgs.callPackage ../pkgs/kodi-addon-invidious {
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
     infotagger = pkgs.kodi-gbm.packages.infotagger;
@@ -61,6 +92,7 @@ pkgs.runCommand "pkgs-build-smoke"
     command -v backup-server
     command -v quota-setup
     command -v kodi-bootstrap
+    test -e ${kodiBootstrapSources}
     command -v android-provision
     command -v media-feed-bridge
     command -v music-assistant-sources

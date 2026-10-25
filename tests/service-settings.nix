@@ -1535,12 +1535,59 @@ let
       && lib.elem "music-videos|/mnt/storage-a/media/music-videos/|musicvideos|metadata.local|1|0" (
         lines lvaTvBox
       )
+      && lib.elem "documentaries|/mnt/storage-b/media/documentaries/|movies|metadata.themoviedb.org.python|1|0" (
+        lines lvaTvBox
+      )
+      && lib.elem "documentary-series|/mnt/storage-b/media/documentary-series/|tvshows|metadata.tvshows.themoviedb.org.python|0|0" (
+        lines lvaTvBox
+      )
       && lib.hasInfix "Music|/mnt/storage-b/media/music/" (env lvaTvBox).KODI_MUSIC_SOURCES
       && lib.elem "tv|/mnt/storage-a/media/tv/shows/|tvshows|metadata.tvshows.themoviedb.org.python|0|0" (
         lines tvShowsElsewhere
       )
       && lib.length (lines tvShowsElsewhere) == lib.length (lines lvaTvBox)
       && tvShowsElsewhere.systemd.services.kodi-music-scan.environment ? KODI_MUSIC_SOURCES
+    ))
+
+    # Kodi and Jellyfin read the same media folders. The TV source in
+    # particular is qBittorrent's "Video/TV Shows" category, not a subfolder:
+    # a profile that points it elsewhere makes Kodi's library miss the shows
+    # Jellyfin shows.
+    (expect "tv: Kodi's sources match Jellyfin's libraries" (
+      let
+        jellyfin = builtins.readFile ../pkgs/jellyfin-bootstrap/bootstrap-jellyfin.sh;
+        videoSpecs = lib.filter (
+          l:
+          lib.hasPrefix "  \"movies|" l
+          || lib.hasPrefix "  \"tvshows|" l
+          || lib.hasPrefix "  \"musicvideos|" l
+        ) (lib.splitString "\n" jellyfin);
+        jellyfinPaths = map (
+          l:
+          let
+            parts = lib.splitString "|" (lib.replaceStrings [ "\"" ] [ "" ] l);
+          in
+          lib.removeSuffix "/" (
+            lib.replaceStrings [ "/srv/storage/" ] [ "/mnt/storage-" ] (lib.elemAt parts 2)
+          )
+        ) videoSpecs;
+        kodiPaths = map (l: lib.removeSuffix "/" (lib.elemAt (lib.splitString "|" l) 1)) (
+          lib.splitString "\n" lvaTvBox.systemd.services.kodi-bootstrap.environment.KODI_VIDEO_SOURCES
+        );
+      in
+      lib.all (p: lib.elem p kodiPaths) jellyfinPaths
+    ))
+
+    # The seeded Videos > Files list is a copy made once, so a source added to
+    # the settings since (Documentary Series) never appeared there. Kodi's
+    # bootstrap adds the missing sources without dropping the user's own.
+    (expect "tv: Kodi's sources.xml lists every video source" (
+      let
+        xml = builtins.readFile ../pkgs/kodi-tv-config/sources.xml;
+      in
+      lib.hasInfix "/mnt/storage-a/media/tv/" xml
+      && lib.hasInfix "/mnt/storage-b/media/documentaries/" xml
+      && lib.hasInfix "/mnt/storage-b/media/documentary-series/" xml
     ))
 
     # Kodi never writes advancedsettings.xml, so it follows the repository;
@@ -2493,18 +2540,22 @@ let
     ))
 
     # Kodi's PipeWire output never reconnects: a film was silent for nine days
-    # after PipeWire restarted on a deploy (2026-10-22).
+    # after PipeWire restarted on a deploy (2026-10-22). Kodi also restarts
+    # with kodi-bootstrap, which rewrites its library sources, so a deploy
+    # applies the sources without a reboot.
     (expect "tv box: the TV sessions restart with PipeWire, so Kodi keeps its sound" (
       lib.all
         (
           u:
-          lvaTvBox.systemd.services.${u}.partOf == [ "pipewire.service" ]
+          lib.elem "pipewire.service" lvaTvBox.systemd.services.${u}.partOf
           && lib.elem "pipewire.service" lvaTvBox.systemd.services.${u}.after
         )
         [
           "tv-kodi"
           "tv-games"
         ]
+      && lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-kodi.partOf
+      && !(lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-games.partOf)
     ))
   ];
 

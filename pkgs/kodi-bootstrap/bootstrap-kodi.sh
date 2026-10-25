@@ -6,6 +6,9 @@
 # kodi-bootstrap music-scan (after Kodi starts): the first scan of each music
 # source. Kodi's startup update only rescans folders it has scanned before, so
 # a music source nothing has scanned stays empty.
+#
+# kodi-bootstrap sources-xml: add a configured video source missing from the
+# seeded sources.xml (the Videos > Files list), leaving the rest alone.
 set -euo pipefail
 
 KODI_HOME="${KODI_HOME:?KODI_HOME must be set}"
@@ -49,21 +52,24 @@ find_db() {
 }
 
 ensure_storage() {
-  if [[ -f "$STORAGE_STAMP" ]]; then
-    return 0
-  fi
-
-  wait_for_mount /mnt/storage-a
-  wait_for_mount /mnt/storage-b
+  # Check on every boot, not once: the stamp only records that a previous boot
+  # saw the drives. If a drive is slow or missing this time, wait for it here so
+  # its sources are still configured before Kodi starts. A source whose
+  # directory is absent is skipped, not removed, and is picked up on a later
+  # boot once the drive is back.
+  wait_for_mount /mnt/storage-a || true
+  wait_for_mount /mnt/storage-b || true
 
   if [[ ! -d "$USERDATA" ]]; then
     log "Kodi userdata directory is missing"
     exit 1
   fi
 
-  install -d -m 0755 -o media -g media "$(dirname "$STORAGE_STAMP")"
-  touch "$STORAGE_STAMP"
-  chown media:media "$STORAGE_STAMP"
+  if [[ ! -f "$STORAGE_STAMP" ]]; then
+    install -d -m 0755 -o media -g media "$(dirname "$STORAGE_STAMP")"
+    touch "$STORAGE_STAMP"
+    chown media:media "$STORAGE_STAMP"
+  fi
   log "storage ready"
 }
 
@@ -122,6 +128,67 @@ configure_video_library() {
     sqlite3 "$db" "UPDATE path SET strContent = '', strScraper = '' WHERE strContent != '' AND strPath LIKE '/mnt/%' AND strPath NOT IN (${list});"
   fi
 
+  return 0
+}
+
+# Video sources are named by their key in the settings ("tv",
+# "documentary-series"); the Videos > Files list shows a label ("TV Shows",
+# "Documentary Series").
+source_label() {
+  if [[ "$1" == "tv" ]]; then
+    printf 'TV Shows'
+    return 0
+  fi
+  local word out="" words=()
+  IFS=' ' read -r -a words <<< "${1//-/ }"
+  for word in "${words[@]}"; do
+    out+="${word^} "
+  done
+  printf '%s' "${out% }"
+}
+
+# Kodi's library scan reads the paths in its database, but Videos > Files reads
+# sources.xml. That file is seeded once, so a source configured since (the
+# documentary series, say) never appears there. Add the missing ones and leave
+# everything else, including sources added in Kodi's GUI, alone.
+configure_video_sources_xml() {
+  local xml="${USERDATA}/sources.xml"
+  [[ -f "$xml" ]] || return 0
+
+  local spec name path label present
+  for spec in "${VIDEO_SOURCES[@]}"; do
+    [[ -n "$spec" ]] || continue
+    IFS='|' read -r name path _ <<< "$spec"
+    [[ -d "$path" ]] || continue
+    label="$(source_label "$name")"
+    present="$(xmlstarlet sel -t -v "/sources/video/source[path='${path}']/name" "$xml" 2>/dev/null || true)"
+    if [[ -n "$present" ]]; then
+      # The path is what Kodi browses; keep its display name in step with the
+      # settings (an older seed may have called it "documentary-series").
+      if [[ "$present" != "$label" ]]; then
+        xmlstarlet ed -L -u "/sources/video/source[path='${path}']/name" -v "$label" "$xml"
+        log "renamed video source ${present} -> ${label} in sources.xml"
+      fi
+      continue
+    fi
+    if xmlstarlet ed -L \
+      -s /sources/video -t elem -n source -v "" \
+      -s "/sources/video/source[last()]" -t elem -n name -v "$label" \
+      -s "/sources/video/source[last()]" -t elem -n path -v "$path" \
+      -s "/sources/video/source[last()]" -t elem -n allowsharing -v "true" \
+      "$xml"; then
+      log "added video source ${label} -> ${path} to sources.xml"
+    else
+      log "could not add ${label} to sources.xml"
+      return 1
+    fi
+  done
+
+  # xmlstarlet rewrites the file, so give it back to the Kodi account.
+  if id media >/dev/null 2>&1; then
+    chown media:media "$xml"
+  fi
+  chmod 0644 "$xml"
   return 0
 }
 
@@ -220,12 +287,18 @@ if [[ "${1:-}" == "music-scan" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "sources-xml" ]]; then
+  configure_video_sources_xml
+  exit 0
+fi
+
 ensure_storage
 
 # Each on its own: a music source isn't held up by the video library.
 status=0
 configure_video_library || status=1
 configure_music_library || status=1
+configure_video_sources_xml || status=1
 if ((status == 0)); then
   log "library sources configured"
 else
