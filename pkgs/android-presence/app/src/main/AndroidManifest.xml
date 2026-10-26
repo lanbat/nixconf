@@ -6,16 +6,21 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
-    <!-- BLE scan: BLUETOOTH_SCAN on 12+, location on 11 and below. Do not add
-         usesPermissionFlags="neverForLocation": Android then filters some
-         beacons (iBeacon among them) as location data. -->
+    <!-- BLE scan: BLUETOOTH_SCAN on 12+, location on 11 and below. Location is
+         also needed on 12+ because iBeacon adverts are location data: with
+         usesPermissionFlags="neverForLocation" Android filters iBeacons out,
+         and without that flag Android only returns scan results when location
+         is on. So do not set the flag, and keep location on. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- A BLE scan in a foreground service counts as location; without this
+         Android 14's appops treats the service as background for location. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -39,10 +44,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Exported so the provisioner's adb shell can start it: Android 12+
+             refuses a foreground service started from a background broadcast. -->
         <service
             android:name=".PresenceService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:exported="true"
+            android:foregroundServiceType="connectedDevice|location" />
 
         <receiver
             android:name=".ConfigReceiver"

@@ -10,7 +10,7 @@ import android.util.Log;
  * Receives the provisioner's configuration and (re)starts the service:
  *
  * <pre>
- * adb shell am broadcast -a com.lanbat.presence.CONFIG \
+ * adb shell am broadcast -p com.lanbat.presence -a com.lanbat.presence.CONFIG \
  *   --es room "Living Room" \
  *   --es router_url "ws://192.168.1.10:8770/v1/body" \
  *   --es beacons '{"5affd0d5-9828-435c-b177-4221519517e0":"momchilov"}'

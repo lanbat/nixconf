@@ -106,6 +106,18 @@ def shell(state, args):
         save(state)
         print("Starting service: Intent { ... }")
         return 0
+    if args[0] == "cmd" and args[1] == "deviceidle":
+        state.setdefault("deviceidle", []).append(args[2:])
+        save(state)
+        return 0
+    if args[0] == "cmd" and args[1] == "location":
+        state.setdefault("location", []).append(args[2:])
+        save(state)
+        return 0
+    if args[0] == "appops" and args[1] == "set":
+        state.setdefault("appops", []).append(args[2:])
+        save(state)
+        return 0
     if args[0] == "dumpsys" and args[1] == "device_policy":
         owner = state.get("device_owner")
         if owner:

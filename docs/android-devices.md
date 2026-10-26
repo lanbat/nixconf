@@ -446,12 +446,25 @@ androidDevices.bedroom = {
 ```
 
 The provisioner installs the APK (from `github`), grants `BLUETOOTH_SCAN`,
-`BLUETOOTH_CONNECT` and notifications, sends the room/router/beacons as a broadcast,
-and starts the foreground service over adb (Android 12+ refuses a background start).
-All of that is the `presence` resource, so it shows up in a `plan` and re-runs only
-when the config or the person list changes. The app's own notes — the parser, the
-median window, and how to verify it without an Android SDK — are in
-`pkgs/android-presence/README.md`.
+`BLUETOOTH_CONNECT`, the location permissions (fine, coarse and background) and
+notifications, forces the location app-ops allowed, turns location on, exempts the app
+from background limits, sends the room/router/beacons as a broadcast, and starts the
+foreground service over adb (Android 12+ refuses a background start).
+The scan is filtered to iBeacon adverts because Android refuses *unfiltered* scans
+while the screen or location is off — the normal state of a TV box — and iBeacons must
+not be hidden with `neverForLocation`, which also makes the location permission
+necessary on every Android version. All of that is the `presence` resource, so it
+shows up in a `plan` and re-runs only when the config or the person list changes.
+
+The router's own IP allowlist (`IPAddressAllow`, `services/assistant-router.nix`) is
+generated from the NixOS hosts that consume it, so it also learns every
+`androidDevices` entry with `presence`; a box needs no NixOS host entry. The port is
+still opened by hand in the deployment, like the Jellyfin rule, because the wiring
+policy can only admit hosts it knows:
+`iptables -I INPUT -p tcp --dport 8770 -s <box> -j ACCEPT`.
+
+The app's own notes — the parser, the median window, the filter, and how to verify it
+without an Android SDK — are in `pkgs/android-presence/README.md`.
 
 `follow-me` accepts a room with an Android presence sensor as a room it can follow
 into, so a box is enough presence for its room; no satellite Pi is needed there.

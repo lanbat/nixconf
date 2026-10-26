@@ -53,9 +53,18 @@ def test_configures_with_the_room_and_beacons(device):
     assert any("momchilov" in arg for arg in broadcast)
     # adb is allowed to start the foreground service even on Android 12+.
     assert any("PresenceService" in arg for arg in state["services"][-1])
+    assert state["deviceidle"][-1] == ["whitelist", "+com.lanbat.presence"]
+    # iBeacon scans are location-derived, so location has to be on.
+    assert state["location"][-1] == ["set-location-enabled", "true"]
+    assert state["settings"]["secure"]["location_mode"] == "3"
     granted = {grant[1] for grant in state["grants"]}
     assert "android.permission.BLUETOOTH_SCAN" in granted
     assert "android.permission.BLUETOOTH_CONNECT" in granted
+    assert "android.permission.ACCESS_BACKGROUND_LOCATION" in granted
+    assert state["appops"][-2:] == [
+        ["com.lanbat.presence", "android:fine_location", "allow"],
+        ["com.lanbat.presence", "android:coarse_location", "allow"],
+    ]
 
 
 def test_the_same_configuration_twice_is_ok(device):

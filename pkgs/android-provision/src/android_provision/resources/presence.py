@@ -20,7 +20,9 @@ PERMISSIONS = (
     "BLUETOOTH_SCAN",
     "BLUETOOTH_CONNECT",
     "POST_NOTIFICATIONS",
-    "ACCESS_FINE_LOCATION",  # Android 11 and below; harmless if undeclared/granted
+    "ACCESS_FINE_LOCATION",
+    "ACCESS_COARSE_LOCATION",
+    "ACCESS_BACKGROUND_LOCATION",
 )
 
 
@@ -58,14 +60,26 @@ def _one(adb: Adb, presence: Presence, *, apply: bool, force: bool) -> Outcome:
             # Ignore failures: a permission the device/OS does not have simply
             # does not apply (e.g. POST_NOTIFICATIONS below Android 13).
             adb.shell_ok("pm", "grant", PACKAGE, "android.permission." + permission)
+        # The UID-level default is location "foreground only"; force the op
+        # allowed so a scan from the service is not treated as background.
+        adb.shell_ok("appops", "set", PACKAGE, "android:fine_location", "allow")
+        adb.shell_ok("appops", "set", PACKAGE, "android:coarse_location", "allow")
         adb.shell(
-            "am", "broadcast", "-a", ACTION,
+            "am", "broadcast", "-p", PACKAGE, "-a", ACTION,
             "--es", "room", presence.room,
             "--es", "router_url", presence.routerUrl,
             "--es", "beacons", json.dumps(presence.beacons, separators=(",", ":")),
             "--ei", "report_seconds", str(presence.reportSeconds),
             "--ei", "window_seconds", str(presence.windowSeconds),
         )
+        # iBeacon adverts are location data: without neverForLocation (which
+        # would filter iBeacons out) Android returns no scan results unless
+        # location is on. Both forms, since `cmd location` is newer.
+        adb.shell_ok("cmd", "location", "set-location-enabled", "true")
+        adb.shell_ok("settings", "put", "secure", "location_mode", "3")
+        # Exempt from background limits: a boot-time foreground service and a
+        # long-running BLE scan are exactly what Android otherwise blocks.
+        adb.shell_ok("cmd", "deviceidle", "whitelist", "+" + PACKAGE)
         # A broadcast cannot reliably start a foreground service from the
         # background on Android 12+, and `am` from adb can, so start it here.
         adb.shell("am", "start-foreground-service",

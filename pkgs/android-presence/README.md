@@ -13,7 +13,9 @@ also pushes this deployment's configuration.
 
 - A foreground service (`PresenceService`) scans BLE continuously
   (`BluetoothLeScanner`, low latency) and decodes iBeacon adverts
-  (`BeaconParser`: Apple company id `0x004C`, `02 15 <uuid> …`).
+  (`BeaconParser`: Apple company id `0x004C`, `02 15 <uuid> …`). The scan is
+  filtered to those adverts: Android refuses *unfiltered* scans while the
+  screen or location is off, which is the normal state of a TV box.
 - `BeaconTracker` keeps a 20 s window per beacon and reports the **median**
   RSSI every 2 s — the same shape as `pkgs/room-presence/room_presence.py`, so
   the router treats it identically.
@@ -32,7 +34,7 @@ also pushes this deployment's configuration.
 ## Configuration (the provisioner sends this)
 
 ```bash
-adb shell am broadcast -a com.lanbat.presence.CONFIG \
+adb shell am broadcast -p com.lanbat.presence -a com.lanbat.presence.CONFIG \
   --es room "Living Room" \
   --es router_url "ws://192.168.1.10:8770/v1/body" \
   --es beacons '{"5affd0d5-9828-435c-b177-4221519517e0":"momchilov"}'
@@ -40,6 +42,8 @@ adb shell am start-foreground-service -n com.lanbat.presence/.PresenceService
 ```
 
 The map is `uuid -> person key`; dashes and case in the UUID are optional.
+`-p` matters: a manifest receiver does not get an implicit broadcast on
+Android 8+, so the intent must name the package.
 The second command is needed because Android 12+ refuses a foreground service
 started from the background by a broadcast; `am` from adb is allowed.
 `presence` (the provisioner resource) sends both commands for you.
@@ -51,10 +55,26 @@ Runtime permissions the provisioner grants:
 ```bash
 adb shell pm grant com.lanbat.presence android.permission.BLUETOOTH_SCAN
 adb shell pm grant com.lanbat.presence android.permission.BLUETOOTH_CONNECT
-adb shell pm grant com.lanbat.presence android.permission.POST_NOTIFICATIONS   # Android 13+
-# Android 11 and below only:
 adb shell pm grant com.lanbat.presence android.permission.ACCESS_FINE_LOCATION
+adb shell pm grant com.lanbat.presence android.permission.ACCESS_COARSE_LOCATION
+adb shell pm grant com.lanbat.presence android.permission.ACCESS_BACKGROUND_LOCATION
+adb shell pm grant com.lanbat.presence android.permission.POST_NOTIFICATIONS   # Android 13+
+adb shell appops set com.lanbat.presence android:fine_location allow
+adb shell appops set com.lanbat.presence android:coarse_location allow
+adb shell cmd location set-location-enabled true
+adb shell cmd deviceidle whitelist +com.lanbat.presence
 ```
+
+The background/coarse location and `location` foreground-service type are what
+make a scan from the service count as location access on Android 14 rather than
+background access. The provisioner does all of the above; the filtered scan then
+works even when the box later turns the screen or location off, but the
+permissions have to be granted.
+
+One catch: `usesPermissionFlags="neverForLocation"` is deliberately **not**
+set — Android then filters iBeacons out of the results. That is also why
+`ACCESS_FINE_LOCATION` is needed on every Android version, not just 11 and
+below.
 
 ## Pure logic, verified without the Android SDK
 
@@ -84,7 +104,9 @@ gradle :app:testDebugUnitTest   # the JUnit tests in app/src/test
 A debug APK installs and runs as-is. A release build needs a signing config;
 sign it with the deployment keystore in CI, publish the APK as a GitHub release
 asset, and pin it in `pkgs/android-provision/apks.lock.json` via a `github`
-source, like the suite's other apps.
+source, like the suite's other apps. A debug-signed install must be removed
+(`adb uninstall com.lanbat.presence`) before a differently signed release can
+replace it.
 
 ## Notes / limits
 
@@ -93,7 +115,5 @@ source, like the suite's other apps.
   background behaviour before relying on it.
 - The phone's iBeacon must be advertising (Companion app, battery optimisation
   off). The app cannot fix a phone that stops advertising.
-- `neverForLocation` is deliberately **not** set: Android filters some beacon
-  types (iBeacon included) when it is.
 - The router socket is plain `ws://`, so the manifest sets
   `usesCleartextTraffic="true"`; without it targetSdk 28+ blocks the connection.
