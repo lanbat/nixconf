@@ -85,3 +85,12 @@ def test_pick_stream_prefers_720p_and_wants_one_muxed_file():
     assert pick_stream([{"itag": "137", "url": "https://x/1080"}]) is None
     assert pick_stream([]) is None
     assert pick_stream(None) is None
+
+
+def test_page_keeps_a_picture_and_a_description():
+    items = [{"id": "dQw4w9WgXcQ", "title": "A video",
+              "thumb": "https://youtube.example/vi/dQw4w9WgXcQ/mqdefault.jpg",
+              "description": "About the video"}]
+    results, _ = page(items, 1, 5)
+    assert results[0].thumb.endswith("/vi/dQw4w9WgXcQ/mqdefault.jpg")
+    assert results[0].as_dict()["description"] == "About the video"

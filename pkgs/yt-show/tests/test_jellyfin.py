@@ -28,3 +28,12 @@ def test_the_stream_is_the_transcoder_on_the_screens_address(tmp_path):
     assert url.startswith("http://192.168.1.10:8096/Videos/abc123/stream.mp4?")
     assert "VideoCodec=h264" in url and "AudioCodec=aac" in url
     assert "MaxHeight=720" in url and "api_key=secret-key" in url
+
+
+def test_a_description_and_a_picture_from_the_library():
+    item = _item({"Id": "m1", "Name": "The Matrix", "Type": "Movie",
+                  "Overview": "A hacker learns the truth."},
+                 "http://192.168.1.10:8096", "secret-key")
+    assert item["description"] == "A hacker learns the truth."
+    assert item["thumb"] == ("http://192.168.1.10:8096/Items/m1/Images/Primary"
+                             "?maxWidth=480&quality=90&api_key=secret-key")

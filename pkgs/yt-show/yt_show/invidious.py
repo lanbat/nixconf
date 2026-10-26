@@ -11,6 +11,7 @@ call here may raise InvidiousError and the caller falls back to ytdlp.py.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import aiohttp
@@ -20,6 +21,15 @@ from .core import pick_stream
 
 class InvidiousError(Exception):
     """Invidious did not answer, or answered with something unusable."""
+
+
+def _plain(text: object, limit: int = 240) -> str:
+    """A description as the screen reads it: no tags, one paragraph, short."""
+    if not isinstance(text, str):
+        return ""
+    plain = re.sub(r"<[^>]+>", " ", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return plain if len(plain) <= limit else plain[: limit - 1].rstrip() + "…"
 
 
 class Invidious:
@@ -93,6 +103,10 @@ class Invidious:
                     "title": item.get("title") if isinstance(item.get("title"), str) else "",
                     "channel": item.get("author") if isinstance(item.get("author"), str) else "",
                     "seconds": item.get("lengthSeconds"),
+                    # Invidious serves the thumbnail itself, on the domain the
+                    # Show trusts, rather than i.ytimg.com.
+                    "thumb": f"{self.public}/vi/{vid}/mqdefault.jpg",
+                    "description": _plain(item.get("description")),
                 })
         return out
 
@@ -116,6 +130,8 @@ class Invidious:
                 "title": item.get("title") if isinstance(item.get("title"), str) else "",
                 "channel": item.get("author") if isinstance(item.get("author"), str) else "",
                 "seconds": item.get("lengthSeconds"),
+                "thumb": f"{self.public}/vi/{vid}/mqdefault.jpg",
+                "description": _plain(item.get("description")),
             })
         return title, out
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from .assets import BAT_SVG
 from .core import PAGE_SIZE, is_id, page as page_of, video_id
 from .invidious import Invidious, InvidiousError
 from .jellyfin import Jellyfin, JellyfinError
@@ -89,6 +90,17 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
     def bad(what: str) -> web.Response:
         return web.json_response({"error": what}, status=400)
 
+    def decorate(items: list[dict]) -> list[dict]:
+        """Every result gets a picture and a description field: the source's
+        own, or the bat placeholder on the domain the screen trusts."""
+        base = (cfg.media_url_base or "").rstrip("/")
+        bat = f"{base}/media/bat.svg" if base else ""
+        for item in items:
+            if bat and not item.get("thumb"):
+                item["thumb"] = bat
+            item.setdefault("description", "")
+        return items
+
     async def search(query: str, want: int) -> tuple[list[dict], bool, str] | None:
         """(items numbered from 1, another page follows, source), or None when
         neither source could answer.
@@ -144,7 +156,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                     or len(films) > film_offset + film_slots
                 )
                 numbered, _ = page_of(chunk, 1, cfg.page_size)
-                return [r.as_dict() for r in numbered], more, "invidious"
+                return decorate([r.as_dict() for r in numbered]), more, "invidious"
             except InvidiousError as exc:
                 LOG.warning("invidious search failed, trying yt-dlp: %s", exc)
         try:
@@ -154,7 +166,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
             return None
         chunk = items[want : want + cfg.page_size]
         numbered, _ = page_of(chunk, 1, cfg.page_size)
-        return [r.as_dict() for r in numbered], len(items) >= want + cfg.page_size, "yt-dlp"
+        return decorate([r.as_dict() for r in numbered]), len(items) >= want + cfg.page_size, "yt-dlp"
 
     async def contents(plid: str, want: int) -> tuple[str, list[dict], bool, str] | None:
         """(title, videos numbered from 1, another page follows, source) of a
@@ -290,7 +302,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
             return web.json_response({"error": "Jellyfin could not list it"}, status=502)
         numbered, _ = page_of(items, 1, cfg.page_size)
         title = body.get("title") if isinstance(body.get("title"), str) else ""
-        return web.json_response({"title": title, "items": [r.as_dict() for r in numbered],
+        return web.json_response({"title": title, "items": decorate([r.as_dict() for r in numbered]),
                                   "has_next": more, "page": page, "source": "jellyfin"})
 
     async def on_resolve(request: web.Request) -> web.Response:
@@ -345,10 +357,14 @@ def make_media_app(cfg: Config) -> web.Application:
             raise web.HTTPNotFound()
         return web.FileResponse(path)
 
+    async def bat(_request: web.Request) -> web.Response:
+        return web.Response(text=BAT_SVG, content_type="image/svg+xml")
+
     async def health(_request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "cache": bool(cache)})
 
     app = web.Application()
+    app.router.add_get("/media/bat.svg", bat)
     app.router.add_get("/media/{name}", media)
     app.router.add_get("/healthz", health)
     return app

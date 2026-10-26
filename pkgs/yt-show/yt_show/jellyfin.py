@@ -26,7 +26,15 @@ def _seconds(ticks: object) -> int | None:
     return int(ticks / 10_000_000)
 
 
-def _item(obj: object) -> dict | None:
+def _text(value: object, limit: int = 240) -> str:
+    """A description as the screen reads it: one paragraph, short."""
+    if not isinstance(value, str):
+        return ""
+    plain = " ".join(value.split())
+    return plain if len(plain) <= limit else plain[: limit - 1].rstrip() + "…"
+
+
+def _item(obj: object, thumb_base: str = "", key: str = "") -> dict | None:
     if not isinstance(obj, dict):
         return None
     item_id, name = obj.get("Id"), obj.get("Name")
@@ -38,6 +46,12 @@ def _item(obj: object) -> dict | None:
     channel = obj.get("SeriesName") if isinstance(obj.get("SeriesName"), str) else ""
     out: dict = {"source": "jellyfin", "kind": kind, "id": item_id,
                  "title": name.strip(), "channel": channel if kind == "episode" else ""}
+    description = _text(obj.get("Overview"), limit=240)
+    if description:
+        out["description"] = description
+    if thumb_base:
+        out["thumb"] = (f"{thumb_base}/Items/{item_id}/Images/Primary"
+                        f"?maxWidth=480&quality=90&api_key={key}")
     seconds = _seconds(obj.get("RunTimeTicks"))
     if seconds is not None:
         out["seconds"] = seconds
@@ -98,11 +112,12 @@ class Jellyfin:
             "IncludeItemTypes": TYPES,
             "Recursive": "true",
             "Limit": limit,
-            "Fields": "ProductionYear,RunTimeTicks,SeriesName,ChildCount",
+            "Fields": "ProductionYear,RunTimeTicks,SeriesName,ChildCount,Overview",
         })
+        thumb_base, key = self.public_url, self._key()
         out: list[dict] = []
         for obj in data.get("Items") or []:
-            item = _item(obj)
+            item = _item(obj, thumb_base, key)
             if item is not None:
                 out.append(item)
         return out
@@ -112,11 +127,12 @@ class Jellyfin:
         data = await self._get(f"/Shows/{series}/Episodes", {
             "StartIndex": start,
             "Limit": limit,
-            "Fields": "RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber",
+            "Fields": "RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,Overview",
         })
+        thumb_base, key = self.public_url, self._key()
         out: list[dict] = []
         for obj in data.get("Items") or []:
-            item = _item(obj)
+            item = _item(obj, thumb_base, key)
             if item is None:
                 continue
             if isinstance(obj, dict):

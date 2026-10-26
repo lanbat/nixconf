@@ -2,7 +2,7 @@
 import pytest
 
 from yt_show.invidious import InvidiousError
-from yt_show.server import Config, make_app
+from yt_show.server import Config, make_app, make_media_app
 from yt_show.ytdlp import YtDlpError
 
 ITEMS = [
@@ -131,6 +131,23 @@ async def test_a_search_stops_at_six_pages_and_says_there_is_more(aiohttp_client
     assert body["has_next"] is False
     assert body["more"] is True
     assert (await client.post("/search", json={"query": "x", "page": 7})).status == 400
+
+
+async def test_a_result_without_a_picture_gets_the_bat(aiohttp_client):
+    cfg = Config(invidious_url="http://invidious.test", page_size=5,
+                 media_url_base="https://yt.example/")
+    client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(), ytdlp=FakeYtDlp()))
+    body = await (await client.post("/search", json={"query": "kittens"})).json()
+    assert body["items"][0]["thumb"] == "https://yt.example/media/bat.svg"
+    assert body["items"][0]["description"] == ""
+
+
+async def test_the_media_app_serves_the_bat(aiohttp_client):
+    media = await aiohttp_client(make_media_app(Config()))
+    resp = await media.get("/media/bat.svg")
+    assert resp.status == 200
+    assert resp.content_type == "image/svg+xml"
+    assert "<svg" in await resp.text()
 
 
 async def test_invidious_down_falls_back_to_ytdlp(aiohttp_client):
