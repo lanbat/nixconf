@@ -62,13 +62,19 @@ class Result:
     duration: str   # "12:34", empty when the source has none
     kind: str = "video"             # video, playlist, radio, track, album, artist, podcast, audiobook
     count: int | None = None        # a playlist's/album's items
-    source: str = "youtube"         # youtube or music-assistant
+    source: str = "youtube"         # youtube, music-assistant or jellyfin
+    thumb: str = ""                 # a picture for the screen; empty when the source has none
+    description: str = ""           # a line or two about it, for the screen
 
     def as_dict(self) -> dict:
         item = {"n": self.n, "kind": self.kind, "source": self.source, "id": self.id,
                 "title": self.title, "channel": self.channel, "duration": self.duration}
         if self.count is not None:
             item["count"] = self.count
+        if self.thumb:
+            item["thumb"] = self.thumb
+        if self.description:
+            item["description"] = self.description
         return item
 
 
@@ -119,7 +125,9 @@ def page(items: list[dict], number: int, size: int = PAGE_SIZE) -> tuple[list[Re
             continue
         out.append(Result(position, vid, title.strip(), str(item.get("channel") or "").strip(),
                           duration(item.get("seconds")), kind,
-                          count if type(count) is int and count >= 0 else None, source))
+                          count if type(count) is int and count >= 0 else None, source,
+                          str(item.get("thumb") or "").strip(),
+                          str(item.get("description") or "").strip()))
     return out, len(items) > start + size
 
 
