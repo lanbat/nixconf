@@ -1947,28 +1947,34 @@ in
         # so Home Assistant composes each row from the router's MQTT result
         # sensors: title, facts and description as the state, the thumbnail as
         # the picture. The screen shows these as tiles.
-        template = lib.mkIf hasTechos {
-          sensor = lib.concatLists (
-            lib.mapAttrsToList (
-              _: d:
-              let
-                slug = screenSlug d.room;
-              in
-              map (
-                i:
-                let
-                  src = "sensor.lanbat_screen_${slug}_media_result_${toString i}";
-                in
-                {
-                  name = "lanbat_screen_${slug}_media_row_${toString i}";
-                  unique_id = "lanbat_screen_${slug}_media_row_${toString i}";
-                  picture = "{{ state_attr('${src}', 'entity_picture') or '' }}";
-                  state = "{% set t = states('${src}') %}{% if t in ['none', 'unknown', 'unavailable'] %}none{% else %}{% set f = (state_attr('${src}', 'facts') or []) | join(' · ') %}{% set d = state_attr('${src}', 'description') or '' %}{{ (t ~ (' · ' ~ f if f else '') ~ (' — ' ~ d if d else '')) | truncate(250) }}{% endif %}";
-                }
-              ) (lib.range 1 5)
-            ) techo5Devices
-          );
-        };
+        # follow-me defines `template` as a list of groups too; mkAfter joins
+        # them instead of colliding on one key.
+        template = lib.mkIf hasTechos (
+          lib.mkAfter [
+            {
+              sensor = lib.concatLists (
+                lib.mapAttrsToList (
+                  _: d:
+                  let
+                    slug = screenSlug d.room;
+                  in
+                  map (
+                    i:
+                    let
+                      src = "sensor.lanbat_screen_${slug}_media_result_${toString i}";
+                    in
+                    {
+                      name = "lanbat_screen_${slug}_media_row_${toString i}";
+                      unique_id = "lanbat_screen_${slug}_media_row_${toString i}";
+                      picture = "{{ state_attr('${src}', 'entity_picture') or '' }}";
+                      state = "{% set t = states('${src}') %}{% if t in ['none', 'unknown', 'unavailable'] %}none{% else %}{% set f = (state_attr('${src}', 'facts') or []) | join(' · ') %}{% set d = state_attr('${src}', 'description') or '' %}{{ (t ~ (' · ' ~ f if f else '') ~ (' — ' ~ d if d else '')) | truncate(250) }}{% endif %}";
+                    }
+                  ) (lib.range 1 5)
+                ) techo5Devices
+              );
+            }
+          ]
+        );
         script = {
           # The results view's taps and page buttons ask the router through Home
           # Assistant's own conversation service: "play 2", "go to page 3".
