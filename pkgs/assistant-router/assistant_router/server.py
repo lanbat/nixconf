@@ -64,6 +64,12 @@ TOOL_ACTIONS = {
     "media_control": set(actions.MEDIA_SERVICE.values()),
 }
 
+# Read-only functions the cloud model may call. Home Assistant runs them and
+# returns the result (_function_result, setup-ha.sh's get_forecast): there is
+# no action to check, and the function fixes the entity itself, so they are
+# let through as they are.
+READ_TOOLS = {"get_forecast"}
+
 # A tool the router runs itself, not Home Assistant: it registers the person
 # speaking now against Frigate's face library and the runtime people. Offered
 # to the cloud model only when a camera can capture a face (the capture is the
@@ -226,7 +232,8 @@ def _turn(messages: list[dict]) -> tuple[str, str, list[dict]]:
 
 def _allowed(calls: list[dict], ctx: Context | None) -> bool:
     """Every call is one of the agent's functions, on an exposed entity, with
-    an action its spec lists."""
+    an action its spec lists. A read tool (the forecast) names no action and
+    fixes its own entity, so it is let through as it is."""
     ids = {e.entity_id for e in ctx.entities} if ctx else set()
     for call in calls:
         fn = call.get("function") or {}
@@ -234,7 +241,11 @@ def _allowed(calls: list[dict], ctx: Context | None) -> bool:
             args = json.loads(fn.get("arguments") or "")
         except (TypeError, ValueError):
             return False
-        if not isinstance(args, dict) or fn.get("name") not in TOOL_ACTIONS:
+        if not isinstance(args, dict):
+            return False
+        if fn.get("name") in READ_TOOLS:
+            continue
+        if fn.get("name") not in TOOL_ACTIONS:
             return False
         if args.get("entity_id") not in ids or args.get("action") not in TOOL_ACTIONS[fn["name"]]:
             return False
@@ -764,7 +775,11 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             if any((c.get("function") or {}).get("name") == "forget_person" for c in calls):
                 return await _forget(device, tool_results)
             return _tool_reply(calls) if _allowed(calls, ctx) else finish(device, REFUSED, tool_results)
-        text = msg.get("content") or ""
+        text = (msg.get("content") or "").strip()
+        if not text:
+            # A thinking model can spend its whole reply budget on reasoning
+            # and return no text at all: say something rather than nothing.
+            return finish(device, CLOUD_DOWN, tool_results)
         room = ctx.room if ctx else ""
         if bodies.has(room):
             mood, gesture, text = body_mod.split_tag(text)

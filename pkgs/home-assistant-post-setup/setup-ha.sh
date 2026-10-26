@@ -826,6 +826,27 @@ FUNCTIONS
         target:
           entity_id: "{{ entity_id }}"
 FUNCTIONS
+    # The weather forecast: Home Assistant runs the service and hands its
+    # result to the cloud model as _function_result (the component's own
+    # calendar example does the same). The met integration's entity is the
+    # house's weather; the model only has to ask for the forecast.
+    cat <<'FUNCTIONS'
+- spec:
+    name: get_forecast
+    description: The weather forecast for home, today and the next few days. Use it when someone asks about the weather or the forecast.
+    parameters:
+      type: object
+      properties: {}
+  function:
+    type: script
+    sequence:
+    - action: weather.get_forecasts
+      data:
+        type: daily
+      target:
+        entity_id: weather.forecast_home
+      response_variable: _function_result
+FUNCTIONS
   fi
 }
 
@@ -1430,7 +1451,15 @@ if [[ "$needs_work" != true ]]; then
 fi
 
 log "applying home assistant post-setup changes"
-systemctl stop home-assistant.service
+# During activation systemd is still finishing its own transaction and can
+# cancel this job, so the command fails even though Home Assistant does stop.
+# Wait until it is really down before writing its config either way.
+systemctl stop home-assistant.service || true
+for _ in $(seq 1 30); do
+  state=$(systemctl show -p ActiveState --value home-assistant.service 2>/dev/null || echo inactive)
+  [[ "$state" == "inactive" || "$state" == "failed" ]] && break
+  sleep 1
+done
 
 ensure_mqtt
 ensure_frigate
