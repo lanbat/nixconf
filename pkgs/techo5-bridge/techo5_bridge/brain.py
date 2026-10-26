@@ -90,6 +90,9 @@ class DeviceConfig:
     # the router shows a search's results the screen is this page, not a view
     # of the dashboard, so it fills the screen with no Home Assistant around it.
     results_page: str = ""
+    # The streamed home page ("web:Home"): the clock, who is around and what is
+    # next, in the same look.  Set, it is every view of the screen but results.
+    home_page: str = ""
     settings: dict[str, Any] = field(default_factory=dict)
     profiles: dict[str, Profile] = field(default_factory=dict)  # person key -> theirs
     household: Profile = field(default_factory=Profile)
@@ -104,6 +107,7 @@ class DeviceConfig:
     def from_json(cls, data: dict, token: str = "", ssh_keys: str = "") -> "DeviceConfig":
         return cls(name=data["name"], room=data["room"], dashboard=data.get("dashboard") or "",
                    results_page=data.get("results_page") or "",
+                   home_page=data.get("home_page") or "",
                    settings=dict(data.get("settings") or {}),
                    profiles={k: Profile.from_json(v) for k, v in (data.get("profiles") or {}).items()},
                    household=Profile.from_json(data.get("household")),
@@ -595,6 +599,8 @@ class Brain:
             view = self._view_override or p.view
             if self._view_override == "media" and self.cfg.results_page:
                 path = self.cfg.results_page
+            elif self.cfg.home_page:
+                path = self.cfg.home_page
             else:
                 path = f"{self.cfg.dashboard}/{view}" if view else self.cfg.dashboard
             if path != self._noted_view:

@@ -28,9 +28,9 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
   - a frame when a person comes into view, for Frigate to name ("seen"), and one for
     "remember me";
   - a greeting as a notification;
-  - the room's person's own screen (see below): their dashboard view, glance chips,
-    calendars and Immich photos; the household's for nobody, someone unknown or several
-    people;
+  - the room's person's own screen (see below): the LANBAT home page, which greets them,
+    says who is around and shows their calendar and reminders; the household's for nobody,
+    someone unknown or several people;
   - while the screen is on, a fetch every 60 seconds of that view's reminders, to-dos and
     calendar events from Home Assistant (the voice satellite user's token), sent to the
     assistant router as plain item payloads;
@@ -39,15 +39,18 @@ bridge's own (`ssh-keygen -t ed25519 -N ""`) into `techo5-ssh-key.age`.
   - the screen off after `screenOffAfter` minutes of an empty, idle room, on again when
     anyone comes back;
   - the household's phones in its Bluetooth adverts, as a room sensor.
-- **Dashboards**: `lanbat-screen-<room>`, drawn by the device, a view per person.
+- **Screens**: dashcast streams LANBAT's own pages to the Show (`web:Home` normally,
+  `web:Results` while a search is open — `services/dashcast.nix`), so the whole screen is one
+  design. The generated `lanbat-screen-<room>` Home Assistant dashboards remain for a device
+  that does not use the pages.
 - `script.lanbat_notify_person` sends a message to the body beside a person.
 - **Jellyfin can play to it** (`techo5Devices.<room>.dlna`, on by default): the bridge turns
   on the device's DLNA, Video and DLNA video switches, and Jellyfin's firewall lets its
   address reach Jellyfin's discovery and event ports. See "Playing Jellyfin on the screen".
 - **Media can be asked for by voice** ("play … on the kitchen screen"): the assistant searches
-  YouTube and Music Assistant, shows the first five results on the screen, plays a video as
-  the H.264 MP4 the screen takes, and music/radio/podcasts on the room's speaker. See "Playing
-  video, music, radio and podcasts on the screen".
+  YouTube, Music Assistant and Jellyfin, shows the results as rows on the screen's own page,
+  plays a video as the H.264 MP4 the screen takes, and music/radio/podcasts on the room's
+  speaker. See "Playing video, music, radio and podcasts on the screen".
 
 ## What the person's screen shows
 
@@ -84,13 +87,17 @@ The **house calendar** is in everyone's: the household profile's calendars
 each, in **Next up** and on the device's calendar page, whether the person's come from the
 profile or from what they chose.
 
-When one person is alone, their dashboard view (`lanbat-screen-<room>`, path
-`<person key>`) is a stack of sections, top to bottom: a greeting, **Reminders** (hidden
-when there are none), **Next up** (today and tomorrow, up to three events), **To-do**
-(the first open items and a “more” count), then **Home** (glance chips, the room's lights
-off button, weather and who's where). The household view keeps the greeting, **Next up**
-and **Home** only. On narrow screens (under 600 px width) the **Home** section hides; the
-greeting and reminders never do.
+The screen is the **LANBAT home page** (`web:Home`): the assistant router serves it at
+`/screen` and dashcast streams it (`services/dashcast.nix`). It shows the time and the date,
+who is around and in which room, the next few calendar events and, when one person is alone,
+their reminders — all in the same dark-and-amber look as the results page. The household view
+is the same page with a welcome instead of a name, the house's own calendars, and no one
+person's reminders. A person's own view differs by what the router knows (who is in front and
+where everyone is) and by the items the bridge sends, so the profile's calendars, to-do list
+and photos still decide the content; the page is one design, not one per person.
+
+The generated Home Assistant dashboards (`lanbat-screen-<room>`, a view per person) remain as
+the fallback for a screen that is not given the pages; they are not what a LANBAT Show shows.
 
 The bridge reads the lists and calendars with `todo.get_items` and
 `calendar.get_events`, then sends items to the router. The router publishes MQTT sensors
