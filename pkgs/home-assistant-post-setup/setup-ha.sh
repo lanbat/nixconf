@@ -688,9 +688,15 @@ llm_api_key() {
 # differs (services/llama-cpp.nix): no clock and no device states. Anything
 # per-request in this text costs the model the whole prompt again, many seconds
 # on the server's CPU. The model has one function, so it cannot pick the wrong
-# one (the small local model did, calling a read function for a command);
-# questions about a device's state are answered by Home Assistant's own
-# intents before a request ever reaches it (prefer_local_intents).
+# one (the small local model did, calling a read function for a command).
+#
+# The pipeline does not try Home Assistant's intents first
+# (prefer_local_intents: false). With them on, "play The Matrix" matched the
+# built-in search-and-play intent, which found an album of that name in Music
+# Assistant and played its soundtrack, so the request never reached the router
+# and no video list appeared. Media has to reach the router: it is the only
+# agent that searches YouTube, Music Assistant and Jellyfin together. Device
+# actions stay quick through the router's own local triage.
 llm_prompt() {
   if [ "${LLM_ROUTER:-0}" = 1 ]; then
     # The assistant router reads this block (pkgs/assistant-router/assistant_router/context.py)
@@ -933,7 +939,7 @@ pipeline_json() {
       tts_voice: $tts_voice,
       wake_word_entity: "wake_word.openwakeword",
       wake_word_id: $wake_word,
-      prefer_local_intents: true
+      prefer_local_intents: false
     }'
 }
 
