@@ -8,19 +8,26 @@
 # - SQLite backend — simple and sufficient for a small homelab.
 # - Listens on localhost:8222 (HTTP) and 3012 (WebSocket notifications).
 # - Caddy terminates TLS and reverse-proxies both endpoints.
+# - Login is Vaultwarden's own (Bitwarden): signups are disabled and users
+#   are invited from the admin panel. When the identity provider runs on the
+#   host, login goes through it instead — the catalogue provisions the
+#   OAuth2 provider and application (client id "vaultwarden"), SSO signs in
+#   by matching the email to an existing account, and the offline_access
+#   scope lets Bitwarden clients refresh without a new consent.
 # - Admin panel is protected by the admin token secret (not Authentik
 #   forward auth, because Bitwarden clients need unauthenticated API access
 #   to /api, /identity, etc.).
-# - Signups are disabled by default; invite users from the admin panel.
 #
 # Secrets
 # -------
-# vaultwarden-admin-token.age — plaintext bcrypt hash or random token used
-#   to access /admin.  Generate with:
+# vaultwarden-env.age — KEY=value lines the service reads:
+#   ADMIN_TOKEN=<token> — used to access /admin.  Generate with:
 #     echo -n "yourpassword" | argon2 $(openssl rand -base64 32) -id -t 3 \
 #       -m 65540 -p 4 | grep "Encoded:" | cut -d' ' -f2
-#   Or for a simpler (less secure) approach, just use a random string and
-#   Vaultwarden will accept it as-is (not hashed).
+#     (a plain random string also works; Vaultwarden accepts it as-is)
+#   SSO_CLIENT_SECRET=<secret> — the same value as
+#     AUTHENTIK_VAULTWARDEN_CLIENT_SECRET in authentik-oidc-secrets.age;
+#     generate both with secrets/generate-oidc-secrets.sh.
 #
 # State
 # -----
@@ -29,6 +36,11 @@
 # Always-on: yes.  No NFS dependency.
 { config, lib, ... }:
 
+# SSO is only offered when the identity provider runs on this host;
+# otherwise the admin-token login (master password) remains the way in.
+let
+  hasSso = config.lanbat.hasService "authentik";
+in
 {
   lanbat.services.vaultwarden = {
     subdomain = "vault";
@@ -44,10 +56,15 @@
         reverse_proxy localhost:3012
       }
     '';
+    oidc = {
+      redirectPaths = [ "/identity/connect/oidc-signin" ];
+      # Refresh tokens, so Bitwarden clients stay signed in.
+      extraScopes = [ "offline_access" ];
+    };
+    access.groups = [ "vaultwarden" ];
     tier = "workload";
     state = [ "vaultwarden" ];
     units = [ "vaultwarden" ];
-    # One line: ADMIN_TOKEN=<token>
     secrets.vaultwarden-env = { };
     dashboard = {
       group = "Utilities";
@@ -82,16 +99,32 @@
       # Log level: warn is quiet enough for daily use.
       LOG_LEVEL = "warn";
 
-      # ADMIN_TOKEN and SSO_CLIENT_SECRET are set via environmentFile below.
+      # SSO via the identity provider (see Design). Matching the email to an
+      # existing account means the account must already exist (invited); a
+      # fresh email cannot create one over SSO.
+      SSO_ENABLED = hasSso;
+      SSO_CLIENT_ID = "vaultwarden";
+      SSO_AUTHORITY = "https://auth.${config.lanbat.deployment.domain}/application/o/vaultwarden/";
+      SSO_SCOPES = "email profile offline_access";
+      # SSO signs in by matching the OIDC email to a Vaultwarden account
+      # (Bitwarden's model: the account is the vault, so one must exist — see
+      # Design). Trust Authentik's verified email for an account created here
+      # from the admin API, so signing in never needs an invitation email.
+      SSO_SIGNUPS_MATCH_EMAIL = true;
+      SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION = true;
 
-      # SSO via Authentik OIDC — enable once vaultwarden-env.age includes
-      # SSO_CLIENT_SECRET and an Authentik OIDC app exists for vaultwarden.
-      SSO_ENABLED = false;
+      # ADMIN_TOKEN and SSO_CLIENT_SECRET come from the environmentFile below.
     };
 
-    # Inject the admin token from an agenix-managed secret file.
-    # The file must contain exactly one line:
-    #   ADMIN_TOKEN=<token>
+    # KEY=value lines from the agenix-managed secret file (see Secrets).
     environmentFile = config.lanbat.secrets.vaultwarden-env.path;
+  };
+
+  # SSO token/userinfo calls hit https://auth.<domain> server-side; trust
+  # the internal Caddy CA (global environment.variables do not reach units).
+  systemd.services.vaultwarden = lib.mkIf hasSso {
+    serviceConfig.Environment = [
+      "SSL_CERT_FILE=/var/lib/caddy-local-ca/ca-certificates.crt"
+    ];
   };
 }

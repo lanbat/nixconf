@@ -307,6 +307,18 @@ let
                     derive it from the service name.
                   '';
                 };
+                extraScopes = mkOption {
+                  type = types.listOf types.str;
+                  default = [ ];
+                  example = [ "offline_access" ];
+                  description = ''
+                    Extra OpenID Connect scopes beyond the catalogue's default
+                    `openid`, `email` and `profile`, each appended to the
+                    provider's property mappings. The scope must exist as an
+                    Authentik scope mapping (the system blueprint provides the
+                    standard ones, such as `offline_access`).
+                  '';
+                };
               };
             }
           );

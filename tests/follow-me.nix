@@ -298,8 +298,8 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && c.lightsOffMinutes == 5
       && c.lightsOffAny == false
       && c.lightsOffAnyMinutes == 10
-      && c.followSeconds == 8
-      && c.followCooldownSeconds == 45
+      && c.followSeconds == 4
+      && c.followCooldownSeconds == 20
       && c.musicPauseMinutes == 15
       && c.unlocatedMinutes == 20
       && c.darkLux == 30
@@ -550,7 +550,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       let
         t = lib.head musicFollow.triggers;
       in
-      t.entity_id == "input_text.followme_lastroom_alex" && t.for.seconds == 8
+      t.entity_id == "input_text.followme_lastroom_alex" && t.for.seconds == 4
     )
     + expect "music: only between rooms that have music on" (
       let
@@ -572,7 +572,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
           && lib.hasInfix "playing" c
           && lib.hasInfix "_occupied" c
           && lib.hasInfix "last_triggered" c
-          && lib.hasInfix "45" c
+          && lib.hasInfix "20" c
           && lib.hasInfix "dst_free" v
         )
     + expect "music: only Music Assistant players (no TV, no Kodi)" (

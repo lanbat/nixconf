@@ -131,15 +131,20 @@ lists the groups allowed in, `lanbat.services.<name>.access.groups`. The Authent
 catalogue then binds those groups to the service's applications (forward auth and
 OIDC), and everyone else gets Authentik's "Permission denied". Syncthing sets it to
 `[ "authentik Admins" ]` (Authentik's built-in admin group) by default; a profile
-overrides that like any other value:
+overrides that like any other value, for instance to a dedicated group instead of
+every authentik admin:
 
 ```nix
-{ lanbat.services.syncthing.access.groups = [ "authentik Admins" "family" ]; }
+{ lanbat.services.syncthing.access.groups = [ "syncthing" ]; }
 ```
 
 A group Authentik does not have yet is created, empty, so a mistyped name locks the
 service rather than opening it. Blueprints only add and update, so a group you
 remove from the list keeps its binding until you delete it in Authentik's admin UI.
+
+Who belongs to those groups is declared the same way, under
+`lanbat.deployment.authentik` (the `users` blueprint): each user's `groups` is its
+full membership, and a group it names is created if missing.
 
 ## Roles
 

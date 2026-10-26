@@ -37,6 +37,8 @@ let
     "deployment.techo5Devices"
     # Nobody to recognise is a valid household setting, not a placeholder.
     "deployment.people"
+    # No declarative users is a valid instance setting, not a placeholder.
+    "deployment.authentik"
     # One admin key (adminSshKey) is enough; the extra keys are optional.
     "deployment.extraAdminSshKeys"
     "deployment.dns"

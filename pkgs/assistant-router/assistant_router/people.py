@@ -59,6 +59,8 @@ HOME = 2.0              # × prior: their phone is on the home network
 CARD = 100.0            # × prior: they just tapped their card, or their phone, on the robot
 HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
 ROOM_MARGIN_DB = 6      # a phone this much quieter than in its loudest room isn't there
+SWITCH_DB = 4           # ...and another room must be this much louder to take them over
+SWITCH_HOLD_S = 6.0     # ...for this long: one noisy sample must not move the music
 FACE = 6.0              # × prior: their face is in the room
 VOICE_PRESENT = FACE    # × prior: their voice was clearly heard in the room (last 5 min)
 CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
@@ -125,6 +127,11 @@ class People:
         self._voice: dict[str, tuple[dict[str, float], float]] = {}
         # room key -> the room's name as it was last given (where())
         self._rooms: dict[str, str] = {}
+        # person -> the room where() last put them (a key), and the room trying
+        # to take them with when it started leading: the hysteresis that keeps
+        # two rooms hearing one phone through a wall from taking turns.
+        self._held: dict[str, str] = {}
+        self._challenger: dict[str, tuple[str, float]] = {}
 
     def add(self, key: str, name: str) -> None:
         self.names[str(key)] = str(name)
@@ -132,6 +139,8 @@ class People:
     def remove(self, key: str) -> None:
         self.names.pop(str(key), None)
         self.strangers.discard(str(key))
+        self._held.pop(str(key), None)
+        self._challenger.pop(str(key), None)
 
     def observe(self, room: str, source: str, person: str, confidence, now: float) -> None:
         if source not in SOURCES or person not in self.names or not room:
@@ -252,15 +261,74 @@ class People:
         rooms = {r for r, by in self._seen.items() if any(person in found for found in by.values())}
         rooms |= {r for (_, r) in self._signal.get(person, {})}
         best: tuple[str, float, list[str]] = ("", 0.0, [])
+        best_rssi: int | None = None
         for room in sorted(rooms):
             sure, by = self.here(room, now).get(person, (0.0, []))
-            if sure > best[1]:
+            if sure <= 0.0:
+                continue
+            # Two rooms hear a phone through the wall and tie on confidence; the
+            # loudest one wins, not the first alphabetically (someone in the
+            # Office must not read as "Bedroom 1" just because it sorts first).
+            rssi = self._loudest_ble(person, room, now)
+            if sure > best[1] or (
+                    sure == best[1]
+                    and rssi is not None
+                    and (best_rssi is None or rssi > best_rssi)):
                 best = (self._rooms.get(room, room), sure, by)
+                best_rssi = rssi
         if best[0]:
+            best = self._steady(person, best, best_rssi, now)
+            self._held[person] = _key(best[0])
             return best
+        self._challenger.pop(person, None)
         if person in self.home(now):
             return "home", PRESENT_HOME, ["home"]
         return "away", 0.0, []
+
+    def _steady(self, person: str, best: tuple[str, float, list[str]],
+                best_rssi: int | None, now: float) -> tuple[str, float, list[str]]:
+        """Keep someone in the room they are in until another is clearly louder
+        for a while. Two rooms hear one phone through a wall at nearly the same
+        strength; the loudest sample alone flips with the radio's noise, and the
+        music would follow each flip. A face, a voice or a card in the other room
+        is not noise: it moves them at once, as does the old room going quiet."""
+        held = self._held.get(person)
+        if held is None or held == _key(best[0]):
+            self._challenger.pop(person, None)
+            return best
+        if set(best[2]) - {"bluetooth", "wifi", "home"}:
+            self._challenger.pop(person, None)
+            return best
+        held_sure, held_by = self.here(held, now).get(person, (0.0, []))
+        if held_sure <= 0.0:
+            self._challenger.pop(person, None)
+            return best
+        held_rssi = self._loudest_ble(person, held, now)
+        if best_rssi is None or held_rssi is None or best_rssi - held_rssi < SWITCH_DB:
+            self._challenger.pop(person, None)
+            return self._held_answer(held, held_sure, held_by)
+        started = self._challenger.get(person)
+        if started is None or started[0] != _key(best[0]):
+            self._challenger[person] = (_key(best[0]), now)
+            return self._held_answer(held, held_sure, held_by)
+        if now - started[1] < SWITCH_HOLD_S:
+            return self._held_answer(held, held_sure, held_by)
+        self._challenger.pop(person, None)
+        return best
+
+    def _held_answer(self, room: str, sure: float, by: list[str]) -> tuple[str, float, list[str]]:
+        return self._rooms.get(room, room), sure, by
+
+    def _loudest_ble(self, person: str, room: str, now: float) -> int | None:
+        """The loudest recent Bluetooth RSSI for `person` in `room`, or None:
+        the tie-break between rooms that hear the same phone."""
+        here = _key(room)
+        best: int | None = None
+        for (via, r), (rssi, at) in self._signal.get(person, {}).items():
+            if via == "ble" and r == here and now - at <= WINDOW["phone"]:
+                if best is None or rssi > best:
+                    best = rssi
+        return best
 
     def bound(self, room: str, now: float) -> tuple[str | None, float]:
         """Who last tapped their phone or card on `room`'s robot, in the last

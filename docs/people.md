@@ -142,7 +142,7 @@ plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
-host whose satellite has a room (a Pi, or the server), and every 3 s tells the router whose phones it heard in the
+host whose satellite has a room (a Pi, or the server), and every 2 s tells the router whose phones it heard in the
 last 20 seconds, with their signal strength. The router counts a phone as *nearby* for 25
 seconds; a phone never names the speaker. A phone heard by sensors in several rooms (a
 wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
@@ -661,7 +661,7 @@ lists some; someone not listed (a guest) neither moves music nor keeps a room oc
 | **Lights on** | someone arrives in a room (stays 10 s), it is dark (the room's light sensor under 30 lx, or the sun below -1 degree) and it is evening (17:00 to 22:30: 100 %) or night (22:30 to 06:30: 20 %, warm). Never by day, and not if a light is already on. |
 | **Lights off** | the room has been empty 5 minutes, and follow-me turned its lights on. A light you switched on, or off, by hand is left alone unless **Hand-switched lights off** is on. |
 | **Hand-switched lights off** | optional (`lightsOffAny`, default off): the room has been empty `lightsOffAnyMinutes` (10), and any of the room's listed `lights` is on, including ones you switched on by hand. Only those listed lights; a screen's or robot's own light is never touched unless you list it. Respects dry run, pause and guests like the other empty-room rules. |
-| **Music follows** | a person's last room changes and holds 8 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per 45 s per person at most. |
+| **Music follows** | a person's last room changes and holds 4 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per 20 s per person at most. |
 | **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
 
 The first time a person is placed in a room after a fresh install, the music does not follow:

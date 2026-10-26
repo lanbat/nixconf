@@ -261,6 +261,10 @@ let
       path = "media/adult";
       browseable = false; # hidden from share listings
       validUsers = [ "@private" ];
+      readOnly = false; # allow writes over SMB (the default is read-only)
+      createMask = "0660"; # new files: user + private group rw, others none
+      directoryMask = "0770"; # new dirs: user + private group rwx, others none
+      forceGroup = "private"; # everything written stays in the private group
     };
 
     # ---- Shared space ----

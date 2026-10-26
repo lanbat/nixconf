@@ -107,6 +107,7 @@ pkgs.testers.runNixOSTest {
           AUTHENTIK_IMMICH_CLIENT_SECRET=test
           AUTHENTIK_HA_CLIENT_SECRET=test
           AUTHENTIK_JELLYFIN_CLIENT_SECRET=test
+          AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=test
         '';
         nextcloud-admin-pass = "test-admin-password";
         nextcloud-oidc-env = ''

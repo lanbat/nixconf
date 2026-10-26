@@ -142,12 +142,12 @@ in
     };
     followSeconds = mkOption {
       type = seconds;
-      default = 8;
+      default = 4;
       description = "How long someone must stay in a new room before the music follows.";
     };
     followCooldownSeconds = mkOption {
       type = seconds;
-      default = 45;
+      default = 20;
       description = "After the music follows someone, the least time before it follows them again.";
     };
     musicPauseMinutes = mkOption {

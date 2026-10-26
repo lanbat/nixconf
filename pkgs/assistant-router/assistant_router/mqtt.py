@@ -48,7 +48,7 @@ PREFIX = "lanbat"
 DISCOVERY = "homeassistant"
 ROUTER_AVAILABILITY = f"{PREFIX}/router/availability"
 BUTTONS = ("nod", "shake", "tilt", "wiggle", "dance", "look_around")
-TICK_SECONDS = 2.0
+TICK_SECONDS = 1.0
 
 Publish = Callable[[str, str, bool], Awaitable[None]]
 

@@ -191,6 +191,45 @@ def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
     assert p.line("Kitchen", now=35.0) is None
 
 
+def test_a_noisy_neighbour_does_not_move_them_between_rooms():
+    p = People(NAMES)
+    p.observe_phone("Office", "kiril", -70, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+    # The bedroom's sensor is a couple of dB louder now and then: inside the noise.
+    p.observe_phone("Bedroom 1", "kiril", -68, now=2.0)
+    p.observe_phone("Office", "kiril", -71, now=2.0)
+    assert p.where("kiril", now=3.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -69, now=4.0)
+    p.observe_phone("Office", "kiril", -72, now=4.0)
+    assert p.where("kiril", now=5.0)[0] == "Office"
+    # Clearly louder, but within the through-wall margin: it must keep leading.
+    p.observe_phone("Bedroom 1", "kiril", -64, now=6.0)
+    p.observe_phone("Office", "kiril", -70, now=6.0)
+    assert p.where("kiril", now=7.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=12.0)
+    p.observe_phone("Office", "kiril", -70, now=12.0)
+    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"  # six seconds of leading
+
+
+def test_a_face_in_the_other_room_moves_them_at_once():
+    p = People(NAMES)
+    p.observe_phone("Office", "kiril", -70, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+    p.observe("Bedroom 1", "face", "kiril", 0.9, now=2.0)
+    assert p.where("kiril", now=3.0)[0] == "Bedroom 1"
+
+
+def test_going_quiet_in_the_old_room_moves_them_at_once():
+    p = People(NAMES)
+    p.observe_phone("Office", "kiril", -70, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=2.0)  # through the wall, louder
+    assert p.where("kiril", now=3.0)[0] == "Office"
+    # The office stops hearing it; the bedroom still does.
+    p.observe_phone("Bedroom 1", "kiril", -64, now=30.0)
+    assert p.where("kiril", now=31.0)[0] == "Bedroom 1"
+
+
 def test_bluetooth_and_wifi_strengths_are_not_compared():
     p = People(NAMES)
     p.observe_phone("Kitchen", "maria", -85, now=0.0, via="wifi")
@@ -283,6 +322,21 @@ def test_where_is_the_room_they_most_likely_are_in():
     p.observe_home(["maria"], now=401.0)
     assert p.where("maria", 402.0) == ("home", 0.2, ["home"])
     assert p.where("ivo", 402.0) == ("away", 0.0, [])
+
+
+def test_where_prefers_the_loudest_room_when_two_are_placed():
+    # Two rooms hear the phone (a doorway, a thin wall) and both fall within the
+    # 6 dB margin, so both count with the same confidence. The louder one is where
+    # the person is — not the one that happens to sort first alphabetically.
+    p = People(NAMES)
+    p.observe_phone("Bedroom 1", "kiril", -64, now=0.0)
+    p.observe_phone("Office", "kiril", -60, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+
+    q = People(NAMES)
+    q.observe_phone("Bedroom 1", "kiril", -60, now=0.0)
+    q.observe_phone("Office", "kiril", -64, now=0.0)
+    assert q.where("kiril", now=1.0)[0] == "Bedroom 1"
 
 
 def test_a_tap_or_a_card_teaches_their_voice_for_two_minutes():

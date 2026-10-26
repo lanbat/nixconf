@@ -2,14 +2,19 @@
 #
 # The Authentik app catalogue, derived from the service descriptions.
 #
-# Given the lanbat.services of a host, returns the two blueprints as Nix values
-# (render them with ./yaml.nix):
+# Given the lanbat.services of a host, returns the three blueprints as Nix
+# values (render them with ./yaml.nix):
 #
 #   proxy  every service with auth = "forward-auth" gets a proxy provider in
 #          forward_single mode for https://<subdomain>.<domain> and an
 #          application, and the embedded outpost serves all those providers.
 #   oidc   every service with an oidc description gets an OAuth2 provider with
 #          the service name as client ID, and an application.
+#   users  the deployment.authentik option: every named group (the groups map
+#          plus every group a user belongs to) is created if missing, before
+#          the users that reference it, and every declared user is created
+#          with — or brought to — exactly its declared name, email and group
+#          membership. Never a password: that is set in the instance's UI.
 #
 # Names shown in Authentik come from dashboard.name (the service name when a
 # service has no dashboard entry).
@@ -33,10 +38,16 @@
 #                        applications, through the proxy.
 #                        These proxy providers also carry internal_host, as they
 #                        always have (forward_single mode does not use it).
+#   user (users)         the account's username (unique in the instance);
+#                        groups are matched by name, as in the service bindings.
 #
 # The OIDC client secret is read from the Authentik containers' environment
 # with !Env, from the variable AUTHENTIK_<NAME>_CLIENT_SECRET (upper case,
 # dashes as underscores) unless oidc.secretVariable names another.
+#
+# Every OIDC provider maps the openid, email and profile scopes, plus the
+# service's oidc.extraScopes (each must exist as an Authentik scope mapping,
+# e.g. offline_access, created by the system blueprint).
 { lib }:
 
 {
@@ -45,6 +56,8 @@
   authentikHost,
   # config.lanbat.services of the host Authentik runs on.
   services,
+  # config.lanbat.deployment.authentik: the groups and users to manage.
+  authentik,
 }:
 
 let
@@ -141,6 +154,52 @@ let
       attrs = { inherit name; };
     }) (lib.unique (lib.concatMap (svc: svc.access.groups) svcs));
 
+  # ── Users (deployment.authentik) ───────────────────────────────────────────
+  # Every group the option names: the groups map, plus every group a user
+  # belongs to. Created if missing, before the users that reference it, the
+  # same way the service bindings' groups are; an existing group is left as
+  # it is. The null check is explicit because `user.groups or [ ]` would not
+  # do: `or` defaults only a *missing* attribute, and this one exists as null
+  # when the user declares no groups.
+  userGroups = lib.unique (
+    (lib.attrNames authentik.groups)
+    ++ lib.concatMap (user: if user.groups == null then [ ] else user.groups) (
+      lib.attrValues authentik.users
+    )
+  );
+
+  userGroupEntries = map (name: {
+    model = "authentik_core.group";
+    state = "created";
+    identifiers = { inherit name; };
+    attrs = { inherit name; };
+  }) (lib.sort (a: b: a < b) userGroups);
+
+  # state "present": a missing user is created with exactly these attributes
+  # (never a password), and an existing user is brought to exactly them — the
+  # declared email and groups are the account's whole truth afterwards.
+  # Sorted by username, so the blueprint's order does not depend on how the
+  # option's attrset happened to be ordered.
+  userEntries = map (
+    username:
+    let
+      user = authentik.users.${username};
+    in
+    {
+      model = "authentik_core.user";
+      state = "present";
+      identifiers = { inherit username; };
+      attrs = {
+        inherit username;
+        name = user.name;
+        email = user.email;
+      }
+      // lib.optionalAttrs (user.groups != null && user.groups != [ ]) {
+        groups = map (g: find "authentik_core.group" "name" g) user.groups;
+      };
+    }
+  ) (lib.sort (a: b: a < b) (lib.attrNames authentik.users));
+
   proxyEntries =
     svc:
     let
@@ -198,11 +257,14 @@ let
           signing_key = find "authentik_crypto.certificatekeypair" "name" "authentik Self-signed Certificate";
           sub_mode = "hashed_user_id";
           include_claims_in_id_token = true;
-          property_mappings = map (find "authentik_providers_oauth2.scopemapping" "scope_name") [
-            "openid"
-            "email"
-            "profile"
-          ];
+          property_mappings = map (find "authentik_providers_oauth2.scopemapping" "scope_name") (
+            [
+              "openid"
+              "email"
+              "profile"
+            ]
+            ++ svc.oidc.extraScopes
+          );
         };
       }
       (application {
@@ -252,4 +314,6 @@ in
   oidc = blueprint "Homelab OIDC Providers" (
     groupEntries oidcClients ++ lib.concatMap oidcEntries oidcClients
   );
+
+  users = blueprint "Homelab Users" (userGroupEntries ++ userEntries);
 }

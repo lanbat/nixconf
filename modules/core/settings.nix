@@ -471,6 +471,86 @@ in
         '';
       };
 
+      authentik = mkOption {
+        type = types.submodule {
+          options.groups = mkOption {
+            type = types.attrsOf types.attrs;
+            default = { };
+            description = ''
+              Groups the instance should have, by name, that no user entry
+              names. Each is created if missing and otherwise left as it is
+              (services/authentik/catalogue.nix emits them as "created"
+              entries in the users blueprint). A group a user entry names is
+              created the same way, so this is only needed for a group nobody
+              belongs to yet.
+            '';
+          };
+          options.users = mkOption {
+            type = types.attrsOf (
+              types.submodule {
+                options.name = mkOption {
+                  type = types.str;
+                  description = "The display name shown in the instance.";
+                };
+                options.email = mkOption {
+                  type = types.str;
+                  description = ''
+                    The account's email. SSO linkers (Vaultwarden, RomM's
+                    admin email, ...) match on it, so for an existing account
+                    it must be the account's current email: a blueprint
+                    entry's attributes are the account's whole truth after the
+                    next apply, and a wrong email orphans the linked accounts.
+                  '';
+                };
+                options.groups = mkOption {
+                  type = types.nullOr (types.listOf types.str);
+                  default = null;
+                  example = [
+                    "home-assistant"
+                    "syncthing"
+                  ];
+                  description = ''
+                    The account's full group membership. null (the default)
+                    leaves membership as it is — for a new account that means
+                    no groups; for an existing account, whatever it already
+                    has. A list is the whole membership: the groups it names
+                    are added (created if missing) and the groups it omits
+                    are removed.
+                  '';
+                };
+              }
+            );
+            default = { };
+            example = {
+              momchilov = {
+                name = "Kiril";
+                email = "momchilov@example.com";
+                groups = [
+                  "home-assistant"
+                  "syncthing"
+                ];
+              };
+            };
+            description = ''
+              Users to manage in the instance, by username. The users
+              blueprint (services/authentik/catalogue.nix) creates a missing
+              user with exactly these attributes — never a password, which is
+              set in the instance's UI — and brings an existing user to
+              exactly them, so the declared name, email and groups are the
+              account's whole truth afterwards.
+            '';
+          };
+        };
+        default = { };
+        description = ''
+          The Authentik instance's groups and users, managed declaratively by
+          the users blueprint that services/authentik/blueprints.nix mounts as
+          30-users.yaml. Blueprints only add and update: nothing here deletes
+          a user or group that is removed from this option; delete those in
+          the instance's UI.
+        '';
+      };
+
       xiaomiClocks = mkOption {
         type = types.listOf (types.strMatching "([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}");
         default = [ ];

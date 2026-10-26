@@ -219,6 +219,21 @@ in
   services.snapserver = {
     enable = true;
 
+    # Snapcast 0.35.0 segfaults in StreamManager::removeStream when Music
+    # Assistant deletes a stream after a transfer (a coredump on every
+    # follow-me move). 0.34.0 predates the re-added Stream.RemoveStream RPC
+    # path, so MA's delete is a harmless no-op and idle streams expire via
+    # idle_threshold. Pin it until a fixed upstream release exists.
+    package = pkgs.snapcast.overrideAttrs (old: {
+      version = "0.34.0";
+      src = pkgs.fetchFromGitHub {
+        owner = "badaix";
+        repo = "snapcast";
+        rev = "v0.34.0";
+        hash = "sha256-BPsAGFLWUfONuyQ1pzsJzGV/Jlxv+4TkVT1KG7j8H0s=";
+      };
+    });
+
     settings = {
       server = {
         mdns_enabled = true;

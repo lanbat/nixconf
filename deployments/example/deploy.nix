@@ -56,6 +56,20 @@
       alex.name = "Alex";
       sam.name = "Sam";
     };
+    # Users and groups the Authentik instance manages (the users blueprint,
+    # 30-users.yaml; services/authentik/catalogue.nix). A user is created
+    # without a password, which is set in the instance's UI; the declared
+    # email and groups are the account's whole truth afterwards.
+    authentik = {
+      users.momchilov = {
+        name = "Kiril";
+        email = "momchilov@example.com";
+        groups = [
+          "home-assistant"
+          "syncthing"
+        ];
+      };
+    };
     # Xiaomi BLE bind keys for Home Assistant, from ha-xiaomi-ble.age.
     haXiaomiBle = true;
     # Xiaomi BLE thermometers with a clock display, for lanbatPlugins.xiaomi-clock.

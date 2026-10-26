@@ -750,6 +750,11 @@ The `vaultwarden-env.age` secret was created in Phase 0c.
 Visit `https://vault.<domain>/admin` to access the admin panel.
 Invite users from there — open signup is disabled.
 
+Once the blueprint has run, the invited users can sign in through the Authentik SSO
+button (in addition to their master password): their authentik account must be a
+member of the `vaultwarden` group, and the account must already exist — SSO matches
+the email to the invited account rather than creating one.
+
 ### 3k. Syncthing initial setup
 
 Visit `https://sync.<domain>` (protected by Authentik forward auth).
