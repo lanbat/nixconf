@@ -1451,7 +1451,15 @@ if [[ "$needs_work" != true ]]; then
 fi
 
 log "applying home assistant post-setup changes"
-systemctl stop home-assistant.service
+# During activation systemd is still finishing its own transaction and can
+# cancel this job, so the command fails even though Home Assistant does stop.
+# Wait until it is really down before writing its config either way.
+systemctl stop home-assistant.service || true
+for _ in $(seq 1 30); do
+  state=$(systemctl show -p ActiveState --value home-assistant.service 2>/dev/null || echo inactive)
+  [[ "$state" == "inactive" || "$state" == "failed" ]] && break
+  sleep 1
+done
 
 ensure_mqtt
 ensure_frigate
