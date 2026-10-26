@@ -289,7 +289,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         if jellyfin is None:
             return web.json_response({"error": "Jellyfin is not configured"}, status=502)
         try:
-            url = jellyfin.stream(item_id)
+            url = await jellyfin.stream(item_id)
         except JellyfinError as exc:
             LOG.warning("jellyfin could not stream %s: %s", item_id, exc)
             return web.json_response({"error": "Jellyfin could not stream it"}, status=502)
