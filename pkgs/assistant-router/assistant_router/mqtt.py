@@ -378,7 +378,10 @@ def media_state(room: str, results: dict | None) -> dict[str, tuple[str, dict]]:
         title = item.get("title")
         attrs = {
             "n": item.get("n", i) if isinstance(item.get("n"), int) else i,
-            "entity_picture": item.get("thumb") if isinstance(item.get("thumb"), str) else "",
+            # "entity_picture" is reserved by Home Assistant's MQTT sensor and
+            # never reaches the attributes; the thumbnail travels as "thumb" and
+            # the row template sensor's picture uses it.
+            "thumb": item.get("thumb") if isinstance(item.get("thumb"), str) else "",
             "description": item.get("description") if isinstance(item.get("description"), str) else "",
             "source": item.get("source") if isinstance(item.get("source"), str) else "",
             "kind": item.get("kind") if isinstance(item.get("kind"), str) else "",

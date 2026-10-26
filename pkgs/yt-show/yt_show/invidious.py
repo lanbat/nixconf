@@ -35,7 +35,7 @@ def _short(value: object) -> str:
         text = f"{value / 1_000:.1f}K"
     else:
         return str(value)
-    return text[:-2] if text.endswith(".0M") or text.endswith(".0K") or text.endswith(".0B") else text
+    return text.replace(".0M", "M").replace(".0K", "K").replace(".0B", "B")
 
 
 def _plain(text: object, limit: int = 240) -> str:
