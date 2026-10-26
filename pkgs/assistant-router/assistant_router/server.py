@@ -30,7 +30,7 @@ from .context import Context, parse_context
 from .evidence import Evidence
 from .frigate import Frigate, FrigateError
 from .hass import Hass, HassError
-from .media_page import PAGE as MEDIA_PAGE
+from .media_page import PAGE as MEDIA_PAGE, VERSION as MEDIA_VERSION
 from .mqtt import HomeAssistant
 from .irks import Irks
 from .lists import Lists, Personal
@@ -1044,7 +1044,12 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         return _screen_room(wanted) or _screen_room("") or ""
 
     async def media_page(_request: web.Request) -> web.Response:
-        return web.Response(text=MEDIA_PAGE, content_type="text/html")
+        return web.Response(text=MEDIA_PAGE, content_type="text/html",
+                            headers={"Cache-Control": "no-store"})
+
+    async def media_version(_request: web.Request) -> web.Response:
+        return web.Response(text=MEDIA_VERSION, content_type="text/plain",
+                            headers={"Cache-Control": "no-store"})
 
     async def media_results(request: web.Request) -> web.Response:
         return web.json_response(_media_list(_media_room(request)))
@@ -1100,6 +1105,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     app.router.add_get("/healthz", healthz)
     app.router.add_post("/v1/voice", voice_report)
     app.router.add_get("/media", media_page)
+    app.router.add_get("/media/version", media_version)
     app.router.add_get("/media/results", media_results)
     app.router.add_post("/media/action", media_action)
     app.router.add_get("/media/thumb", media_thumb)

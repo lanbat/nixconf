@@ -6,6 +6,8 @@ router itself so the page and the API share an origin, and dashcast's browser
 (host networking) reaches both on the loopback.
 """
 
+import hashlib
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -196,6 +198,19 @@ function escapeHtml(s) {
 }
 
 let lastKey = null;
+let version = null;
+
+// The page is streamed by a browser that stays open across a router restart,
+// so a deployed change would not reach the screen until something reloaded
+// it.  Ask for the page's version and reload when it is not ours.
+async function checkVersion() {
+  try {
+    const r = await fetch("/media/version", {cache: "no-store"});
+    const v = (await r.text()).trim();
+    if (!version) version = v;
+    else if (v && v !== version) location.reload();
+  } catch (e) { /* the router is restarting */ }
+}
 
 function fingerprint(data) {
   return JSON.stringify([data.open, data.query, data.page, data.has_next, data.more,
@@ -215,8 +230,15 @@ async function refresh() {
   } catch (e) { /* the router restarted; the next poll will do */ }
 }
 refresh();
+checkVersion();
 setInterval(refresh, 1000);
+setInterval(checkVersion, 15000);
 </script>
 </body>
 </html>
 """
+
+
+# A short id for the page as this build has it, so a page already open on a
+# screen can notice a deployment and reload itself.
+VERSION = hashlib.sha256(PAGE.encode()).hexdigest()[:12]
