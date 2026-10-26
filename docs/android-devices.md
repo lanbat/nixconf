@@ -469,12 +469,13 @@ without an Android SDK — are in `pkgs/android-presence/README.md`.
 `follow-me` accepts a room with an Android presence sensor as a room it can follow
 into, so a box is enough presence for its room; no satellite Pi is needed there.
 
-One limit is the box's firmware, not the app: on the reference Box R 4K Plus
-(Android 14) location services are turned off whenever the display sleeps, and
-setting them back on while it is off is reverted within seconds. Android delivers no
-BLE scan results without location, so the box can only see a phone while its display
-is on. Where presence must work with the TV off, use a Linux `room-presence` scanner
-in that room instead.
+One limit is Google Play Services, not the app: on the reference Box R 4K Plus
+(Android 14) it switches location off whenever the display sleeps until the
+“Turn on location with Location Accuracy?” prompt is accepted, and Android delivers
+no BLE scan results without location. Accept the prompt once (the app logs
+`location services are off` until then); after that location stays on across sleep
+and the box keeps scanning with the TV off. A factory reset brings the prompt back.
+A Linux `room-presence` scanner has no such requirement.
 
 ## Exit codes
 

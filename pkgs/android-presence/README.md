@@ -119,12 +119,13 @@ replace it.
   alive. The periodic restart is what makes the app recover on its own; it
   also logs `location services are off` while that is the case, because
   Android then delivers no iBeacon results at all.
-- **The box turns location off when its display sleeps** (measured on the Box
-  R 4K Plus with Android 14: setting it back on while the display is off is
-  reverted within seconds). Android delivers no BLE results without location,
-  so this app can only see a phone **while the TV is on**. For presence that
-  must work with the TV off, use a Linux scanner (`pkgs/room-presence`) in
-  that room instead; it has no location restriction.
+- **Accept the “Turn on location with Location Accuracy?” prompt** on the box.
+  That is Google Play Services' network-location consent. Until it is accepted,
+  Play Services switches location off whenever the display sleeps, and Android
+  then delivers no BLE scan results at all; once accepted, location stays on
+  across sleep and the box keeps scanning with the TV off. A factory reset (or a
+  Play Services update that revokes it) brings the prompt back — the app logs
+  `location services are off` while the consent is missing.
 - The phone's iBeacon must be advertising (Companion app, battery optimisation
   off). The app cannot fix a phone that stops advertising.
 - The router socket is plain `ws://`, so the manifest sets
