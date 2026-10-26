@@ -154,6 +154,10 @@ in
       # Caddy terminates TLS on 443.
       https_only = true;
       external_port = 443;
+      # The Popular feed is built from the instance users' subscriptions, so
+      # it is empty on a fresh instance and the landing page looks broken.
+      # Land on Trending, which is fetched live from YouTube.
+      default_user_preferences.default_home = "Trending";
       # Companion runs on localhost, so Invidious proxies playback itself.
       invidious_companion = [
         { private_url = "http://127.0.0.1:8282/companion"; }
