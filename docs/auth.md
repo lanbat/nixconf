@@ -107,6 +107,11 @@ to `"forward-auth"` for services that have no login of their own, or when the pa
 of a service that expose personal data should sit behind Authentik (Invidious uses it
 for its account pages only; `caddy.authBypassPaths` keeps browsing open).
 
+Invidious has **no OIDC/SSO**: Authentik gates its personal pages and forwards
+`X-Authentik-*` headers, but Invidious ignores them. Its "logged in" state is
+always an Invidious-local account (`/login`), separate from Authentik — signing
+into Authentik does not sign you into Invidious.
+
 ## How the catalog is generated
 
 `services/authentik/catalogue.nix` walks `lanbat.services` and renders, per service, a
