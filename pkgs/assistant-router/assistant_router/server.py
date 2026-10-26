@@ -30,6 +30,7 @@ from .context import Context, parse_context
 from .evidence import Evidence
 from .frigate import Frigate, FrigateError
 from .hass import Hass, HassError
+from .media_page import PAGE as MEDIA_PAGE
 from .mqtt import HomeAssistant
 from .irks import Irks
 from .lists import Lists, Personal
@@ -391,6 +392,17 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         })
         await bodies.act(room, {"view": "media"})
 
+    def _short_spoken(results: youtube_mod.Results) -> str:
+        """What the assistant says now the screen shows the list: a line, not
+        the whole page read out."""
+        if results.page == 1:
+            return f"{len(results.items)} results for {results.query[:60]}."
+        if results.has_next:
+            return f"Page {results.page}."
+        if results.more:
+            return "That's all I can show; if it's not here, try being more specific."
+        return "That's the last page."
+
     async def _yt_search(device: str, room: str, query: str, page: int) -> dict:
         data = await yt_show.search(query, page)
         if data is None:
@@ -405,10 +417,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                                       more=bool(data.get("more")))
         yt_lists.set(room, results)
         await _publish_list(room, results)
-        # The list stays up while the person decides (brain.py shows a caption
-        # for ten seconds unless told longer).
-        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
-        return finish(device, youtube_mod.spoken(results), [])
+        # The screen shows the list itself (the streamed results page); the
+        # assistant says a line, not the page.
+        return finish(device, _short_spoken(results), [])
 
     async def _yt_contents(device: str, room: str, playlist: str, page: int,
                            title: str = "") -> dict:
@@ -427,8 +438,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         else:
             yt_lists.push(room, results)     # opened from the search above it
         await _publish_list(room, results)
-        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
-        return finish(device, youtube_mod.spoken(results), [])
+        # The screen shows the list itself (the streamed results page); the
+        # assistant says a line, not the page.
+        return finish(device, _short_spoken(results), [])
 
     async def _yt_play(device: str, room: str, video: str, title: str = "") -> dict:
         found = await yt_show.resolve(video)
@@ -495,8 +507,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         else:
             yt_lists.push(room, results)
         await _publish_list(room, results)
-        await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
-        return finish(device, youtube_mod.spoken(results), [])
+        # The screen shows the list itself (the streamed results page); the
+        # assistant says a line, not the page.
+        return finish(device, _short_spoken(results), [])
 
     async def _media_play(device: str, room: str, item: dict) -> dict:
         """A picked result: a video on the screen, music on a speaker, a
@@ -528,8 +541,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             await _publish_list(room, results)
             if results is None:
                 return finish(device, STOPPED, [])
-            await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
-            return finish(device, youtube_mod.spoken(results), [])
+            return finish(device, _short_spoken(results), [])
         if results is None:
             return finish(device, "There's no list to pick from. What should I look for?", [])
         if kind == "play":
@@ -1008,12 +1020,79 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         reports.add(data["text"], {k: v for k, v in data["scores"].items() if k in people.names})
         return web.json_response({})
 
+    # The results page dashcast streams to the screen, and the JSON it polls.
+    # Served here so the page and its API share an origin, on the loopback.
+    def _media_list(room: str) -> dict:
+        results = yt_lists.get(room)
+        if results is None:
+            return {"open": False, "query": "", "page": 0, "items": [],
+                    "has_next": False, "more": False}
+        return {"open": True, "query": results.query, "page": results.page,
+                "items": list(results.items), "has_next": results.has_next,
+                "more": results.more}
+
+    def _media_room(request: web.Request) -> str:
+        wanted = request.query.get("room") or ""
+        return _screen_room(wanted) or _screen_room("") or ""
+
+    async def media_page(_request: web.Request) -> web.Response:
+        return web.Response(text=MEDIA_PAGE, content_type="text/html")
+
+    async def media_results(request: web.Request) -> web.Response:
+        return web.json_response(_media_list(_media_room(request)))
+
+    async def media_action(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except ValueError:
+            return web.json_response({"error": "json"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"error": "not an object"}, status=400)
+        room = _screen_room(str(body.get("room") or "")) or _screen_room("") or ""
+        action = body.get("action")
+        number = body.get("n")
+        if action == "play":
+            pick = ("play", int(number) if type(number) is int and 1 <= number <= 5 else 0)
+        elif action == "page":
+            pick = ("page", int(number) if type(number) is int and 1 <= number <= 6 else 1)
+        elif action in ("next", "prev", "cancel"):
+            pick = (action, None)
+        else:
+            return web.json_response({"error": "action"}, status=400)
+        await _yt_control("media-page", room, pick)
+        return web.json_response({"ok": True, "list": _media_list(room)})
+
+    async def media_thumb(request: web.Request) -> web.Response:
+        """A picture for the page, fetched from the source on the loopback so
+        the browser never needs the internal CA (or the internet)."""
+        raw = request.query.get("u", "")
+        url = ""
+        if cfg.invidious_public_url and raw.startswith(cfg.invidious_public_url):
+            url = cfg.invidious_url + raw[len(cfg.invidious_public_url):]
+        elif cfg.jellyfin_public_url and raw.startswith(cfg.jellyfin_public_url):
+            url = cfg.jellyfin_url + raw[len(cfg.jellyfin_public_url):]
+        if not url:
+            raise web.HTTPNotFound()
+        try:
+            async with request.app["session"].get(
+                    url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status != 200:
+                    raise web.HTTPNotFound()
+                return web.Response(body=await response.read(),
+                                    content_type=response.content_type or "image/jpeg")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            raise web.HTTPNotFound() from exc
+
     app = web.Application()
     app["people_store"] = people_store
     app["frigate"] = frigate
     app.router.add_post("/v1/chat/completions", completions)
     app.router.add_get("/healthz", healthz)
     app.router.add_post("/v1/voice", voice_report)
+    app.router.add_get("/media", media_page)
+    app.router.add_get("/media/results", media_results)
+    app.router.add_post("/media/action", media_action)
+    app.router.add_get("/media/thumb", media_thumb)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     return app

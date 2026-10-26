@@ -17,6 +17,7 @@
   authentik = ../../services/authentik;
   bitmagnet = ../../services/bitmagnet.nix;
   caddy = ../../services/caddy.nix;
+  dashcast = ../../services/dashcast.nix;
   frigate = ../../services/frigate.nix;
   grafana = ../../services/grafana.nix;
   home-assistant = ../../services/home-assistant.nix;

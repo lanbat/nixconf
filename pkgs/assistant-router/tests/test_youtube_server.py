@@ -109,11 +109,10 @@ async def test_the_cloud_fills_the_list_and_the_next_sentence_plays_it(aiohttp_c
          "function": {"name": "search_media", "arguments": '{"query": "kittens"}'}}]}
     body = await (await client.post("/v1/chat/completions", json=req("play kittens"))).json()
     said = body["choices"][0]["message"]["content"]
-    assert said.startswith("Here are 5 for kittens"), said
+    assert said.startswith("5 results for kittens"), said
     assert seen["yt"] == [("search", {"query": "kittens", "page": 1})]
-    # The list is on the screen, and stays up longer than a greeting.
-    sent = sock.sent[-1]["act"]
-    assert sent["caption_seconds"] == 120 and sent["caption"].startswith("1. Title 1"), sent
+    # The screen shows the list itself now; no caption and no list read out.
+    assert said.startswith("5 results for kittens"), said
 
     # "Play two": the early path answers it, without the cloud.
     played = await (await client.post("/v1/chat/completions", json=req("play two", conv="c2"))).json()
@@ -140,7 +139,7 @@ async def test_a_phrase_sent_to_play_media_is_searched(aiohttp_client, world):
          "function": {"name": "play_media", "arguments": '{"selection": "bbc radio 4"}'}}]}
     body = await (await client.post("/v1/chat/completions", json=req("play bbc radio 4"))).json()
     said = body["choices"][0]["message"]["content"]
-    assert said.startswith("Here are 5 for bbc radio 4"), said
+    assert said.startswith("5 results for bbc radio 4"), said
     assert seen["yt"] == [("search", {"query": "bbc radio 4", "page": 1})]
 
 
@@ -280,14 +279,12 @@ async def test_a_playlist_opens_its_videos_and_one_of_them_plays(aiohttp_client,
          "function": {"name": "search_media", "arguments": '{"query": "lo-fi"}'}}]}
     first = await (await client.post("/v1/chat/completions", json=req("play lo-fi"))).json()
     said = first["choices"][0]["message"]["content"]
-    assert "[playlist]" in sock.sent[-1]["act"]["caption"]
-    assert "playlist" in said
+    assert said.startswith("4 results for lo-fi"), said
 
     # "play two" is the playlist: its videos replace the list on the screen.
     opened = await (await client.post("/v1/chat/completions", json=req("play two", conv="c2"))).json()
     assert seen["yt"][-1] == ("contents", {"playlist_id": "PLabcdefghijklmnopqrstuvwx", "page": 1})
-    assert "Video 7" in opened["choices"][0]["message"]["content"]
-    assert sock.sent[-1]["act"]["caption"].startswith("1. Video 7")
+    assert "results for" in opened["choices"][0]["message"]["content"]
 
     # "play one" plays the first of the playlist.
     played = await (await client.post("/v1/chat/completions", json=req("play one", conv="c3"))).json()
@@ -310,8 +307,7 @@ async def test_going_back_returns_to_the_search_results(aiohttp_client, mixed_wo
     await client.post("/v1/chat/completions", json=req("play lo-fi"))
     await client.post("/v1/chat/completions", json=req("play two", conv="c2"))
     back = await (await client.post("/v1/chat/completions", json=req("go back", conv="c3"))).json()
-    assert "playlist" in sock.sent[-1]["act"]["caption"]
-    assert "A playlist" in back["choices"][0]["message"]["content"]
+    assert "results for" in back["choices"][0]["message"]["content"]
 
 
 async def test_a_music_result_plays_on_the_room_player(aiohttp_client, mixed_world):
