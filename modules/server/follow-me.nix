@@ -142,7 +142,7 @@ in
     };
     followSeconds = mkOption {
       type = seconds;
-      default = 8;
+      default = 4;
       description = "How long someone must stay in a new room before the music follows.";
     };
     followCooldownSeconds = mkOption {

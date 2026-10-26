@@ -298,7 +298,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && c.lightsOffMinutes == 5
       && c.lightsOffAny == false
       && c.lightsOffAnyMinutes == 10
-      && c.followSeconds == 8
+      && c.followSeconds == 4
       && c.followCooldownSeconds == 45
       && c.musicPauseMinutes == 15
       && c.unlocatedMinutes == 20
@@ -550,7 +550,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       let
         t = lib.head musicFollow.triggers;
       in
-      t.entity_id == "input_text.followme_lastroom_alex" && t.for.seconds == 8
+      t.entity_id == "input_text.followme_lastroom_alex" && t.for.seconds == 4
     )
     + expect "music: only between rooms that have music on" (
       let

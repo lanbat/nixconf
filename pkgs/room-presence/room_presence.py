@@ -44,7 +44,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 PROTOCOL = 1
 APPLE = 0x004C
-REPORT_SECONDS = 3
+REPORT_SECONDS = 2
 WINDOW_SECONDS = 20
 BONDS = "/var/lib/bluetooth/*/*/info"
 BONDS_SECONDS = 60  # how often the bonds are read again (a phone may pair)
