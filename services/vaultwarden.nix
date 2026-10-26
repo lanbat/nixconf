@@ -106,8 +106,12 @@ in
       SSO_CLIENT_ID = "vaultwarden";
       SSO_AUTHORITY = "https://auth.${config.lanbat.deployment.domain}/application/o/vaultwarden/";
       SSO_SCOPES = "email profile offline_access";
+      # SSO signs in by matching the OIDC email to a Vaultwarden account
+      # (Bitwarden's model: the account is the vault, so one must exist — see
+      # Design). Trust Authentik's verified email for an account created here
+      # from the admin API, so signing in never needs an invitation email.
       SSO_SIGNUPS_MATCH_EMAIL = true;
-      SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION = false;
+      SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION = true;
 
       # ADMIN_TOKEN and SSO_CLIENT_SECRET come from the environmentFile below.
     };
