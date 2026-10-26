@@ -1744,7 +1744,10 @@ in
           ${lib.optionalString llmKey ''
             export LLM_API_KEY_FILE="${config.lanbat.secrets.ha-llm-api-key.path}"
           ''}
-          export LLM_MAX_TOKENS="${toString (if llmRouter then 300 else voiceCompute.llmMaxTokens)}"
+          # A reasoning model (Gemini 3 "flash") spends hundreds of tokens on
+          # thinking before it writes a word; 300 left it a truncated fragment
+          # or nothing at all, so the satellite spoke nothing. Give it room.
+          export LLM_MAX_TOKENS="${toString (if llmRouter then 1024 else voiceCompute.llmMaxTokens)}"
           export LLM_USE_TOOLS="${if llmRouter then "true" else "false"}"
           export LLM_ROUTER="${if llmRouter then "1" else "0"}"
         ''}

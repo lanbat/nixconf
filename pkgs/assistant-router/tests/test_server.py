@@ -1128,6 +1128,27 @@ async def test_stop_ends_a_voice_enrolment(aiohttp_client, fakes):
     assert (await post(c, req("What's the weather")))["message"]["content"] == "It's sunny."
 
 
+async def test_the_weather_forecast_is_answered_not_silent(aiohttp_client, fakes):
+    """A thinking model that spends its whole reply budget on reasoning returns
+    no text at all; the assistant must still say something, not fall silent."""
+    _, _, cloud_reply, base = fakes
+    c = await client_for(aiohttp_client, base)
+    cloud_reply["v"] = {"role": "assistant", "content": None}
+    said = (await post(c, req("What's the weather forecast?")))["message"]["content"]
+    assert said and said.strip()
+
+
+async def test_the_weather_forecast_tool_is_forwarded(aiohttp_client, fakes):
+    """The cloud model asks for the forecast, which Home Assistant runs: the
+    router passes the call on rather than refusing it."""
+    _, _, cloud_reply, base = fakes
+    c = await client_for(aiohttp_client, base)
+    cloud_reply["v"] = _tool_call("get_forecast", {})
+    choice = await post(c, req("What's the weather forecast?"))
+    assert choice["finish_reason"] == "tool_calls"
+    assert choice["message"]["tool_calls"][0]["function"]["name"] == "get_forecast"
+
+
 async def test_forget_me_forgets_the_recognised_speaker(aiohttp_client, fakes, tmp_path):
     _, _, cloud_reply, base = fakes
     people = People({"kiril": "Kiril"})
