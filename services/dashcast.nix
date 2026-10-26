@@ -57,8 +57,9 @@ in
       # hosts in that table, so admit each one by address. mkAfter lands the
       # ACCEPT above the generated DROP.
       networking.firewall.extraCommands = lib.mkAfter (
-        lib.concatMapStrings (d: "iptables -I INPUT -p tcp --dport ${toString port} -s ${d.address} -j ACCEPT\n")
-          (lib.attrValues devices)
+        lib.concatMapStrings (
+          d: "iptables -I INPUT -p tcp --dport ${toString port} -s ${d.address} -j ACCEPT\n"
+        ) (lib.attrValues devices)
       );
     })
   ];
