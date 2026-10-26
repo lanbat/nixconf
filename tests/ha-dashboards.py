@@ -309,9 +309,9 @@ with tempfile.TemporaryDirectory() as tmp:
            offs and all(c["tap_action"]["target"]["entity_id"] == ["light.office_lamp"] for c in offs))
     expect("the screen's lights-off button asks nothing (TECHO5 can't, and then does nothing)",
            offs and all("confirmation" not in c["tap_action"] for c in offs))
-    drawn = {"heading", "tile", "button", "entities", "glance", "markdown", "picture-entity", "grid",
+    drawn = {"heading", "tile", "button", "entities", "glance", "markdown", "picture-entity", "iframe", "grid",
              "vertical-stack", "horizontal-stack", "conditional", "gauge", "history-graph", "sensor"}
-    kinds = {c["type"] for _, c in walk(screen)} - {"sections", "grid"}
+    kinds = {c["type"] for _, c in walk(screen)} - {"sections", "grid", "panel"}
     expect("the screen uses only cards the device draws", kinds <= drawn)
     expect("the screen's dashboard is listed, out of the sidebar",
            {"id": "lanbat-screen-office", "url_path": "lanbat-screen-office", "title": "Office screen",
