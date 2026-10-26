@@ -462,6 +462,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         except HassError:
             return finish(device, "The screen didn't take the video.", [])
         yt_lists.clear(room)
+        await _publish_list(room, None)  # the video is on the screen now, not the list
         return finish(device, f"Playing {chosen[:80]}.", ["Success"])
 
     async def _ma_play(device: str, room: str, item: dict) -> dict:
@@ -1074,10 +1075,11 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         the browser never needs the internal CA (or the internet)."""
         raw = request.query.get("u", "")
         url = ""
-        if cfg.invidious_public_url and raw.startswith(cfg.invidious_public_url):
-            url = cfg.invidious_url + raw[len(cfg.invidious_public_url):]
-        elif cfg.jellyfin_public_url and raw.startswith(cfg.jellyfin_public_url):
-            url = cfg.jellyfin_url + raw[len(cfg.jellyfin_public_url):]
+        for public, internal in ((cfg.invidious_public_url, cfg.invidious_url),
+                                 (cfg.jellyfin_public_url, cfg.jellyfin_url)):
+            if public and internal and raw.startswith(public):
+                url = internal + raw[len(public):]
+                break
         if not url:
             raise web.HTTPNotFound()
         try:

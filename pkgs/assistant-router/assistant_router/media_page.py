@@ -48,7 +48,8 @@ PAGE = r"""<!doctype html>
   .row.first { border-color: var(--line); box-shadow: 0 0 0 1px rgba(242,165,22,.10), 0 12px 30px rgba(0,0,0,.28); }
   .thumb { position: relative; width: 174px; height: 98px; border-radius: 11px; overflow: hidden;
            flex: none; background: #14122e; }
-  .thumb img, .thumb svg { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .thumb .pic { position: absolute; inset: 0; }
+  .thumb .pic img, .thumb .pic svg { width: 100%; height: 100%; display: block; object-fit: cover; }
   .n { position: absolute; left: 8px; top: 8px; width: 28px; height: 28px; border-radius: 50%;
        background: var(--amber); color: #201a05; font-size: 15px; font-weight: 750;
        line-height: 28px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
@@ -153,10 +154,14 @@ function draw(data) {
     row.className = "row" + (i === 0 ? " first" : "");
     row.onclick = () => act({action: "play", n: item.n});
     const thumb = el("div", "thumb");
+    // The picture is its own layer: a failed one becomes the bat without
+    // taking the number with it.
+    const pic = el("div", "pic");
     const img = document.createElement("img");
     img.src = "/media/thumb?u=" + encodeURIComponent(item.thumb || "");
-    img.onerror = () => { thumb.innerHTML = BAT; };
-    thumb.appendChild(img);
+    img.onerror = () => { pic.innerHTML = BAT; };
+    pic.appendChild(img);
+    thumb.appendChild(pic);
     thumb.appendChild(el("span", "n", item.n));
     const body = el("div", "body");
     body.appendChild(el("div", "title", item.title || ""));
