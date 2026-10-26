@@ -27,6 +27,40 @@ def _seconds(ticks: object) -> int | None:
     return int(ticks / 10_000_000)
 
 
+def _quality(sources: object) -> str:
+    """The best resolution/HDR a Jellyfin item's media sources name."""
+    if not isinstance(sources, list) or not sources or not isinstance(sources[0], dict):
+        return ""
+    source = sources[0]
+    height = source.get("Height")
+    label = ""
+    if type(height) is int:
+        label = "4K" if height >= 2000 else "1080p" if height >= 1000 else "720p" if height >= 700 else ""
+    video_range = source.get("VideoRange") if isinstance(source.get("VideoRange"), str) else ""
+    if "DOVI" in video_range.upper():
+        label = f"{label} Dolby Vision".strip()
+    elif "HDR" in video_range.upper():
+        label = f"{label} HDR".strip()
+    return label
+
+
+def _facts(obj: dict) -> list[str]:
+    facts = []
+    rating = obj.get("CommunityRating")
+    if type(rating) in (int, float):
+        facts.append(f"★ {rating:.1f}")
+    official = obj.get("OfficialRating")
+    if isinstance(official, str) and official.strip():
+        facts.append(official.strip()[:12])
+    year = obj.get("ProductionYear")
+    if type(year) is int:
+        facts.append(str(year))
+    quality = _quality(obj.get("MediaSources"))
+    if quality:
+        facts.append(quality)
+    return facts[:4]
+
+
 def _text(value: object, limit: int = 240) -> str:
     """A description as the screen reads it: one paragraph, short."""
     if not isinstance(value, str):
@@ -50,6 +84,9 @@ def _item(obj: object, thumb_base: str = "", key: str = "") -> dict | None:
     description = _text(obj.get("Overview"), limit=240)
     if description:
         out["description"] = description
+    facts = _facts(obj)
+    if facts:
+        out["facts"] = facts
     if thumb_base:
         out["thumb"] = (f"{thumb_base}/Items/{item_id}/Images/Primary"
                         f"?maxWidth=480&quality=90&api_key={key}")
@@ -113,7 +150,7 @@ class Jellyfin:
             "IncludeItemTypes": TYPES,
             "Recursive": "true",
             "Limit": limit,
-            "Fields": "ProductionYear,RunTimeTicks,SeriesName,ChildCount,Overview",
+            "Fields": "ProductionYear,RunTimeTicks,SeriesName,ChildCount,Overview,CommunityRating,OfficialRating,MediaSources",
         })
         thumb_base, key = self.public_url, self._key()
         out: list[dict] = []
@@ -128,7 +165,7 @@ class Jellyfin:
         data = await self._get(f"/Shows/{series}/Episodes", {
             "StartIndex": start,
             "Limit": limit,
-            "Fields": "RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,Overview",
+            "Fields": "RunTimeTicks,SeriesName,ParentIndexNumber,IndexNumber,Overview,CommunityRating,OfficialRating,ProductionYear,MediaSources",
         })
         thumb_base, key = self.public_url, self._key()
         out: list[dict] = []

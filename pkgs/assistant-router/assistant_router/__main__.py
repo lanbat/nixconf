@@ -108,11 +108,20 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                               irks=irks, forget=forget, sightings=sightings, strangers=strangers, evidence=evidence,
                               prefs=prefs, lists=lists) if people_store is not None else None
     yt_show = YtShow(a.yt_show_url) if a.yt_show_url else None
+    screen_rooms: tuple[str, ...] = ()
+    if a.screen_rooms_file:
+        with open(a.screen_rooms_file, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, list):
+            screen_rooms = tuple(str(r) for r in loaded if isinstance(r, str) and r.strip())
+    # The media results go to Home Assistant as MQTT sensors; the same object
+    # runs the MQTT loop below, so a search can publish at once.
+    ha_mqtt = HomeAssistant(bodies, people, time.monotonic, screen_rooms=screen_rooms) if a.mqtt_host else None
     runners = [web.AppRunner(make_app(cfg, bodies=bodies, people=people, people_store=people_store, frigate=frigate,
                                       capture_face=bodies.capture, voice=voice, cards=cards,
                                       forget_phones=taps.forget_phones if taps is not None else None,
                                       sightings=sightings, strangers=strangers, personal=personal,
-                                      yt_show=yt_show, hass=hass))]
+                                      yt_show=yt_show, hass=hass, publisher=ha_mqtt))]
     await runners[0].setup()
     await web.TCPSite(runners[0], a.host, a.port).start()
     if a.body_port:
@@ -126,20 +135,13 @@ async def serve(cfg: Config, a: argparse.Namespace) -> None:
                                                 personal=personal)))
         await runners[-1].setup()
         await web.TCPSite(runners[-1], "127.0.0.1", a.tap_port).start()
-    screen_rooms: tuple[str, ...] = ()
-    if a.screen_rooms_file:
-        with open(a.screen_rooms_file, encoding="utf-8") as f:
-            loaded = json.load(f)
-        if isinstance(loaded, list):
-            screen_rooms = tuple(str(r) for r in loaded if isinstance(r, str) and r.strip())
     mqtt = None
-    if a.mqtt_host:
+    if ha_mqtt is not None:
         password = None
         if a.mqtt_password_file:
             with open(a.mqtt_password_file, encoding="utf-8") as f:
                 password = f.read().strip()
-        ha = HomeAssistant(bodies, people, time.monotonic, screen_rooms=screen_rooms)
-        mqtt = asyncio.create_task(run_mqtt(ha, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
+        mqtt = asyncio.create_task(run_mqtt(ha_mqtt, a.mqtt_host, a.mqtt_port, a.mqtt_user, password))
     greeter = asyncio.create_task(Greeter(bodies, people, time.monotonic).run()) \
         if a.body_port and not a.no_greet else None
     checked = asyncio.create_task(self_check(hass)) if hass is not None else None

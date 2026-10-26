@@ -92,17 +92,31 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         return web.json_response({"error": what}, status=400)
 
     async def describe(items: list[dict]) -> None:
-        """Search omits most descriptions; the video endpoint has them. Fill the
-        ones on this page, in parallel, so a row can say what it is."""
-        missing = [item for item in items
-                   if isinstance(item.get("id"), str) and not item.get("description")]
-        if invidious is None or not missing:
-            return
-        found = await asyncio.gather(*(invidious.description(item["id"]) for item in missing),
-                                     return_exceptions=True)
-        for item, text in zip(missing, found):
-            if isinstance(text, str) and text:
-                item["description"] = text
+        """Fill what a search omits, for the page's items: a video's description
+        and views/likes, a Music Assistant item's artist, album, year and genre."""
+        videos = [i for i in items
+                  if i.get("source", "youtube") == "youtube" and not i.get("description")
+                  and isinstance(i.get("id"), str)]
+        music = [i for i in items if i.get("source") == "music-assistant"]
+        if invidious is not None and videos and hasattr(invidious, "details"):
+            found = await asyncio.gather(
+                *(invidious.details(i["id"]) for i in videos), return_exceptions=True)
+            for item, hit in zip(videos, found):
+                if isinstance(hit, tuple):
+                    description, facts = hit
+                    item["description"] = description
+                    if facts:
+                        item["facts"] = facts
+        if ma is not None and music and hasattr(ma, "details"):
+            try:
+                details = await ma.details([i["id"] for i in music])
+            except MaError:
+                details = {}
+            for item in music:
+                description, facts = details.get(item["id"], ("", []))
+                item["description"] = description
+                if facts:
+                    item["facts"] = facts
 
     def decorate(items: list[dict]) -> list[dict]:
         """Every result gets a picture and a description field: the source's
@@ -152,6 +166,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                 chunk_p = playlists[playlist_offset : playlist_offset + 1]
                 music_offset = block * music_slots
                 chunk_m = music[music_offset : music_offset + music_slots]
+                await describe(chunk_m)
                 film_offset = block * film_slots
                 chunk_f = films[film_offset : film_offset + film_slots]
                 mixed = chunk_m + chunk_f

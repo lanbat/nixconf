@@ -65,6 +65,7 @@ class Result:
     source: str = "youtube"         # youtube, music-assistant or jellyfin
     thumb: str = ""                 # a picture for the screen; empty when the source has none
     description: str = ""           # a line or two about it, for the screen
+    facts: tuple[str, ...] = ()     # short facts for the row: views, rating, year...
 
     def as_dict(self) -> dict:
         item = {"n": self.n, "kind": self.kind, "source": self.source, "id": self.id,
@@ -75,6 +76,8 @@ class Result:
             item["thumb"] = self.thumb
         if self.description:
             item["description"] = self.description
+        if self.facts:
+            item["facts"] = list(self.facts)
         return item
 
 
@@ -127,7 +130,8 @@ def page(items: list[dict], number: int, size: int = PAGE_SIZE) -> tuple[list[Re
                           duration(item.get("seconds")), kind,
                           count if type(count) is int and count >= 0 else None, source,
                           str(item.get("thumb") or "").strip(),
-                          str(item.get("description") or "").strip()))
+                          str(item.get("description") or "").strip(),
+                          tuple(f for f in (item.get("facts") or []) if isinstance(f, str) and f)))
     return out, len(items) > start + size
 
 

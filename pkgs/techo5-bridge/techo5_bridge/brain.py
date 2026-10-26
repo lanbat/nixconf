@@ -46,7 +46,7 @@ from typing import Any
 from room_presence import REPORT_SECONDS, Recogniser, Tracker
 
 PROTOCOL = 1
-CAN = ["caption", "greet", "capture", "phones", "here", "items"]
+CAN = ["caption", "greet", "capture", "phones", "here", "items", "view"]
 
 PROBE_S = 20.0           # a frame this often while someone unnamed is in front
 ITEMS_REFRESH_S = 60.0   # reminders, to-dos and events while a screen view is shown
@@ -161,6 +161,7 @@ class Brain:
         self.notes: list[dict] = []
         self._noted_here: list[str] | None = None
         self._noted_view: str | None = None
+        self._view_override: str | None = None  # the router's view while it shows search results
         self._items_for: str | None | object = _ITEMS_NEVER
         self._next_items: float = 0.0
         self._last_items: dict | None = None
@@ -322,6 +323,13 @@ class Brain:
                 # A notification's message is required (TECHO5 refuses an empty one).
                 out.append(self._notify("", f"Hi {greet['name'].strip()[:40]}!", "mdi:hand-wave", GREET_SECONDS))
                 self._code_until = None  # one at a time: the greeting replaces the code
+            if isinstance(act.get("view"), str):
+                # "media" while a search's results are open, "" to go back to
+                # the person's own view.
+                wanted = act["view"].strip() or None
+                if wanted != self._view_override:
+                    self._view_override = wanted
+                    out += self._apply_profile()
             if isinstance(act.get("caption"), str) and act["caption"].strip():
                 # A caption shows for GREET_SECONDS unless the sender says longer
                 # (a list of videos the person is choosing from, say).
@@ -579,7 +587,8 @@ class Brain:
         _, p = self.profile()
         out: list = []
         if self.cfg.dashboard:
-            path = f"{self.cfg.dashboard}/{p.view}" if p.view else self.cfg.dashboard
+            view = self._view_override or p.view
+            path = f"{self.cfg.dashboard}/{view}" if view else self.cfg.dashboard
             if path != self._noted_view:
                 self._noted_view = path
                 who, _ = self.profile()

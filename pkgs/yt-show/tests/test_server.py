@@ -33,8 +33,8 @@ class FakeInvidious:
             return self.pages.get((page, kind), [])
         return ITEMS if kind == "video" else PLAYLISTS
 
-    async def description(self, vid):
-        return f"About {vid}"
+    async def details(self, vid):
+        return f"About {vid}", ["1 view"]
 
     async def stream(self, vid):
         self.calls.append(("stream", vid))

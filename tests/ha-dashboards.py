@@ -225,8 +225,9 @@ with tempfile.TemporaryDirectory() as tmp:
     s_ = {n: json.load(open(os.path.join(out, n))) for n in sorted(os.listdir(out))}
     screen = s_.get("lovelace.lanbat-screen-office", {}).get("data", {}).get("config", {})
     paths = [v["path"] for v in screen.get("views", [])]
-    expect("a screen's dashboard has a home view and one per person", paths == ["home", "alex", "sam"])
-    alex = json.dumps(screen["views"][1]) if len(paths) == 3 else ""
+    expect("a screen's dashboard has a home view, the results view and one per person",
+           paths == ["home", "media", "alex", "sam"])
+    alex = json.dumps(screen["views"][2]) if len(paths) == 4 else ""
     def view_by_path(path):
         return next(v for v in screen["views"] if v["path"] == path)
 
