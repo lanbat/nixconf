@@ -60,7 +60,8 @@ PLAY_TOOL = {
                 "selection": {"type": "string",
                               "description": "The result's number (1-5), \"first\", \"last\", "
                                              "\"next page\", \"previous page\", \"back\", or a "
-                                             "YouTube address or id."},
+                                             "YouTube address or id. The words they said also "
+                                             "work as a search."},
                 "room": {"type": "string",
                          "description": "The room whose screen or speaker plays it. Leave it out "
                                         "for the speaker's room, or when there is only one screen."},
