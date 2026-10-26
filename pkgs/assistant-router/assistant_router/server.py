@@ -1079,7 +1079,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                 if response.status != 200:
                     raise web.HTTPNotFound()
                 return web.Response(body=await response.read(),
-                                    content_type=response.content_type or "image/jpeg")
+                                    content_type=response.content_type or "image/jpeg",
+                                    headers={"Cache-Control": "public, max-age=600"})
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             raise web.HTTPNotFound() from exc
 

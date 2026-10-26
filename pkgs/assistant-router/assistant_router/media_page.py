@@ -190,10 +190,23 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 
+let lastKey = null;
+
+function fingerprint(data) {
+  return JSON.stringify([data.open, data.query, data.page, data.has_next, data.more,
+                         (data.items || []).map(i => [i.id, i.title])]);
+}
+
 async function refresh() {
   try {
     const r = await fetch("/media/results", {cache: "no-store"});
-    draw(await r.json());
+    const data = await r.json();
+    // The poll runs every second; redraw only when the page really changed,
+    // or the numbers and pictures flash on every tick.
+    const key = fingerprint(data);
+    if (key === lastKey) return;
+    lastKey = key;
+    draw(data);
   } catch (e) { /* the router restarted; the next poll will do */ }
 }
 refresh();
