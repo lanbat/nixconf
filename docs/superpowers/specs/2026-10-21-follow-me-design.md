@@ -49,7 +49,7 @@ Per room, per person tracked. Defaults are the author's choice; every number is 
 3. **Music follows.** A person moves from room A to room B (stable 4 s) while A has a
    Music Assistant player playing, that person was the only tracked person in A, and B
    has a Music Assistant player that is not playing. The queue moves to B and A stops.
-   With someone else still in A, nothing moves: A keeps playing. A 45 s cooldown per
+   With someone else still in A, nothing moves: A keeps playing. A 20 s cooldown per
    person stops it from bouncing between two adjacent rooms.
 4. **Music pauses when empty.** A room with a covered presence sensor has had no tracked
    person (see "Occupied" below) for 15 minutes: its Music Assistant players are paused, not stopped, so

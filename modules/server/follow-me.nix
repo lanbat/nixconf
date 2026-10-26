@@ -147,7 +147,7 @@ in
     };
     followCooldownSeconds = mkOption {
       type = seconds;
-      default = 45;
+      default = 20;
       description = "After the music follows someone, the least time before it follows them again.";
     };
     musicPauseMinutes = mkOption {

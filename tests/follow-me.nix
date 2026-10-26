@@ -299,7 +299,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && c.lightsOffAny == false
       && c.lightsOffAnyMinutes == 10
       && c.followSeconds == 4
-      && c.followCooldownSeconds == 45
+      && c.followCooldownSeconds == 20
       && c.musicPauseMinutes == 15
       && c.unlocatedMinutes == 20
       && c.darkLux == 30
@@ -572,7 +572,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
           && lib.hasInfix "playing" c
           && lib.hasInfix "_occupied" c
           && lib.hasInfix "last_triggered" c
-          && lib.hasInfix "45" c
+          && lib.hasInfix "20" c
           && lib.hasInfix "dst_free" v
         )
     + expect "music: only Music Assistant players (no TV, no Kodi)" (
