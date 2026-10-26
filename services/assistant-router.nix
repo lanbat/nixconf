@@ -55,11 +55,19 @@ let
   hasYt =
     config.lanbat.hasService "yt-show"
     && lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { }) != { };
-  # The room's Music Assistant speaker, by the name the profile gave it; the
-  # router finds the media_player entity from Home Assistant's states.
-  mediaPlayers = lib.mapAttrs' (_: d: lib.nameValuePair d.room d.playerName) (
-    lib.filterAttrs (_: d: d.playerName != null) (config.lanbat.deployment.techo5Devices or { })
-  );
+  # The room's speaker: the Echo Show's player by the name its profile gave it,
+  # or the entity id follow-me names (a room can hold several players, and the
+  # TV box comes first otherwise). The router finds a name in Home Assistant's
+  # states; an entity id it takes as it is.
+  mediaPlayers =
+    lib.mapAttrs' (_: d: lib.nameValuePair d.room d.playerName) (
+      lib.filterAttrs (_: d: d.playerName != null) (config.lanbat.deployment.techo5Devices or { })
+    )
+    // lib.mapAttrs' (room: roomCfg: lib.nameValuePair room roomCfg.player) (
+      lib.filterAttrs (_: c: c.player != null) (
+        lib.attrByPath [ "lanbat" "homeAssistant" "followMe" "rooms" ] { } config
+      )
+    );
 
   # Hosts whose services consume the router: the bodies. The same derivation
   # as modules/wiring/policy.nix, which opens bodyPort to exactly these.

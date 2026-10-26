@@ -1274,13 +1274,17 @@ let
       alias = "Voice: play on the room's speaker";
       id = "lanbat_voice_play";
       mode = "parallel";
+      # "Play <something>" is the assistant router's: it searches YouTube,
+      # Music Assistant and Jellyfin together and shows a list on the screen
+      # (pkgs/assistant-router youtube.py). A sentence trigger runs before any
+      # conversation agent, so taking "play …" here kept the router from ever
+      # seeing it ("play The Matrix" played the soundtrack album). These
+      # commands are the ones that name music as music; "watch …" stays for the
+      # TV under Kodi.
       trigger = [
         {
           platform = "conversation";
           command = [
-            "play [me] [some] {query}"
-            "put on {query}"
-            "put {query} on"
             "(I want to|I'd like to|let me|can I) (listen to|hear) {query}"
             "listen to {query}"
             "tune in to {query}"
