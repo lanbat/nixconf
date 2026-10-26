@@ -252,15 +252,37 @@ class People:
         rooms = {r for r, by in self._seen.items() if any(person in found for found in by.values())}
         rooms |= {r for (_, r) in self._signal.get(person, {})}
         best: tuple[str, float, list[str]] = ("", 0.0, [])
+        best_rssi: int | None = None
         for room in sorted(rooms):
             sure, by = self.here(room, now).get(person, (0.0, []))
-            if sure > best[1]:
+            if sure <= 0.0:
+                continue
+            # Two rooms hear a phone through the wall and tie on confidence; the
+            # loudest one wins, not the first alphabetically (someone in the
+            # Office must not read as "Bedroom 1" just because it sorts first).
+            rssi = self._loudest_ble(person, room, now)
+            if sure > best[1] or (
+                    sure == best[1]
+                    and rssi is not None
+                    and (best_rssi is None or rssi > best_rssi)):
                 best = (self._rooms.get(room, room), sure, by)
+                best_rssi = rssi
         if best[0]:
             return best
         if person in self.home(now):
             return "home", PRESENT_HOME, ["home"]
         return "away", 0.0, []
+
+    def _loudest_ble(self, person: str, room: str, now: float) -> int | None:
+        """The loudest recent Bluetooth RSSI for `person` in `room`, or None:
+        the tie-break between rooms that hear the same phone."""
+        here = _key(room)
+        best: int | None = None
+        for (via, r), (rssi, at) in self._signal.get(person, {}).items():
+            if via == "ble" and r == here and now - at <= WINDOW["phone"]:
+                if best is None or rssi > best:
+                    best = rssi
+        return best
 
     def bound(self, room: str, now: float) -> tuple[str | None, float]:
         """Who last tapped their phone or card on `room`'s robot, in the last

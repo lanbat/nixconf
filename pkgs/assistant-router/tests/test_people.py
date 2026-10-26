@@ -285,6 +285,21 @@ def test_where_is_the_room_they_most_likely_are_in():
     assert p.where("ivo", 402.0) == ("away", 0.0, [])
 
 
+def test_where_prefers_the_loudest_room_when_two_are_placed():
+    # Two rooms hear the phone (a doorway, a thin wall) and both fall within the
+    # 6 dB margin, so both count with the same confidence. The louder one is where
+    # the person is — not the one that happens to sort first alphabetically.
+    p = People(NAMES)
+    p.observe_phone("Bedroom 1", "kiril", -64, now=0.0)
+    p.observe_phone("Office", "kiril", -60, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+
+    q = People(NAMES)
+    q.observe_phone("Bedroom 1", "kiril", -60, now=0.0)
+    q.observe_phone("Office", "kiril", -64, now=0.0)
+    assert q.where("kiril", now=1.0)[0] == "Bedroom 1"
+
+
 def test_a_tap_or_a_card_teaches_their_voice_for_two_minutes():
     p = People(NAMES)
     p.observe("Kitchen", "tap", "maria", 1.0, now=100.0)
