@@ -179,7 +179,7 @@ pkgs.runCommand "yt-show-check"
 
     ${post "p1.json" 18202 "/search" ''{"query":"kittens"}''}
     ${post "p4.json" 18202 "/search" ''{"query":"kittens","page":4}''}
-    ${post "p5.json" 18202 "/search" ''{"query":"kittens","page":21}''}
+    ${post "p6.json" 18202 "/search" ''{"query":"kittens","page":6}''}
     ${post "play.json" 18202 "/resolve" ''{"video_id":"vid00000003"}''}
     ${post "down.json" 18203 "/search" ''{"query":"kittens"}''}
     ${post "downplay.json" 18203 "/resolve" ''{"video_id":"vid00000003"}''}
@@ -212,8 +212,11 @@ pkgs.runCommand "yt-show-check"
         "Title 12", "Title 13", "Title 14", "Title 15", "Playlist 3"], fourth
     assert [i["n"] for i in fourth["items"]] == [1, 2, 3, 4, 5], fourth
 
-    fifth = load("p5.json")
-    assert fifth["items"] == [] and fifth["has_next"] is False, fifth
+    # Page 6 is the last a search shows; has_next stops there, and "more" says
+    # the search had results past it so the page can ask for a narrower one.
+    sixth = load("p6.json")
+    assert sixth["has_next"] is False and sixth["more"] is True, sixth
+    assert sixth["items"][-1]["kind"] == "playlist", sixth
 
     played = load("play.json")
     assert played["source"] == "invidious", played
@@ -260,6 +263,7 @@ pkgs.runCommand "yt-show-check"
     test "$(status /search '{}')" = 400
     test "$(status /search '{"query":""}')" = 400
     test "$(status /search '{"query":"x","page":0}')" = 400
+    test "$(status /search '{"query":"x","page":7}')" = 400
     test "$(status /resolve '{"video_id":"not a video"}')" = 400
     test "$(status /contents '{"playlist_id":"not a playlist"}')" = 400
     test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18202/healthz)" = 200
