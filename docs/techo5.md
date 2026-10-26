@@ -189,8 +189,14 @@ The audio half comes from Music Assistant's own API (radio, tracks, albums, arti
 audiobooks and playlists), with the token `music-assistant-setup` minted; the room's player is
 the `playerName` of its `techo5Devices` entry ("Echo Show 8" in the Kitchen). The video half
 also includes Jellyfin's libraries (movies, series, episodes), searched with an API key
-`jellyfin-bootstrap` mints; a title plays from a Jellyfin transcode URL (H.264/AAC, 720p) on
-the server's LAN address, which the Show reaches without a browser login. If Music Assistant
+`jellyfin-bootstrap` mints; a title plays from a Jellyfin URL on the server's LAN
+address, which the Show reaches without a browser login. A film already in MP4 with
+H.264 video and AAC audio is served as the file itself: the Show fetches in chunks and
+closes the connection between them, and Jellyfin kills a progressive transcode that has
+not been read for ten seconds, deleting the MP4 it wrote, so the screen would play a
+minute of its buffer and stop. Anything else (HEVC, AV1, another container) still plays
+from a live transcode, which stalls the same way; the lasting fix is a pre-transcoded
+cached copy, as YouTube's remux makes. If Music Assistant
 or Jellyfin is off or cannot answer, the page is what remains, and videos keep working.
 
 `yt-show` resolves the video through **Invidious first**: the address is on
