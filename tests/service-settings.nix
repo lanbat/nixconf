@@ -2296,7 +2296,9 @@ let
         == "https://auth.home.example.com/application/o/vaultwarden/"
       && vaultwardenService.config.SSO_SCOPES == "email profile offline_access"
       && vaultwardenService.config.SSO_SIGNUPS_MATCH_EMAIL
-      && !vaultwardenService.config.SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION
+      # a85e8a5: Authentik verifies the address, so an account created from
+      # the admin API signs in on the first SSO attempt without an invitation.
+      && vaultwardenService.config.SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION
       && vaultwardenService.environmentFile == [ base.lanbat.secrets.vaultwarden-env.path ]
     ))
 
