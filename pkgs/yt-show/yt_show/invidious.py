@@ -110,6 +110,14 @@ class Invidious:
                 })
         return out
 
+    async def description(self, vid: str) -> str:
+        """The full description of one video: a search result often omits it."""
+        try:
+            data = await self._get(f"/api/v1/videos/{vid}", {"fields": "description"})
+        except InvidiousError:
+            return ""
+        return _plain(data.get("description")) if isinstance(data, dict) else ""
+
     async def playlist(self, plid: str, page: int) -> tuple[str, list[dict]]:
         """(title, videos) of one Invidious page (100 videos) of a playlist."""
         data = await self._get(f"/api/v1/playlists/{plid}", {"page": page})

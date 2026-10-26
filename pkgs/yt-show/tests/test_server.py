@@ -33,6 +33,9 @@ class FakeInvidious:
             return self.pages.get((page, kind), [])
         return ITEMS if kind == "video" else PLAYLISTS
 
+    async def description(self, vid):
+        return f"About {vid}"
+
     async def stream(self, vid):
         self.calls.append(("stream", vid))
         if self.fail:
@@ -103,6 +106,12 @@ async def test_first_page_is_four_videos_and_a_playlist(aiohttp_client):
     ]
 
 
+async def test_a_search_fills_the_descriptions_invidious_search_omits(aiohttp_client):
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
+    body = await (await client.post("/search", json={"query": "kittens"})).json()
+    assert body["items"][0]["description"] == "About vid00000000"
+
+
 async def test_a_later_page_is_sliced_out_of_the_invidious_page(aiohttp_client):
     # Our page 4 is videos 12-15 and playlist 3 (four videos a page, then one).
     client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
@@ -139,7 +148,7 @@ async def test_a_result_without_a_picture_gets_the_bat(aiohttp_client):
     client = await aiohttp_client(make_app(cfg, invidious=FakeInvidious(), ytdlp=FakeYtDlp()))
     body = await (await client.post("/search", json={"query": "kittens"})).json()
     assert body["items"][0]["thumb"] == "https://yt.example/media/bat.svg"
-    assert body["items"][0]["description"] == ""
+    assert "description" in body["items"][0]
 
 
 async def test_the_media_app_serves_the_bat(aiohttp_client):
