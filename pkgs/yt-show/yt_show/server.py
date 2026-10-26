@@ -9,6 +9,7 @@ be up but unable to play a particular video (services/invidious.nix).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -90,6 +91,19 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
     def bad(what: str) -> web.Response:
         return web.json_response({"error": what}, status=400)
 
+    async def describe(items: list[dict]) -> None:
+        """Search omits most descriptions; the video endpoint has them. Fill the
+        ones on this page, in parallel, so a row can say what it is."""
+        missing = [item for item in items
+                   if isinstance(item.get("id"), str) and not item.get("description")]
+        if invidious is None or not missing:
+            return
+        found = await asyncio.gather(*(invidious.description(item["id"]) for item in missing),
+                                     return_exceptions=True)
+        for item, text in zip(missing, found):
+            if isinstance(text, str) and text:
+                item["description"] = text
+
     def decorate(items: list[dict]) -> list[dict]:
         """Every result gets a picture and a description field: the source's
         own, or the bat placeholder on the domain the screen trusts."""
@@ -132,6 +146,7 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
                 videos = await invidious.search(query, video_want // INVIDIOUS_PAGE + 1, "video")
                 offset = video_want % INVIDIOUS_PAGE
                 chunk_v = videos[offset : offset + video_slots]
+                await describe(chunk_v)
                 playlists = await invidious.search(query, block // INVIDIOUS_PAGE + 1, "playlist")
                 playlist_offset = block % INVIDIOUS_PAGE
                 chunk_p = playlists[playlist_offset : playlist_offset + 1]
