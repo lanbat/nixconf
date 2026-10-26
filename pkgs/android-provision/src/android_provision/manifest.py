@@ -41,6 +41,15 @@ class DeviceOwner:
 
 
 @dataclass(frozen=True)
+class Presence:
+    room: str
+    routerUrl: str
+    beacons: dict[str, str]  # uuid -> person key
+    reportSeconds: int
+    windowSeconds: int
+
+
+@dataclass(frozen=True)
 class Manifest:
     device: str
     host: str
@@ -53,6 +62,7 @@ class Manifest:
     obtainium: Obtainium | None
     deviceOwner: DeviceOwner
     homeActivity: str | None = None
+    presence: Presence | None = None
 
 
 def load(path: str) -> Manifest:
@@ -93,6 +103,7 @@ def load(path: str) -> Manifest:
             obtainium=obtainium,
             deviceOwner=owner,
             homeActivity=raw.get("homeActivity"),
+            presence=Presence(**raw["presence"]) if raw.get("presence") else None,
         )
     except ManifestError:
         raise

@@ -192,6 +192,12 @@ its flash until they change or are forgotten, and reports the phones near it eve
 like a room sensor. That places phones where the robot stands, also away from its Pi on
 Wi-Fi. It listens a slice of every second, so Wi-Fi keeps the radio most of the time.
 
+An **Android TV box** can scan too, with the `android-presence` app
+(`pkgs/android-presence`) installed by `pkgs/android-provision` when the box's
+`androidDevices` entry sets `presence`: it reports the same medians to the router over
+the same socket, so no Pi is needed in that room. The app, its permissions and the
+provisioning are described in [android-devices.md](android-devices.md#bluetooth-presence-follow-me).
+
 The Pi 3's own Bluetooth chip works but is flaky (it shares a UART and sometimes starts
 without a controller; `hosts/pi3/hardware.nix` retries). The scanner restarts on its own;
 if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth adapter
