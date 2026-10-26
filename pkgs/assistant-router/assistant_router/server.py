@@ -204,6 +204,13 @@ class Config:
     yt_play_service: str | None = None
     # room -> Music Assistant speaker's friendly name (media_player discovery).
     media_players: dict[str, str] = field(default_factory=dict)
+    # The sources' addresses in the results page's thumbnails and the loopback
+    # ones they are fetched from (media_page.py); unset: that source's pictures
+    # are not shown.
+    invidious_public_url: str | None = None
+    invidious_url: str | None = None
+    jellyfin_public_url: str | None = None
+    jellyfin_url: str | None = None
 
 
 def _reply(text: str) -> dict:

@@ -239,6 +239,14 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     p.add_argument("--frigate-url", help="Frigate's base URL: the face library for enrolment (frigate.py); unset when Frigate is not on this host")
     p.add_argument("--yt-show-url", help="yt-show's API on the loopback (services/yt-show.nix): YouTube on a "
                    "room's screen (youtube.py); unset: no video")
+    p.add_argument("--invidious-url", help="Invidious on the loopback: where the results page's thumbnails "
+                   "are fetched from")
+    p.add_argument("--invidious-public-url", help="Invidious as the Show sees it: the prefix of the "
+                   "thumbnail addresses yt-show hands out")
+    p.add_argument("--jellyfin-url", help="Jellyfin on the loopback: where the results page's thumbnails "
+                   "are fetched from")
+    p.add_argument("--jellyfin-public-url", help="Jellyfin as the Show sees it: the prefix of the "
+                   "thumbnail addresses yt-show hands out")
     p.add_argument("--yt-play-service", help="esphome.<node>_play_video: the screen's video action, when more "
                    "than one screen and its name does not hold the room")
     p.add_argument("--media-players", help='JSON {room: speaker name}: the Music Assistant players audio '
@@ -255,7 +263,9 @@ def config(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     cfg = Config(a.local_url, a.local_model, a.cloud_url, a.cloud_model, a.mode, local_timeout=a.local_timeout,
                  log_dir=a.log_dir, log_days=a.log_days, log_text=not a.no_log_text,
                  offer_to_meet=not a.no_offer_to_meet, yt_play_service=a.yt_play_service,
-                 media_players=media_players)
+                 media_players=media_players,
+                 invidious_public_url=a.invidious_public_url, invidious_url=a.invidious_url,
+                 jellyfin_public_url=a.jellyfin_public_url, jellyfin_url=a.jellyfin_url)
     return cfg, a
 
 

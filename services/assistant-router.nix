@@ -55,6 +55,13 @@ let
   hasYt =
     config.lanbat.hasService "yt-show"
     && lib.filterAttrs (_: d: d.dlna) (config.lanbat.deployment.techo5Devices or { }) != { };
+  # The results page's thumbnails come from yt-show as its sources' public
+  # addresses; the router fetches them on the loopback, where it is allowed
+  # (IPAddressDeny below).
+  invidiousHere = config.lanbat.hasService "invidious";
+  jellyfinHere = config.lanbat.hasService "jellyfin";
+  domain = config.lanbat.deployment.domain;
+  serverIp = config.lanbat.hosts.${config.lanbat.hostKey}.networking.ip;
   # The room's speaker: the Echo Show's player by the name its profile gave it,
   # or the entity id follow-me names (a room can hold several players, and the
   # TV box comes first otherwise). The router finds a name in Home Assistant's
@@ -556,6 +563,17 @@ in
               [
                 "--yt-show-url http://127.0.0.1:${toString config.lanbat.services.yt-show.port}"
                 "--media-players ${lib.escapeShellArg (builtins.toJSON mediaPlayers)}"
+              ]
+              # The results page's pictures are fetched from the source on the
+              # loopback: yt-show hands out its public addresses, the router
+              # needs the internal ones (and may only reach localhost).
+              ++ lib.optionals invidiousHere [
+                "--invidious-url http://127.0.0.1:${toString config.lanbat.services.invidious.port}"
+                "--invidious-public-url https://${config.lanbat.services.invidious.subdomain}.${domain}"
+              ]
+              ++ lib.optionals jellyfinHere [
+                "--jellyfin-url http://127.0.0.1:${toString config.lanbat.services.jellyfin.port}"
+                "--jellyfin-public-url http://${serverIp}:${toString config.lanbat.services.jellyfin.port}"
               ]
               ++ lib.optional (
                 cfg.ytPlayService != null
