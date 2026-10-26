@@ -90,7 +90,9 @@ let
       dlna_video = true;
     }
     // lib.optionalAttrs hasHa {
-      screen_dashboard = "Drawn on the device";
+      # The results view is a web page inside a streamed dashboard, so the
+      # screen streams: dashcast runs the browser (services/dashcast.nix).
+      screen_dashboard = "Streamed";
       screen_dashboard_kiosk = true;
       insecure_tls = device.insecureTls;
     }
