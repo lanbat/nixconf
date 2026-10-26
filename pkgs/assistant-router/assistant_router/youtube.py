@@ -84,6 +84,7 @@ class Results:
     items: tuple[dict, ...]  # as yt-show numbered them: n, kind, id, title, duration/count
     has_next: bool
     at: float
+    more: bool = False           # results exist past the last page (a search cap)
     playlist: str | None = None  # set when this list is a playlist's videos
     series: str | None = None    # set when this list is a series' episodes
 
@@ -235,7 +236,8 @@ def caption(results: Results) -> str:
     """The list on the screen, in one caption (the bridge truncates at 200,
     pkgs/techo5-bridge/brain.py). Narrower titles until it fits. Plain ASCII:
     the screen draws its own font, which need not carry a middle dot."""
-    hint = "   say 'next page'" if results.has_next else ""
+    hint = "   say 'next page'" if results.has_next else (
+        "   more results: be more specific" if results.more else "")
     width = 30
     while width >= 10:
         text = "   ".join(_line(item, width) for item in results.items) + hint
@@ -262,7 +264,12 @@ def spoken(results: Results) -> str:
         else:
             parts.append(f"{item['n']}, {kind}, {title}")
     said = "; ".join(parts)
-    next_step = "Say the number to play, or next page." if results.has_next else "Which number?"
+    if results.has_next:
+        next_step = "Say the number to play, or next page."
+    elif results.more:
+        next_step = ("That's all I can show; if it's not here, try being more specific.")
+    else:
+        next_step = "Which number?"
     return f"Here are {len(results.items)} for {_clip(results.query, 40)}: {said}. {next_step}"
 
 
@@ -285,7 +292,7 @@ _NUMBER = re.compile(
 _NEXT = re.compile(r"^(?:next|more)(?:\s+(?:page|results))?$|^page\s+down$")
 _PREV = re.compile(r"^(?:previous|back)(?:\s+(?:a\s+)?page)?$|^page\s+up$")
 _BACK = re.compile(r"^(?:back to (?:the )?(?:results|list|search)|go back|back out)$")
-_PAGE = re.compile(r"^(?:page|results)\s+(?P<n>\d+)$")
+_PAGE = re.compile(r"^(?:(?:go|jump|turn)\s+to\s+|to\s+)?(?:page|results)\s+(?P<n>\d+)$")
 _CANCEL = re.compile(r"^(?:cancel|never\s+mind|forget\s+it|stop|close)$")
 _RAW = re.compile(r"(?:youtu\.be/|youtube\.com/|[A-Za-z0-9_-]{11}$)")
 
@@ -328,20 +335,19 @@ def interpret(value: str) -> tuple[str, int | str | None] | None:
 _EMPTY = {"it", "that", "this", "again", "please", "now", "the", "a", "some", "on", "screen"}
 _MUSIC = {"music", "radio", "song", "songs", "playlist", "album", "albums", "podcast",
           "podcasts", "station", "stations"}
-_VERB = re.compile(r"\b(?:play|watch|put on)\b")
+_VERB = re.compile(r"\b(?:look\s+for|search(?:\s+for)?|find|look\s+up)\b")
 
 
 def plays_something(text: str) -> bool:
-    """Whether "play", "watch" or "put on" names something to look for, rather
-    than resuming what was playing or asking for music. A screen in the house
-    makes the cloud decide (it has the search tool); without one, the local
-    model resumes."""
+    """Whether "look for", "search", "find" or "look up" names something to
+    search for. "Play ..." is the music automation's before the router is asked,
+    so a screen's search is reached by these verbs."""
     found = _VERB.search((text or "").lower())
     if found is None:
         return False
     rest = [word for word in re.findall(r"[a-z0-9']+", (text or "").lower()[found.end():])
             if word not in _EMPTY]
-    return bool(rest) and not all(word in _MUSIC for word in rest)
+    return bool(rest)
 
 
 async def audio_player(hass: Hass, room: str, players: dict[str, str]) -> str | None:

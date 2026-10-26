@@ -339,10 +339,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         if yt_show is not None and hass is not None and _any_screen():
             block = "\n".join(part for part in (
                 block,
-                "The house can play videos on a screen (YouTube and the Jellyfin library) and "
-                "music, radio and podcasts on a speaker. When someone asks to watch, play or "
-                "listen to something named, call search_media and play the number they say; a "
-                "clear station or song may be played directly on Music Assistant.",
+                "The house can search YouTube, Music Assistant and the Jellyfin library. "
+                "When someone says look for, search for, find or look up something, call "
+                "search_media and play the number they choose. Play requests are the music "
+                "automation's: they never reach you.",
             ) if part)
         msgs = out.get("messages") or []
         if block and msgs and msgs[0].get("role") == "system":
@@ -385,7 +385,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             return finish(device, "That's the end of the results." if page > 1
                           else "I couldn't find anything for that.", [])
         results = youtube_mod.Results(query, page, tuple(data["items"]),
-                                      bool(data.get("has_next")), clock())
+                                      bool(data.get("has_next")), clock(),
+                                      more=bool(data.get("more")))
         yt_lists.set(room, results)
         # The list stays up while the person decides (brain.py shows a caption
         # for ten seconds unless told longer).
@@ -932,11 +933,10 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             if verdict == "pass" and cfg.mode != "cloud-first":
                 t = await triage.classify(session, cfg.local_url, cfg.local_model, ctx, asked, cfg.local_timeout)
                 tier, route = "local", t.route
-            # "Play <something>" in a house with a screen: the cloud searches
-            # for it (youtube.py) instead of the local model resuming whatever
-            # the room's player last had. Music keeps the local act.
-            if t.route == "act" and t.action == "play" and _any_screen() \
-                    and youtube_mod.plays_something(asked):
+            # "Look for ..." / "search ..." in a house with a screen: the cloud
+            # searches YouTube, Music Assistant and Jellyfin (youtube.py).
+            # "Play ..." is the music automation's before the router is asked.
+            if t.route != "escalate" and _any_screen() and youtube_mod.plays_something(asked):
                 t = triage.Triage("escalate")
                 tier, route = "local", "escalate"
             if t.route == "act":

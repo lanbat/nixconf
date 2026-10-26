@@ -31,6 +31,9 @@ LOG = logging.getLogger("yt-show")
 INVIDIOUS_PAGE = 20
 INVIDIOUS_PLAYLIST_PAGE = 100
 MAX_PAGE = 50
+# A search shows five at a time for six pages: thirty fits a conversation, and
+# past that a narrower request is more use than a seventh page.
+MAX_SEARCH_PAGES = 6
 
 
 @dataclass
@@ -215,13 +218,16 @@ def make_app(cfg: Config, invidious: Invidious | None = None,
         if not isinstance(query, str) or not query.strip():
             return bad("query")
         page = body.get("page", 1)
-        if type(page) is not int or not 1 <= page <= MAX_PAGE:
+        if type(page) is not int or not 1 <= page <= MAX_SEARCH_PAGES:
             return bad("page")
         found = await search(query.strip()[:200], (page - 1) * cfg.page_size)
         if found is None:
             return web.json_response({"error": "neither Invidious nor yt-dlp could search"}, status=502)
         items, more, source = found
-        return web.json_response({"items": items, "has_next": more, "page": page, "source": source})
+        # has_next stays inside the six pages; "more" says the search had more
+        # than they show, so the last page can ask for a narrower request.
+        return web.json_response({"items": items, "has_next": more and page < MAX_SEARCH_PAGES,
+                                  "more": more, "page": page, "source": source})
 
     async def on_contents(request: web.Request) -> web.Response:
         try:

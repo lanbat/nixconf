@@ -122,6 +122,17 @@ async def test_the_end_of_the_list_stops(aiohttp_client):
     assert invidious.calls[-1] == ("search", "x", 1, "playlist")
 
 
+async def test_a_search_stops_at_six_pages_and_says_there_is_more(aiohttp_client):
+    # Five a page for six pages: thirty is all a spoken conversation needs.
+    # Past that the last page asks for a narrower request instead of a seventh.
+    client = await aiohttp_client(app(FakeInvidious(), FakeYtDlp()))
+    body = await (await client.post("/search", json={"query": "x", "page": 6})).json()
+    assert body["items"]
+    assert body["has_next"] is False
+    assert body["more"] is True
+    assert (await client.post("/search", json={"query": "x", "page": 7})).status == 400
+
+
 async def test_invidious_down_falls_back_to_ytdlp(aiohttp_client):
     client = await aiohttp_client(app(FakeInvidious(fail=True), FakeYtDlp()))
     body = await (await client.post("/search", json={"query": "x"})).json()

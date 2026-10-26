@@ -43,6 +43,11 @@ def test_more_pages(said):
     assert control(said) in (("next", None), ("page", 2))
 
 
+@pytest.mark.parametrize("said", ["go to page 3", "jump to page 3", "to page 3", "page 3", "results 3"])
+def test_going_to_a_page(said):
+    assert control(said) == ("page", 3)
+
+
 def test_going_back():
     assert control("previous page") == ("prev", None)
     assert control("back a page") == ("prev", None)
@@ -72,15 +77,16 @@ def test_a_link_is_played_as_it_is():
     assert interpret("something vague") is None
 
 
-@pytest.mark.parametrize("said", ["play kittens", "play the new Linus video", "play a video about cats",
-                                  "watch a documentary about trains"])
-def test_playing_something_goes_to_the_search(said):
+@pytest.mark.parametrize("said", ["look for kittens", "search for the matrix",
+                                  "search bbc radio 4", "find a documentary about trains",
+                                  "look up that film"])
+def test_searching_for_something_reaches_the_search(said):
     assert plays_something(said)
 
 
-@pytest.mark.parametrize("said", ["play", "play it", "play that again", "play some music",
-                                  "play the radio", "play a playlist", "resume", "pause"])
-def test_resuming_or_music_is_not_a_search(said):
+@pytest.mark.parametrize("said", ["play kittens", "play the radio", "play some music",
+                                  "look for", "search", "resume", "pause", "turn off the light"])
+def test_playing_music_or_a_bare_verb_is_not_a_search(said):
     assert not plays_something(said)
 
 
@@ -99,6 +105,12 @@ def test_the_spoken_list_names_the_numbers_and_what_to_say():
     assert "1, " in said and "5, " in said
     assert "next page" in said
     assert "next page" not in spoken(results(has_next=False))
+
+
+def test_the_last_page_of_a_capped_search_asks_for_a_narrower_question():
+    last = Results("kittens", 6, results().items, False, time.monotonic(), more=True)
+    assert "more specific" in spoken(last)
+    assert "more specific" in caption(last)
 
 
 def test_a_playlist_is_labelled_on_the_screen_and_in_speech():

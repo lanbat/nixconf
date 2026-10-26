@@ -1821,16 +1821,17 @@ let
       && !lib.any (lib.hasPrefix "play ") sentences
     ))
 
-    # "Play <something>" is the assistant router's: it searches YouTube, Music
-    # Assistant and Jellyfin and shows a list on the screen. A sentence trigger
-    # is matched before any conversation agent, so a "play …" trigger here took
-    # the request first ("play The Matrix" played the soundtrack album).
-    (expect "voice: play requests reach the router, not the music automation" (
+    # "Play <something>" is music, and plays on the room's speaker at once. The
+    # screen's search is "look for" / "search", which no sentence trigger here
+    # may take: a sentence trigger runs before any conversation agent.
+    (expect "voice: play is music here; search phrases reach the router" (
       let
         sentences = lib.concatMap (t: t.command or [ ]) (automationById base "lanbat_voice_play").trigger;
       in
-      !lib.any (lib.hasPrefix "play ") sentences
-      && !lib.any (lib.hasInfix "put on") sentences
+      lib.any (s: s == "play [me] [some] {query}") sentences
+      && lib.any (s: s == "put on {query}") sentences
+      && !lib.any (s: lib.hasPrefix "look for" s) sentences
+      && !lib.any (s: lib.hasPrefix "search" s) sentences
       && lib.any (lib.hasPrefix "listen to") sentences
       && lib.any (s: s == "watch {query}") sentences
     ))
