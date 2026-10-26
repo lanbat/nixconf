@@ -469,6 +469,7 @@ let
           params.reasoning_effort = "none";
         }
         { model = "gemini/gemini-3.1-flash-lite"; }
+        { model = "groq/openai/gpt-oss-120b"; }
       ];
     }
   ];
@@ -1734,7 +1735,17 @@ let
         model = "gemini/gemini-3.5-flash";
         reasoning_effort = "none";
       }
-      && lib.elem { smart = [ "smart-fallback-1" ]; } litellm.router_settings.fallbacks
+      && lib.elem {
+        smart = [
+          "smart-fallback-1"
+          "smart-fallback-2"
+        ];
+      } litellm.router_settings.fallbacks
+      # A fallback that fails falls back again: LiteLLM walks one list only, so
+      # every group carries the groups after it (two Gemini failures must reach
+      # Groq, not give up).
+      && lib.elem { smart-fallback-1 = [ "smart-fallback-2" ]; } litellm.router_settings.fallbacks
+      && lib.elem { smart-fallback-2 = [ ]; } litellm.router_settings.fallbacks
       # A model out of quota (429) is passed over at once, not retried, and
       # left alone for ten minutes.
       && litellm.router_settings.num_retries == 0
