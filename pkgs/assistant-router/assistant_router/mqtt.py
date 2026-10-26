@@ -336,6 +336,77 @@ def _items_topics(room: str) -> dict[str, tuple[str, bool]]:
     return topics
 
 
+MEDIA_SLOTS = 5
+
+
+def media_discovery(room: str) -> list[tuple[str, dict]]:
+    """Discovery for a room's screen media results (the current search page)."""
+    uid = _screen_uid(room)
+    device = {"identifiers": [f"{uid}_media"], "name": f"{room} media results",
+              "manufacturer": "lanbat", "model": "Search results", "suggested_area": room}
+    common = {"device": device, "availability": [{"topic": ROUTER_AVAILABILITY}]}
+    base = f"{_screen_base(room)}/media"
+
+    def entity(suffix: str, name: str, topic: str) -> tuple[str, dict]:
+        obj = f"{uid}_media_{suffix}"
+        cfg = {**common, "name": name, "unique_id": obj, "object_id": obj,
+               "state_topic": topic, "json_attributes_topic": f"{topic}/attributes",
+               "icon": "mdi:magnify"}
+        return (f"{DISCOVERY}/sensor/{uid}/media_{suffix}/config", cfg)
+
+    out = [entity(f"result_{i}", f"Result {i}", f"{base}/result/{i}")
+           for i in range(1, MEDIA_SLOTS + 1)]
+    out.append(entity("page", "Results page", f"{base}/page"))
+    return out
+
+
+def media_state(room: str, results: dict | None) -> dict[str, tuple[str, dict]]:
+    """object_id -> (state, attributes): the five rows and the page, as the
+    screen's dashboard reads them. Empty slots are the string `none`."""
+    uid = _screen_uid(room)
+    empty = ("none", {})
+    out = {f"{uid}_media_result_{i}": empty for i in range(1, MEDIA_SLOTS + 1)}
+    out[f"{uid}_media_page"] = ("0", {})
+    if not results:
+        return out
+    page = results.get("page")
+    query = results.get("query") if isinstance(results.get("query"), str) else ""
+    items = results.get("items") if isinstance(results.get("items"), list) else []
+    for i, item in enumerate(items[:MEDIA_SLOTS], 1):
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        attrs = {
+            "n": item.get("n", i) if isinstance(item.get("n"), int) else i,
+            "entity_picture": item.get("thumb") if isinstance(item.get("thumb"), str) else "",
+            "description": item.get("description") if isinstance(item.get("description"), str) else "",
+            "source": item.get("source") if isinstance(item.get("source"), str) else "",
+            "kind": item.get("kind") if isinstance(item.get("kind"), str) else "",
+            "duration": item.get("duration") if isinstance(item.get("duration"), str) else "",
+            "facts": [f for f in item.get("facts") or [] if isinstance(f, str)],
+            "page": page,
+            "query": query,
+        }
+        out[f"{uid}_media_result_{i}"] = (
+            title.strip() if isinstance(title, str) and title.strip() else "none", attrs)
+    out[f"{uid}_media_page"] = (str(page or 1), {
+        "query": query,
+        "page": page,
+        "has_next": bool(results.get("has_next")),
+        "more": bool(results.get("more")),
+    })
+    return out
+
+
+def _media_topics(room: str) -> dict[str, str]:
+    """object_id -> its state topic; every one has a `<topic>/attributes` too."""
+    uid = _screen_uid(room)
+    base = f"{_screen_base(room)}/media"
+    out = {f"{uid}_media_result_{i}": f"{base}/result/{i}" for i in range(1, MEDIA_SLOTS + 1)}
+    out[f"{uid}_media_page"] = f"{base}/page"
+    return out
+
+
 def people_discovery(names: dict[str, str] | None = None) -> list[tuple[str, dict]]:
     """The People device: who is home, and a "Where is <name>" for each person
     (`names`, key -> name)."""
@@ -522,6 +593,9 @@ class HomeAssistant:
         self._items_discovered: set[str] = set()  # rooms whose item entities were announced
         self._leds: dict[str, dict] = {}  # room -> the light's state, as last commanded
         self._people_announced: dict[str, str] | None = None  # the people announced, key -> name
+        self._publish: Publish | None = None  # set when the broker connection is up
+        self._media: dict[str, dict | None] = {}  # room -> the page the screen is showing
+        self._media_discovered: set[str] = set()
         bodies.events = asyncio.Queue(maxsize=64)
 
     async def _send(self, publish: Publish, topic: str, payload: Any, retain: bool = True,
@@ -537,6 +611,7 @@ class HomeAssistant:
         self._published.clear()
         self._discovered.clear()
         self._items_discovered.clear()
+        self._media_discovered.clear()
         self._people_announced = None
 
     def _items_rooms(self) -> list[str]:
@@ -574,10 +649,28 @@ class HomeAssistant:
             if with_attrs:
                 await self._send(publish, f"{topic}/attributes", attrs, force=force)
 
+    async def media(self, room: str, results: dict | None) -> None:
+        """Remember and publish the page a screen shows, now if connected."""
+        self._media[room] = results
+        if self._publish is not None:
+            await self._publish_media(self._publish, room, results)
+
+    async def _publish_media(self, publish: Publish, room: str, results: dict | None) -> None:
+        if room not in self._media_discovered:
+            for topic, config in media_discovery(room):
+                await self._send(publish, topic, config)
+            self._media_discovered.add(room)
+        for obj, (state, attrs) in media_state(room, results).items():
+            topic = _media_topics(room)[obj]
+            await self._send(publish, topic, state)
+            await self._send(publish, f"{topic}/attributes", attrs)
+
     async def bootstrap_items(self, publish: Publish) -> None:
-        """Retained `none` on every configured screen room before anything else."""
+        """Retained `none` on every configured screen room before anything else,
+        results included, so a restart never leaves yesterday's rows up."""
         for room in self._items_rooms():
             await self._publish_items(publish, room, None, force=True)
+            await self._publish_media(publish, room, None)
 
     async def tick(self, publish: Publish) -> None:
         now = self.clock()
@@ -595,6 +688,8 @@ class HomeAssistant:
                          {"home": _names(self.people, home), "people": home})
         for key in sorted(names):
             await self._send(publish, _where_topic(key), where(self.people, key, now))
+        for room in list(self._media):
+            await self._publish_media(publish, room, self._media[room])
         for room in rooms:
             state = robot_state(self.bodies, room)
             if state is None:
@@ -685,6 +780,7 @@ async def run_mqtt(ha: HomeAssistant, host: str, port: int, username: str | None
                     await client.publish(topic, payload, retain=retain)
 
                 ha.forget()
+                ha._publish = publish
                 await ha.bootstrap_items(publish)
                 await publish(ROUTER_AVAILABILITY, "online", True)
                 await client.subscribe(f"{DISCOVERY}/status")
@@ -703,6 +799,7 @@ async def run_mqtt(ha: HomeAssistant, host: str, port: int, username: str | None
                             if isinstance(message.payload, (bytes, bytearray)) else str(message.payload)
                         await ha.handle(str(message.topic), payload, publish)
                 finally:
+                    ha._publish = None
                     for t in tasks:
                         t.cancel()
         except aiomqtt.MqttError as err:

@@ -204,6 +204,8 @@ let
   # encryption key, added here and put in their rooms.
   techo5Devices = config.lanbat.deployment.techo5Devices;
   hasTechos = techo5Devices != { } && config.lanbat.hasService "techo5-bridge";
+  # As the router slugs a room (mqtt.slug): the screens' result sensors use it.
+  screenSlug = room: builtins.replaceStrings [ " " ] [ "_" ] (lib.toLower room);
   techo5Json = builtins.toJSON (
     lib.mapAttrsToList (key: d: {
       title = "TECHO5 ${d.room}";
@@ -1941,7 +1943,105 @@ in
         # with a room calls voice_reply with its reply; voice_reply starts the
         # announcement on the room's Music Assistant players and returns how
         # many there are, so the satellite knows whether to play it itself.
+        # The results view (home-assistant-dashboards) may hold no templates,
+        # so Home Assistant composes each row from the router's MQTT result
+        # sensors: title, facts and description as the state, the thumbnail as
+        # the picture. The screen shows these as tiles.
+        template = lib.mkIf hasTechos {
+          sensor = lib.concatLists (
+            lib.mapAttrsToList (
+              _: d:
+              let
+                slug = screenSlug d.room;
+              in
+              map (
+                i:
+                let
+                  src = "sensor.lanbat_screen_${slug}_media_result_${toString i}";
+                in
+                {
+                  name = "lanbat_screen_${slug}_media_row_${toString i}";
+                  unique_id = "lanbat_screen_${slug}_media_row_${toString i}";
+                  picture = "{{ state_attr('${src}', 'entity_picture') or '' }}";
+                  state = "{% set t = states('${src}') %}{% if t in ['none', 'unknown', 'unavailable'] %}none{% else %}{% set f = (state_attr('${src}', 'facts') or []) | join(' · ') %}{% set d = state_attr('${src}', 'description') or '' %}{{ (t ~ (' · ' ~ f if f else '') ~ (' — ' ~ d if d else '')) | truncate(250) }}{% endif %}";
+                }
+              ) (lib.range 1 5)
+            ) techo5Devices
+          );
+        };
         script = {
+          # The results view's taps and page buttons ask the router through Home
+          # Assistant's own conversation service: "play 2", "go to page 3".
+          lanbat_media_play = lib.mkIf hasTechos {
+            alias = "Play a media search result";
+            mode = "queued";
+            max = 10;
+            fields.n.description = "The result's number on the page (1–5).";
+            sequence = [
+              {
+                action = "conversation.process";
+                data = {
+                  text = "play {{ n | int }}";
+                  agent_id = "conversation.voice_llm";
+                  language = "en";
+                };
+              }
+            ];
+          };
+          lanbat_media_page = lib.mkIf hasTechos {
+            alias = "Turn to a page of media results";
+            mode = "queued";
+            max = 10;
+            fields = {
+              page.description = "The page to show (1–6).";
+              delta.description = "Or 1 for the next page, -1 for the previous.";
+            };
+            sequence = [
+              {
+                choose = [
+                  {
+                    conditions = "{{ page | int(0) >= 1 }}";
+                    sequence = [
+                      {
+                        action = "conversation.process";
+                        data = {
+                          text = "go to page {{ page | int }}";
+                          agent_id = "conversation.voice_llm";
+                          language = "en";
+                        };
+                      }
+                    ];
+                  }
+                  {
+                    conditions = "{{ delta | int(0) > 0 }}";
+                    sequence = [
+                      {
+                        action = "conversation.process";
+                        data = {
+                          text = "next page";
+                          agent_id = "conversation.voice_llm";
+                          language = "en";
+                        };
+                      }
+                    ];
+                  }
+                  {
+                    conditions = "{{ delta | int(0) < 0 }}";
+                    sequence = [
+                      {
+                        action = "conversation.process";
+                        data = {
+                          text = "previous page";
+                          agent_id = "conversation.voice_llm";
+                          language = "en";
+                        };
+                      }
+                    ];
+                  }
+                ];
+              }
+            ];
+          };
           # A message for a person, on whatever body the assistant router
           # places them beside (a robot's caption, a screen's notification):
           # their "Where is" sensor names the room, and the router's caption

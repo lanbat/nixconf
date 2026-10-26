@@ -23,6 +23,21 @@ class InvidiousError(Exception):
     """Invidious did not answer, or answered with something unusable."""
 
 
+def _short(value: object) -> str:
+    """A count as people read it: 6241603 -> 6.2M."""
+    if type(value) is not int or value < 0:
+        return ""
+    if value >= 1_000_000_000:
+        text = f"{value / 1_000_000_000:.1f}B"
+    elif value >= 1_000_000:
+        text = f"{value / 1_000_000:.1f}M"
+    elif value >= 1_000:
+        text = f"{value / 1_000:.1f}K"
+    else:
+        return str(value)
+    return text[:-2] if text.endswith(".0M") or text.endswith(".0K") or text.endswith(".0B") else text
+
+
 def _plain(text: object, limit: int = 240) -> str:
     """A description as the screen reads it: no tags, one paragraph, short."""
     if not isinstance(text, str):
@@ -110,13 +125,23 @@ class Invidious:
                 })
         return out
 
-    async def description(self, vid: str) -> str:
-        """The full description of one video: a search result often omits it."""
+    async def details(self, vid: str) -> tuple[str, list[str]]:
+        """(description, facts) of one video: views, likes and when it went up."""
         try:
-            data = await self._get(f"/api/v1/videos/{vid}", {"fields": "description"})
+            data = await self._get(f"/api/v1/videos/{vid}")
         except InvidiousError:
-            return ""
-        return _plain(data.get("description")) if isinstance(data, dict) else ""
+            return "", []
+        if not isinstance(data, dict):
+            return "", []
+        facts = []
+        for key, label in (("viewCount", "views"), ("likeCount", "likes")):
+            short = _short(data.get(key))
+            if short:
+                facts.append(f"{short} {label}")
+        published = data.get("publishedText")
+        if isinstance(published, str) and published.strip():
+            facts.append(published.strip())
+        return _plain(data.get("description")), facts
 
     async def playlist(self, plid: str, page: int) -> tuple[str, list[dict]]:
         """(title, videos) of one Invidious page (100 videos) of a playlist."""

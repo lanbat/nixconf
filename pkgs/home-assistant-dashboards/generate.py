@@ -695,9 +695,50 @@ def screen_sections(home: Home, room: str, people: dict[str, str], person: str |
     return sections
 
 
+MEDIA_SLOTS = 5
+MEDIA_PAGES = 6
+
+
+def screen_media_view(room: str) -> dict:
+    """The search results: five rows and the page buttons. Each row is a tile
+    bound to a template sensor that Home Assistant fills from the router's MQTT
+    results (services/home-assistant.nix): a screen view may hold no templates
+    of its own, and TECHO5 draws tiles with the entity's picture."""
+    cards: list[dict] = [heading("Results", "mdi:magnify")]
+    for slot in range(1, MEDIA_SLOTS + 1):
+        entity = screen_sensor(room, f"media_row_{slot}")
+        cards.append({
+            "type": "tile", "entity": entity, "name": str(slot),
+            "tap_action": {"action": "perform-action",
+                           "perform_action": "script.lanbat_media_play",
+                           "data": {"n": slot}},
+            "visibility": screen_item_visible(entity),
+        })
+    buttons = [{
+        "type": "button", "name": "Previous", "icon": "mdi:chevron-left", "show_state": False,
+        "tap_action": {"action": "perform-action", "perform_action": "script.lanbat_media_page",
+                       "data": {"delta": -1}},
+    }]
+    for page in range(1, MEDIA_PAGES + 1):
+        buttons.append({
+            "type": "button", "name": str(page), "show_state": False,
+            "tap_action": {"action": "perform-action", "perform_action": "script.lanbat_media_page",
+                           "data": {"page": page}},
+        })
+    buttons.append({
+        "type": "button", "name": "Next", "icon": "mdi:chevron-right", "show_state": False,
+        "tap_action": {"action": "perform-action", "perform_action": "script.lanbat_media_page",
+                       "data": {"delta": 1}},
+    })
+    cards.append({"type": "grid", "columns": 4, "cards": buttons})
+    return {"title": "Results", "path": "media", "icon": "mdi:magnify", "type": "sections",
+            "sections": [{"type": "grid", "cards": cards}]}
+
+
 def screen_dashboard(home: Home, room: str, people: dict[str, str]) -> dict:
     views = [{"title": room, "path": "home", "icon": "mdi:home", "type": "sections", "max_columns": 2,
               "sections": screen_sections(home, room, people, None)}]
+    views.append(screen_media_view(room))
     for key in sorted(people):
         views.append({"title": people[key], "path": key, "icon": "mdi:account", "type": "sections",
                       "max_columns": 2, "sections": screen_sections(home, room, people, key)})

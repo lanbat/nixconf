@@ -30,6 +30,7 @@ from .context import Context, parse_context
 from .evidence import Evidence
 from .frigate import Frigate, FrigateError
 from .hass import Hass, HassError
+from .mqtt import HomeAssistant
 from .irks import Irks
 from .lists import Lists, Personal
 from .people import VOICE_UNKNOWN, People
@@ -262,7 +263,8 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
              personal: Personal | None = None,
              yt_show: youtube_mod.YtShow | None = None,
              yt_lists: youtube_mod.Sessions | None = None,
-             hass: Hass | None = None) -> web.Application:
+             hass: Hass | None = None,
+             publisher: HomeAssistant | None = None) -> web.Application:
     state = state or State()
     bodies = bodies or Bodies("")
     people = people or People({})
@@ -375,6 +377,20 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                     return name
         return screens[0] if len(screens) == 1 else None
 
+    async def _publish_list(room: str, results: youtube_mod.Results | None) -> None:
+        """The five rows and the page, for the screen's results view (MQTT)."""
+        if publisher is None:
+            return
+        if results is None:
+            await publisher.media(room, None)
+            await bodies.act(room, {"view": ""})
+            return
+        await publisher.media(room, {
+            "query": results.query, "page": results.page, "items": list(results.items),
+            "has_next": results.has_next, "more": results.more,
+        })
+        await bodies.act(room, {"view": "media"})
+
     async def _yt_search(device: str, room: str, query: str, page: int) -> dict:
         data = await yt_show.search(query, page)
         if data is None:
@@ -388,6 +404,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
                                       bool(data.get("has_next")), clock(),
                                       more=bool(data.get("more")))
         yt_lists.set(room, results)
+        await _publish_list(room, results)
         # The list stays up while the person decides (brain.py shows a caption
         # for ten seconds unless told longer).
         await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
@@ -409,6 +426,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             yt_lists.replace(room, results)  # another page of the same playlist
         else:
             yt_lists.push(room, results)     # opened from the search above it
+        await _publish_list(room, results)
         await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
         return finish(device, youtube_mod.spoken(results), [])
 
@@ -441,6 +459,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         except HassError:
             return finish(device, "The speaker didn't take it.", [])
         yt_lists.clear(room)
+        await _publish_list(room, None)
         return finish(device, f"Playing {title[:80]}.", ["Success"])
 
     async def _jelly_play(device: str, room: str, item: dict) -> dict:
@@ -456,6 +475,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         except HassError:
             return finish(device, "The screen didn't take it.", [])
         yt_lists.clear(room)
+        await _publish_list(room, None)
         return finish(device, f"Playing {title[:80]}.", ["Success"])
 
     async def _jelly_contents(device: str, room: str, item: dict, page: int) -> dict:
@@ -474,6 +494,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             yt_lists.replace(room, results)
         else:
             yt_lists.push(room, results)
+        await _publish_list(room, results)
         await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})
         return finish(device, youtube_mod.spoken(results), [])
 
@@ -495,6 +516,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         kind, value = pick
         if kind == "cancel":
             yt_lists.clear(room)
+            await _publish_list(room, None)
             return finish(device, STOPPED, [])
         if kind == "raw":
             return await _yt_play(device, room, str(value))
@@ -503,6 +525,7 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             if not yt_lists.pop(room):
                 return finish(device, "That's the first list.", [])
             results = yt_lists.get(room)
+            await _publish_list(room, results)
             if results is None:
                 return finish(device, STOPPED, [])
             await bodies.act(room, {"caption": youtube_mod.caption(results), "caption_seconds": 120})

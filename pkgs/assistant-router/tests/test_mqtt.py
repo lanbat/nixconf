@@ -2,7 +2,8 @@ import asyncio
 import json
 
 from assistant_router.body import Bodies
-from assistant_router.mqtt import HomeAssistant, command, items_discovery, items_state, robot_discovery, slug
+from assistant_router.mqtt import (HomeAssistant, command, items_discovery, items_state,
+                                    media_discovery, media_state, robot_discovery, slug)
 from assistant_router.people import Assessment, People
 
 
@@ -586,3 +587,51 @@ async def test_unchanged_items_are_not_republished():
     before = len(broker.messages)
     await ha.tick(broker.publish)
     assert len(broker.messages) == before
+
+
+def test_media_discovery_names_the_five_rows_and_the_page():
+    configs = dict(media_discovery("Kitchen"))
+    uid = "lanbat_screen_kitchen"
+    first = configs[f"homeassistant/sensor/{uid}/media_result_1/config"]
+    assert first["object_id"] == f"{uid}_media_result_1"
+    assert first["state_topic"] == "lanbat/screen/kitchen/media/result/1"
+    assert first["json_attributes_topic"] == "lanbat/screen/kitchen/media/result/1/attributes"
+    assert len([k for k in configs if "/media_result_" in k]) == 5
+    page = configs[f"homeassistant/sensor/{uid}/media_page/config"]
+    assert page["state_topic"] == "lanbat/screen/kitchen/media/page"
+
+
+def test_media_state_has_the_title_the_picture_and_the_description():
+    uid = "lanbat_screen_kitchen"
+    page = {"query": "the matrix", "page": 2, "has_next": True, "more": False, "items": [
+        {"n": 1, "title": "A video", "thumb": "https://yt.example/vi/a.jpg",
+         "description": "About it", "source": "youtube", "kind": "video", "duration": "4:58"},
+        {"n": 2, "title": "A film", "thumb": "https://yt.example/media/bat.svg",
+         "source": "jellyfin", "kind": "movie"},
+    ]}
+    states = media_state("Kitchen", page)
+    assert states[f"{uid}_media_result_1"][0] == "A video"
+    attrs = states[f"{uid}_media_result_1"][1]
+    assert attrs["entity_picture"] == "https://yt.example/vi/a.jpg"
+    assert attrs["description"] == "About it" and attrs["duration"] == "4:58"
+    assert states[f"{uid}_media_result_3"] == ("none", {})
+    assert states[f"{uid}_media_page"] == ("2", {"query": "the matrix", "page": 2,
+                                                 "has_next": True, "more": False})
+    empty = media_state("Kitchen", None)
+    assert empty[f"{uid}_media_result_1"] == ("none", {}) and empty[f"{uid}_media_page"] == ("0", {})
+
+
+async def test_a_search_publishes_the_five_rows_for_the_screen():
+    bodies = Bodies("You are Nabu.")
+    people = People({})
+    ha = HomeAssistant(bodies, people, lambda: 100.0, screen_rooms=["Kitchen"])
+    broker = Broker()
+    ha._publish = broker.publish
+    await ha.media("Kitchen", {"query": "x", "page": 1, "has_next": True, "more": False,
+                               "items": [{"n": 1, "title": "A video", "source": "youtube",
+                                          "thumb": "https://yt.example/a.jpg"}]})
+    assert broker.last("lanbat/screen/kitchen/media/result/1") == "A video"
+    assert broker.last("lanbat/screen/kitchen/media/result/1/attributes")["entity_picture"] == \
+        "https://yt.example/a.jpg"
+    await ha.media("Kitchen", None)
+    assert broker.last("lanbat/screen/kitchen/media/result/1") == "none"

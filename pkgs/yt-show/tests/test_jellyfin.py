@@ -6,7 +6,8 @@ def test_a_movie_a_series_and_an_episode():
     movie = _item({"Id": "m1", "Name": "The Matrix", "Type": "Movie",
                    "RunTimeTicks": 136 * 10_000_000, "ProductionYear": 1999})
     assert movie == {"source": "jellyfin", "kind": "movie", "id": "m1",
-                     "title": "The Matrix", "channel": "", "seconds": 136}
+                     "title": "The Matrix", "channel": "", "seconds": 136,
+                     "facts": ["1999"]}
     series = _item({"Id": "s1", "Name": "The Wire", "Type": "Series", "ChildCount": 60})
     assert series["kind"] == "series" and series["count"] == 60
     episode = _item({"Id": "e1", "Name": "Pilot", "Type": "Episode",
@@ -37,3 +38,10 @@ def test_a_description_and_a_picture_from_the_library():
     assert item["description"] == "A hacker learns the truth."
     assert item["thumb"] == ("http://192.168.1.10:8096/Items/m1/Images/Primary"
                              "?maxWidth=480&quality=90&api_key=secret-key")
+
+
+def test_a_film_carries_its_rating_year_and_quality():
+    item = _item({"Id": "m1", "Name": "The Matrix", "Type": "Movie", "ProductionYear": 1999,
+                  "CommunityRating": 8.7, "OfficialRating": "R",
+                  "MediaSources": [{"Height": 2160, "VideoRange": "HDR"}]})
+    assert item["facts"] == ["★ 8.7", "R", "1999", "4K HDR"]

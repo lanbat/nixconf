@@ -77,6 +77,39 @@ def _item(kind: str, item: object) -> dict | None:
     return out
 
 
+def _details(item: object) -> tuple[str, list[str]]:
+    """(description, facts) of one full Music Assistant item: the artist, album,
+    year, genre and anything else worth a line on the screen."""
+    meta = getattr(item, "metadata", None)
+    description = _text(meta, "description") if meta is not None else ""
+    facts: list[str] = []
+    artists = getattr(item, "artists", None) or []
+    names = [artist.name for artist in artists
+             if isinstance(getattr(artist, "name", None), str) and artist.name.strip()]
+    if names:
+        facts.append(", ".join(names[:2]))
+    album = getattr(item, "album", None)
+    if isinstance(getattr(album, "name", None), str) and album.name.strip():
+        facts.append(album.name.strip())
+    year = getattr(item, "year", None)
+    if type(year) is not int:
+        released = getattr(meta, "release_date", None) if meta is not None else None
+        year = getattr(released, "year", None) if released is not None else None
+    if type(year) is int:
+        facts.append(str(year))
+    genres = getattr(meta, "genres", None) if meta is not None else None
+    if genres:
+        picked = sorted({g for g in genres if isinstance(g, str) and g.strip()})[:2]
+        if picked:
+            facts.append(", ".join(picked))
+    count = _count(item)
+    if count is not None:
+        facts.append(f"{count} tracks")
+    if meta is not None and getattr(meta, "explicit", None) is True:
+        facts.append("Explicit")
+    return description[:240], facts[:5]
+
+
 class Ma:
     def __init__(self, url: str, token_file: str,
                  session: aiohttp.ClientSession | None = None, timeout: float = 30.0) -> None:
@@ -105,6 +138,25 @@ class Ma:
         if not token:
             raise MaError("empty token")
         return token
+
+    async def details(self, uris: list[str]) -> dict[str, tuple[str, list[str]]]:
+        """Full items for the page: a search gives mappings without artists,
+        album, year or a description."""
+        if not uris:
+            return {}
+        session = await self._ensure()
+        try:
+            async with MusicAssistantClient(self.url, session, token=self._token()) as client:
+                out: dict[str, tuple[str, list[str]]] = {}
+                for uri in uris:
+                    try:
+                        item = await client.music.get_item_by_uri(uri)
+                    except (MusicAssistantClientException, MusicAssistantError, OSError, TimeoutError):
+                        continue
+                    out[uri] = _details(item)
+                return out
+        except (MusicAssistantClientException, MusicAssistantError, OSError, TimeoutError) as exc:
+            raise MaError(str(exc)) from exc
 
     async def search(self, query: str, limit: int = 40) -> list[dict]:
         """Every kind of media, interleaved, up to `limit` of each kind."""
