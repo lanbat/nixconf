@@ -102,7 +102,7 @@ PAGE = r"""<!doctype html>
   <div class="dots" id="dots"></div>
 </footer>
 <script>
-const BAT = `<svg viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+const BAT = `<svg class="bat" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
   <defs><radialGradient id="g${Math.random().toString(36).slice(2)}" cx="50%" cy="40%" r="70%">
     <stop offset="0" stop-color="#2b2857"/><stop offset=".65" stop-color="#1c1a3a"/><stop offset="1" stop-color="#141230"/>
   </radialGradient></defs>
