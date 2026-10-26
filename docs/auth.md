@@ -98,7 +98,7 @@ browser ──▶ service (sets its own session from the ID token)
 | Nextcloud | app | yes | `user_oidc` app; sync clients via `apiClients` |
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
-| Vaultwarden | app | (optional, not yet wired) | **own account system** (Bitwarden) |
+| Vaultwarden | app | yes | **own account system** (Bitwarden) plus OIDC; SSO signs in by matching the email to an existing account (created from the admin panel or its API), gated on the `vaultwarden` group |
 | Invidious | forward-auth | no | only the personal pages are gated; browsing, watching and the API bypass Authentik |
 | Homepage, SearXNG, Redlib, CA page | none | no | deliberately open |
 
@@ -220,7 +220,10 @@ translation pattern differs by service:
 - **Own account system (Jellyfin, Vaultwarden).** The service keeps its own users.
   Jellyfin's `jellyfin-bootstrap` also configures an Authentik OIDC login (only when
   Home Assistant is present too), so an authentik session lands on the matching Jellyfin
-  account; Vaultwarden keeps Bitwarden accounts (OIDC not yet wired). For these, layer-1
+  account. Vaultwarden keeps Bitwarden accounts, but its OIDC is wired too: SSO signs in
+  by matching the email to an account that already exists (invite it from the admin
+  panel first), gated on the `vaultwarden` group, and the `offline_access` scope hands
+  Bitwarden clients a refresh token. For these, layer-1
   reach and layer-2 identity are deliberately *decoupled*.
 
 So the same question — "what can this user do?" — is answered in authentik (can they

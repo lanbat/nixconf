@@ -118,6 +118,11 @@ let
     oidc.redirectPaths = [ "/callback" ];
     access.groups = [ "authentik Admins" ];
   });
+  oidcExtraScopes = withModule (demo {
+    auth = "app";
+    oidc.redirectPaths = [ "/callback" ];
+    oidc.extraScopes = [ "offline_access" ];
+  });
   # Only some services placed on the server.
   placed = blueprintsWith (
     host:
@@ -345,6 +350,11 @@ let
             name = "RomM";
             secret = "AUTHENTIK_ROMM_CLIENT_SECRET";
           }
+          {
+            n = "vaultwarden";
+            name = "Vaultwarden";
+            secret = "AUTHENTIK_VAULTWARDEN_CLIENT_SECRET";
+          }
         ];
     oidcApps =
       map
@@ -361,6 +371,7 @@ let
           "jellyfin"
           "nextcloud"
           "romm"
+          "vaultwarden"
         ];
   };
 
@@ -561,6 +572,32 @@ let
       && a != null
       && !(a.attrs ? meta_launch_url)
       && !(a.attrs ? meta_hide)
+    ))
+
+    (expect "an OIDC service's extra scopes are appended to its property mappings" (
+      let
+        p = byId "provider-demo" (oidcProviders oidcExtraScopes);
+      in
+      p != null
+      &&
+        map (m: lib.last (untag m)) p.attrs.property_mappings == [
+          [
+            "scope_name"
+            "openid"
+          ]
+          [
+            "scope_name"
+            "email"
+          ]
+          [
+            "scope_name"
+            "profile"
+          ]
+          [
+            "scope_name"
+            "offline_access"
+          ]
+        ]
     ))
 
     (expect "a forward-auth service with OIDC gets -proxy objects beside the OIDC ones" (

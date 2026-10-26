@@ -155,6 +155,11 @@ let
   jackettDefinitionsTimer = base.systemd.timers.jackett-definitions;
   qbittorrentUnit = base.systemd.services.podman-qbittorrent;
 
+  # ── Vaultwarden ────────────────────────────────────────────────────────────
+  vaultwarden = base.lanbat.services.vaultwarden;
+  vaultwardenService = base.services.vaultwarden;
+  vaultwardenUnit = base.systemd.services.vaultwarden;
+
   # ── Samba ────────────────────────────────────────────────────────────────
   smb = config: config.services.samba.settings;
   sambaDrives = config: config.lanbat.services.samba.nfs.drives;
@@ -838,9 +843,12 @@ let
           comment = "Private";
           path = "/srv/storage/b/media/adult";
           browseable = "no";
-          "read only" = "yes";
+          "read only" = "no";
           "guest ok" = "no";
           "valid users" = "@private";
+          "create mask" = "0660";
+          "directory mask" = "0770";
+          "force group" = "private";
         };
         shared = {
           comment = "Shared";
@@ -2238,6 +2246,39 @@ let
     (expect "jackett: qBittorrent starts only after its plugin is configured" (
       lib.elem "jackett-qbittorrent-plugin.service" qbittorrentUnit.requires
       && lib.elem "jackett-qbittorrent-plugin.service" qbittorrentUnit.after
+    ))
+
+    (expect "vaultwarden: workload-native service, private, own Bitwarden accounts" (
+      vaultwarden.subdomain == "vault"
+      && vaultwarden.port == 8222
+      && vaultwarden.extraPorts == [ 3012 ]
+      && vaultwarden.apiClients
+      && vaultwarden.access.groups == [ "vaultwarden" ]
+      && vaultwarden.tier == "workload"
+      && vaultwarden.state == [ "vaultwarden" ]
+      && vaultwarden.units == [ "vaultwarden" ]
+      && vaultwardenService.enable
+      && lib.elem "workload-online.target" vaultwardenUnit.wantedBy
+    ))
+
+    (expect "vaultwarden: SSO over the identity provider, matching the email to an account" (
+      vaultwarden.oidc.redirectPaths == [ "/identity/connect/oidc-signin" ]
+      && vaultwarden.oidc.extraScopes == [ "offline_access" ]
+      && vaultwardenService.config.SSO_ENABLED
+      && vaultwardenService.config.SSO_CLIENT_ID == "vaultwarden"
+      &&
+        vaultwardenService.config.SSO_AUTHORITY
+        == "https://auth.home.example.com/application/o/vaultwarden/"
+      && vaultwardenService.config.SSO_SCOPES == "email profile offline_access"
+      && vaultwardenService.config.SSO_SIGNUPS_MATCH_EMAIL
+      && !vaultwardenService.config.SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION
+      && vaultwardenService.environmentFile == [ base.lanbat.secrets.vaultwarden-env.path ]
+    ))
+
+    (expect "vaultwarden: the SSO unit trusts the internal Caddy CA" (
+      vaultwardenUnit.serviceConfig.Environment == [
+        "SSL_CERT_FILE=/var/lib/caddy-local-ca/ca-certificates.crt"
+      ]
     ))
 
     (expect "snapcast: two clients can't share an address" (

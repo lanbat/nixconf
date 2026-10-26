@@ -7,13 +7,14 @@
 #   bash secrets/generate-oidc-secrets.sh
 #
 # What this script does:
-#   - Creates/replaces authentik-oidc-secrets.age  (7 client secrets for the
-#     blueprint; Authentik reads them via !Env at startup, and Jellyfin's and
-#     Audiobookshelf's bootstraps read their own)
+#   - Creates/replaces authentik-oidc-secrets.age  (8 client secrets for the
+#     blueprint; Authentik reads them via !Env at startup, and Jellyfin's,
+#     Audiobookshelf's and Vaultwarden's configs read their own)
 #   - Appends/replaces GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET in grafana-env.age
 #   - Creates/replaces nextcloud-oidc-env.age
 #   - Creates/replaces immich-oidc-env.age
 #   - Creates/replaces romm-oidc-env.age
+#   - Appends/replaces SSO_CLIENT_SECRET in vaultwarden-env.age
 #   - Prints client_id/secret for Home Assistant and Jellyfin
 #     (those services need manual UI config — see notes below each)
 #
@@ -95,6 +96,7 @@ HA_SECRET=$(rand)
 JELLYFIN_SECRET=$(rand)
 ROMM_SECRET=$(rand)
 AUDIOBOOKSHELF_SECRET=$(rand)
+VAULTWARDEN_SECRET=$(rand)
 
 overwrite "authentik-oidc-secrets.age" \
 "AUTHENTIK_GRAFANA_CLIENT_SECRET=$GRAFANA_SECRET
@@ -103,7 +105,8 @@ AUTHENTIK_IMMICH_CLIENT_SECRET=$IMMICH_SECRET
 AUTHENTIK_HA_CLIENT_SECRET=$HA_SECRET
 AUTHENTIK_JELLYFIN_CLIENT_SECRET=$JELLYFIN_SECRET
 AUTHENTIK_ROMM_CLIENT_SECRET=$ROMM_SECRET
-AUTHENTIK_AUDIOBOOKSHELF_CLIENT_SECRET=$AUDIOBOOKSHELF_SECRET"
+AUTHENTIK_AUDIOBOOKSHELF_CLIENT_SECRET=$AUDIOBOOKSHELF_SECRET
+AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_SECRET"
 
 upsert_line "grafana-env.age" \
   "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=$GRAFANA_SECRET"
@@ -119,10 +122,13 @@ IMMICH_OAUTH_CLIENT_SECRET=$IMMICH_SECRET"
 overwrite "romm-oidc-env.age" \
 "OIDC_CLIENT_SECRET=$ROMM_SECRET"
 
+upsert_line "vaultwarden-env.age" \
+  "SSO_CLIENT_SECRET=$VAULTWARDEN_SECRET"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
-echo "Done. Grafana, Nextcloud, Immich, RomM and Audiobookshelf are fully wired."
+echo "Done. Grafana, Nextcloud, Immich, RomM, Audiobookshelf and Vaultwarden are fully wired."
 echo
 echo "Manual UI setup required for the following two services."
 echo "Secrets are also stored in authentik-oidc-secrets.age for later retrieval."

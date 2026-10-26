@@ -162,8 +162,10 @@ agenix -e grafana-env.age
 agenix -e grafana-alert-env.age
 
 # ---- Vaultwarden ----
-# One KEY=value line:
+# Two KEY=value lines:
 #   ADMIN_TOKEN=<openssl rand -base64 48>
+#   SSO_CLIENT_SECRET=<the same value as AUTHENTIK_VAULTWARDEN_CLIENT_SECRET in
+#   authentik-oidc-secrets.age; generate both with generate-oidc-secrets.sh>
 agenix -e vaultwarden-env.age
 
 # ---- Invidious ----
@@ -281,7 +283,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | File | Format | Used by |
 |------|--------|---------|
 | `authentik-env.age` | `KEY=value` × 2 | Authentik server + worker |
-| `authentik-oidc-secrets.age` | `KEY=value` lines (one per OIDC client, `AUTHENTIK_<NAME>_CLIENT_SECRET`) | Authentik blueprints; shared with Jellyfin and Audiobookshelf (client secrets for `jellyfin-bootstrap` and `audiobookshelf-bootstrap`) |
+| `authentik-oidc-secrets.age` | `KEY=value` lines (one per OIDC client, `AUTHENTIK_<NAME>_CLIENT_SECRET`) | Authentik blueprints; shared with Jellyfin, Audiobookshelf and Vaultwarden (client secrets for `jellyfin-bootstrap`, `audiobookshelf-bootstrap` and `SSO_CLIENT_SECRET` in `vaultwarden-env.age`) |
 | `nextcloud-admin-pass.age` | plaintext password | Nextcloud |
 | `nextcloud-oidc-env.age` | `KEY=value` × 2 | Nextcloud OIDC setup |
 | `immich-db-password.age` | `POSTGRES_PASSWORD=<value>` | Immich postgres container |
@@ -298,7 +300,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `influxdb-admin-token.age` | plaintext token | InfluxDB; shared with Grafana (datasource) |
 | `grafana-env.age` | `KEY=value` × 4 | Grafana |
 | `grafana-alert-env.age` | `GRAFANA_ALERT_WEBHOOK_URL=<value>` | Grafana alerts (disk almost full, Frigate quiet); only with `lanbat.services.grafana.settings.alerting.enable` |
-| `vaultwarden-env.age` | `ADMIN_TOKEN=<value>` | Vaultwarden |
+| `vaultwarden-env.age` | `ADMIN_TOKEN=<value>`, `SSO_CLIENT_SECRET=<value>` (same value as `AUTHENTIK_VAULTWARDEN_CLIENT_SECRET` in `authentik-oidc-secrets.age`) | Vaultwarden |
 | `searxng-secret.age` | plaintext value | SearXNG session and image-proxy signing |
 | `homepage-widgets-env.age` | `KEY=value` lines for widget API keys/tokens | Homepage dashboard widgets |
 | `telegraf-token.age` | `TELEGRAF_INFLUXDB_TOKEN=<value>` | Telegraf (server + Pi); shared with InfluxDB on the server (write-token provisioning) |

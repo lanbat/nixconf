@@ -44,6 +44,10 @@
 # The OIDC client secret is read from the Authentik containers' environment
 # with !Env, from the variable AUTHENTIK_<NAME>_CLIENT_SECRET (upper case,
 # dashes as underscores) unless oidc.secretVariable names another.
+#
+# Every OIDC provider maps the openid, email and profile scopes, plus the
+# service's oidc.extraScopes (each must exist as an Authentik scope mapping,
+# e.g. offline_access, created by the system blueprint).
 { lib }:
 
 {
@@ -253,11 +257,14 @@ let
           signing_key = find "authentik_crypto.certificatekeypair" "name" "authentik Self-signed Certificate";
           sub_mode = "hashed_user_id";
           include_claims_in_id_token = true;
-          property_mappings = map (find "authentik_providers_oauth2.scopemapping" "scope_name") [
-            "openid"
-            "email"
-            "profile"
-          ];
+          property_mappings = map (find "authentik_providers_oauth2.scopemapping" "scope_name") (
+            [
+              "openid"
+              "email"
+              "profile"
+            ]
+            ++ svc.oidc.extraScopes
+          );
         };
       }
       (application {
