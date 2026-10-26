@@ -612,7 +612,7 @@ def test_media_state_has_the_title_the_picture_and_the_description():
     states = media_state("Kitchen", page)
     assert states[f"{uid}_media_result_1"][0] == "A video"
     attrs = states[f"{uid}_media_result_1"][1]
-    assert attrs["entity_picture"] == "https://yt.example/vi/a.jpg"
+    assert attrs["thumb"] == "https://yt.example/vi/a.jpg"
     assert attrs["description"] == "About it" and attrs["duration"] == "4:58"
     assert states[f"{uid}_media_result_3"] == ("none", {})
     assert states[f"{uid}_media_page"] == ("2", {"query": "the matrix", "page": 2,
@@ -631,7 +631,7 @@ async def test_a_search_publishes_the_five_rows_for_the_screen():
                                "items": [{"n": 1, "title": "A video", "source": "youtube",
                                           "thumb": "https://yt.example/a.jpg"}]})
     assert broker.last("lanbat/screen/kitchen/media/result/1") == "A video"
-    assert broker.last("lanbat/screen/kitchen/media/result/1/attributes")["entity_picture"] == \
+    assert broker.last("lanbat/screen/kitchen/media/result/1/attributes")["thumb"] == \
         "https://yt.example/a.jpg"
     await ha.media("Kitchen", None)
     assert broker.last("lanbat/screen/kitchen/media/result/1") == "none"

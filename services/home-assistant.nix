@@ -1966,7 +1966,7 @@ in
                     {
                       name = "lanbat_screen_${slug}_media_row_${toString i}";
                       unique_id = "lanbat_screen_${slug}_media_row_${toString i}";
-                      picture = "{{ state_attr('${src}', 'entity_picture') or '' }}";
+                      picture = "{{ state_attr('${src}', 'thumb') or '' }}";
                       state = "{% set t = states('${src}') %}{% if t in ['none', 'unknown', 'unavailable'] %}none{% else %}{% set f = (state_attr('${src}', 'facts') or []) | join(' · ') %}{% set d = state_attr('${src}', 'description') or '' %}{{ (t ~ (' · ' ~ f if f else '') ~ (' — ' ~ d if d else '')) | truncate(250) }}{% endif %}";
                     }
                   ) (lib.range 1 5)
