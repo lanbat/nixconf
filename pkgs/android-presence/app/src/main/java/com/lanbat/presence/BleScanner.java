@@ -24,7 +24,7 @@ public final class BleScanner {
     /** UUIDs already logged, so a nearby phone does not flood logcat. */
     private final Set<String> announced = new HashSet<>();
     private BluetoothLeScanner scanner;
-    private boolean started;
+    private volatile boolean started;
 
     public BleScanner(Context context, BeaconTracker tracker) {
         this.context = context;
@@ -71,6 +71,19 @@ public final class BleScanner {
         return true;
     }
 
+    /**
+     * Drop the current scan and ask for a new one.
+     *
+     * <p>Android can stop delivering results without telling the app (a
+     * standby transition, location being turned off, or the controller going
+     * to sleep). After that the old registration looks live forever, so the
+     * service calls this periodically to make sure the scan is really running.
+     */
+    public void restart() {
+        stop();
+        start();
+    }
+
     /** False until a scan is running; the service retries while it is false. */
     public boolean isStarted() {
         return started;
@@ -103,6 +116,12 @@ public final class BleScanner {
                 }
                 tracker.observe(key, result.getRssi(), System.currentTimeMillis());
             }
+        }
+
+        @Override public void onScanFailed(int errorCode) {
+            Log.w(TAG, "scan failed (" + errorCode + "); will retry");
+            started = false;
+            scanner = null;
         }
     };
 }

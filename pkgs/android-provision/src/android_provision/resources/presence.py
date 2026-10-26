@@ -50,12 +50,19 @@ def _one(adb: Adb, presence: Presence, *, apply: bool, force: bool) -> Outcome:
         return Outcome("presence", PACKAGE, SKIPPED, "app is not installed")
 
     marker = _marker(presence)
-    if adb.marker_exists(marker) and not force:
-        return Outcome("presence", PACKAGE, OK)
+    configured = adb.marker_exists(marker) and not force
     if not apply:
-        return Outcome("presence", PACKAGE, CHANGED, f"would configure {presence.room}")
+        return (
+            Outcome("presence", PACKAGE, OK)
+            if configured
+            else Outcome("presence", PACKAGE, CHANGED, f"would configure {presence.room}")
+        )
 
     try:
+        # Runtime preconditions, every run -- not just when the config
+        # changes. The box turns location off when its display sleeps, and
+        # Android then delivers no iBeacon results; a provision run must be
+        # able to put it back without re-sending the unchanged config.
         for permission in PERMISSIONS:
             # Ignore failures: a permission the device/OS does not have simply
             # does not apply (e.g. POST_NOTIFICATIONS below Android 13).
@@ -64,14 +71,6 @@ def _one(adb: Adb, presence: Presence, *, apply: bool, force: bool) -> Outcome:
         # allowed so a scan from the service is not treated as background.
         adb.shell_ok("appops", "set", PACKAGE, "android:fine_location", "allow")
         adb.shell_ok("appops", "set", PACKAGE, "android:coarse_location", "allow")
-        adb.shell(
-            "am", "broadcast", "-p", PACKAGE, "-a", ACTION,
-            "--es", "room", presence.room,
-            "--es", "router_url", presence.routerUrl,
-            "--es", "beacons", json.dumps(presence.beacons, separators=(",", ":")),
-            "--ei", "report_seconds", str(presence.reportSeconds),
-            "--ei", "window_seconds", str(presence.windowSeconds),
-        )
         # iBeacon adverts are location data: without neverForLocation (which
         # would filter iBeacons out) Android returns no scan results unless
         # location is on. Both forms, since `cmd location` is newer.
@@ -80,6 +79,18 @@ def _one(adb: Adb, presence: Presence, *, apply: bool, force: bool) -> Outcome:
         # Exempt from background limits: a boot-time foreground service and a
         # long-running BLE scan are exactly what Android otherwise blocks.
         adb.shell_ok("cmd", "deviceidle", "whitelist", "+" + PACKAGE)
+
+        if configured:
+            return Outcome("presence", PACKAGE, OK)
+
+        adb.shell(
+            "am", "broadcast", "-p", PACKAGE, "-a", ACTION,
+            "--es", "room", presence.room,
+            "--es", "router_url", presence.routerUrl,
+            "--es", "beacons", json.dumps(presence.beacons, separators=(",", ":")),
+            "--ei", "report_seconds", str(presence.reportSeconds),
+            "--ei", "window_seconds", str(presence.windowSeconds),
+        )
         # A broadcast cannot reliably start a foreground service from the
         # background on Android 12+, and `am` from adb can, so start it here.
         adb.shell("am", "start-foreground-service",

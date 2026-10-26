@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -24,6 +25,8 @@ public final class PresenceService extends Service {
     static final String TAG = "lanbat-presence";
     private static final String CHANNEL = "presence";
     private static final int NOTIFICATION_ID = 1;
+    /** Android may drop a scan silently; re-register it this often. */
+    private static final long SCAN_RESTART_MS = 60_000;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tick = new Runnable() {
@@ -32,9 +35,8 @@ public final class PresenceService extends Service {
                 stopSelf();
                 return;
             }
-            if (scanner != null && !scanner.isStarted()) {
-                scanner.start(); // Bluetooth may have been off at startup
-            }
+            keepScanning();
+            warnIfLocationOff();
             Map<String, Integer> report = tracker.report(System.currentTimeMillis());
             if (router != null) {
                 router.send(report, config.beacons);
@@ -49,6 +51,35 @@ public final class PresenceService extends Service {
     private BleScanner scanner;
     private RouterClient router;
     private PowerManager.WakeLock wakeLock;
+    private long lastScanStartMs;
+    private boolean warnedLocationOff;
+
+    private void keepScanning() {
+        if (scanner == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!scanner.isStarted()) {
+            if (scanner.start()) {
+                lastScanStartMs = now;
+            }
+        } else if (now - lastScanStartMs >= SCAN_RESTART_MS) {
+            scanner.restart();
+            lastScanStartMs = now;
+        }
+    }
+
+    private void warnIfLocationOff() {
+        LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        boolean on = manager != null && manager.isLocationEnabled();
+        if (!on && !warnedLocationOff) {
+            Log.w(TAG, "location services are off; Android will not deliver iBeacon"
+                    + " scan results until they are on");
+            warnedLocationOff = true;
+        } else if (on) {
+            warnedLocationOff = false;
+        }
+    }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         Config cfg = Config.load(this);
@@ -68,7 +99,10 @@ public final class PresenceService extends Service {
         createChannel();
         startInForeground();
         acquireWakeLock();
-        scanner.start();
+        if (scanner.start()) {
+            lastScanStartMs = System.currentTimeMillis();
+        }
+        warnedLocationOff = false;
         router.connect(); // hello now; sightings follow once beacons are heard
         handler.post(tick);
         return START_STICKY;

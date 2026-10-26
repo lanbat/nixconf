@@ -77,6 +77,22 @@ def test_the_same_configuration_twice_is_ok(device):
     assert [o.status for o in outcomes] == ["ok"]
 
 
+def test_a_second_run_restores_runtime_state_without_reconfiguring(device):
+    device.state["packages"]["com.lanbat.presence"] = 1
+    device.commit()
+    run(device, PRESENCE)
+    broadcasts = len(device.reload()["broadcasts"])
+
+    outcomes = run(device, PRESENCE)
+
+    assert [o.status for o in outcomes] == ["ok"]
+    state = device.reload()
+    assert len(state["broadcasts"]) == broadcasts  # config was not re-sent
+    # The box can turn location off when it sleeps; a provision run puts it back.
+    assert state["location"][-1] == ["set-location-enabled", "true"]
+    assert state["deviceidle"][-1] == ["whitelist", "+com.lanbat.presence"]
+
+
 def test_plan_changes_nothing(device):
     device.state["packages"]["com.lanbat.presence"] = 1
     device.commit()

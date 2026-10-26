@@ -24,7 +24,7 @@ public final class BeaconTracker {
         this.windowMs = windowMs;
     }
 
-    public void observe(String uuid, int rssi, long nowMs) {
+    public synchronized void observe(String uuid, int rssi, long nowMs) {
         if (uuid == null) {
             return;
         }
@@ -38,7 +38,7 @@ public final class BeaconTracker {
 
     /** uuid -> median RSSI for every beacon heard within the window; stale
      *  samples and empty beacons are pruned as a side effect. */
-    public Map<String, Integer> report(long nowMs) {
+    public synchronized Map<String, Integer> report(long nowMs) {
         Map<String, Integer> out = new LinkedHashMap<>();
         Iterator<Map.Entry<String, List<long[]>>> it = seen.entrySet().iterator();
         while (it.hasNext()) {
