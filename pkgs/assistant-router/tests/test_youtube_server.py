@@ -125,6 +125,25 @@ async def test_the_cloud_fills_the_list_and_the_next_sentence_plays_it(aiohttp_c
     assert len(seen["cloud"]) == 1  # the selection did not need a model
 
 
+async def test_a_phrase_sent_to_play_media_is_searched(aiohttp_client, world):
+    # A quick model sometimes sends the first request to play_media with the
+    # words instead of search_media: "play bbc radio 4".  That is a search, not
+    # a selection.
+    seen, cloud, yt_url, ha_url, llm_url = world
+    bodies = Bodies("You are Nabu.")
+    sock = Sock()
+    bodies.connect("Kitchen", sock, "screen", SCREEN_CAN)
+    client = await aiohttp_client(router(yt_url, ha_url, llm_url, bodies))
+
+    cloud["reply"] = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "play_media", "arguments": '{"selection": "bbc radio 4"}'}}]}
+    body = await (await client.post("/v1/chat/completions", json=req("play bbc radio 4"))).json()
+    said = body["choices"][0]["message"]["content"]
+    assert said.startswith("Here are 5 for bbc radio 4"), said
+    assert seen["yt"] == [("search", {"query": "bbc radio 4", "page": 1})]
+
+
 async def test_next_page_asks_the_helper_for_the_next_page(aiohttp_client, world):
     seen, cloud, yt_url, ha_url, llm_url = world
     bodies = Bodies("You are Nabu.")

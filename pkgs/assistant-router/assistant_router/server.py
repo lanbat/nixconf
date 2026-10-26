@@ -572,6 +572,13 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
             return await _yt_search(device, room, query.strip()[:200], max(1, min(page, 20)))
         pick = youtube_mod.interpret(str(args.get("selection") or ""))
         if pick is None:
+            # A model may send the first request to play_media ("play bbc radio
+            # 4") instead of search_media. That is a search, not a selection:
+            # search for the words and let the list answer, rather than asking
+            # which number when none was said.
+            query = str(args.get("selection") or "").strip()
+            if query and not query.isdigit():
+                return await _yt_search(device, room, query[:200], 1)
             return finish(device, YOUTUBE_PICK, tool_results)
         return await _yt_control(device, room, pick)
 
