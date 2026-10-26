@@ -345,10 +345,14 @@ def plays_something(text: str) -> bool:
 
 
 async def audio_player(hass: Hass, room: str, players: dict[str, str]) -> str | None:
-    """The room's Music Assistant speaker, by the name its profile gave it."""
+    """The room's speaker: an entity id, or the name its profile gave it."""
     name = players.get((room or "").strip().casefold())
     if not name:
         return None
+    # follow-me names the real speaker by entity id, not by Music Assistant's
+    # own name: the two need not agree, and a room can hold more than one.
+    if name.startswith("media_player."):
+        return name
     try:
         states = await hass.states("media_player")
     except HassError:

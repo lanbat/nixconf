@@ -272,6 +272,14 @@ async def test_the_rooms_speaker_is_found_by_the_name_the_profile_gave_it():
     assert await audio_player(hass, "Kitchen", {}) is None
 
 
+async def test_a_room_may_name_its_player_by_entity_id():
+    # follow-me names the real speaker of a room that holds several, by entity
+    # id: the name Music Assistant shows need not match, and HA need not be up.
+    hass = FakeStates([])
+    assert await audio_player(hass, "Bedroom 1", {"bedroom 1": "media_player.binturong"}) == \
+        "media_player.binturong"
+
+
 def test_jellyfin_kinds_are_labelled_on_the_screen_and_in_speech():
     mixed = Results("the wire", 1, (
         {"n": 1, "kind": "movie", "source": "jellyfin", "id": "m1", "title": "A film"},

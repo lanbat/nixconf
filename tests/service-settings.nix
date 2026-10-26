@@ -1802,6 +1802,20 @@ let
       && !lib.any (lib.hasPrefix "play ") sentences
     ))
 
+    # "Play <something>" is the assistant router's: it searches YouTube, Music
+    # Assistant and Jellyfin and shows a list on the screen. A sentence trigger
+    # is matched before any conversation agent, so a "play …" trigger here took
+    # the request first ("play The Matrix" played the soundtrack album).
+    (expect "voice: play requests reach the router, not the music automation" (
+      let
+        sentences = lib.concatMap (t: t.command or [ ]) (automationById base "lanbat_voice_play").trigger;
+      in
+      !lib.any (lib.hasPrefix "play ") sentences
+      && !lib.any (lib.hasInfix "put on") sentences
+      && lib.any (lib.hasPrefix "listen to") sentences
+      && lib.any (s: s == "watch {query}") sentences
+    ))
+
     # Home Assistant has no regex_escape filter; a template using one
     # disables its whole automation at load.
     (expect "voice automations use only filters Home Assistant has" (
