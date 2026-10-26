@@ -362,6 +362,18 @@ def test_no_thanks_once_the_code_has_gone():
     assert not calls(b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 200.0), "notify")
 
 
+def test_a_search_shows_the_streamed_results_page_and_puts_it_away_after():
+    b = brain(results_page="web:Results")
+
+    def paths(outs):
+        return [c[2]["path"] for c in calls(outs, "dashboard_path")]
+
+    # The router says it is showing results: the whole screen is the page.
+    assert paths(b.router({"act": {"view": "media"}}, 1.0)) == ["web:Results"]
+    # Results gone (played, cancelled, or closed): back to the room's view.
+    assert paths(b.router({"act": {"view": ""}}, 2.0)) == ["lanbat-screen-kitchen"]
+
+
 def test_someone_still_in_front_is_looked_at_again_when_the_router_loses_them():
     b = brain()
     b.state("person", True, 0.0)

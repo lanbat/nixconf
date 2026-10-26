@@ -145,6 +145,10 @@ let
         ha_url = lib.optionalString hasHa "https://ha.${domain}";
         profiles = lib.mapAttrs (person: profileJson person) d.profiles;
         household = profileJson null d.household;
+        # While the router shows a search's results, the screen streams this
+        # dashcast page (services/dashcast.nix) rather than a dashboard view:
+        # the page is the list, full screen, with nothing of Home Assistant's.
+        results_page = "web:Results";
         install_ca = d.installCa;
         # The reminders it has rung, kept across restarts (StateDirectory).
         rung_file = "/var/lib/${name}/rung-${key}.json";

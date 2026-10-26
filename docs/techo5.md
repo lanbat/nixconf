@@ -162,10 +162,13 @@ house:
 > Play BBC Radio 4.
 > Play Kind of Blue.
 
-The cloud model searches **YouTube, Music Assistant and Jellyfin together**: the screen shows
-the first five results as a caption while the assistant reads them out, labelled by kind —
-`[playlist]`, `[radio]`, `[track]`, `[album]`, `[artist]`, `[podcast]`, `[music playlist]`,
-`[movie]`, `[series]`, `[episode]`. Then:
+The cloud model searches **YouTube, Music Assistant and Jellyfin together**. The screen
+**is** the results page: five rows, each with a picture, its number, the title, a source chip
+(`YouTube`, `Jellyfin · Film`, `track`, `playlist`, …) and what is known about it — views and
+likes and age for a video, rating, certificate and year for a film, artist and album and year
+for a track — under a two-line description. The assistant says one short line ("5 results for
+The Matrix") rather than reading the page out. Touching a row plays it; the page pills at the
+bottom browse, as does saying:
 
 | Say | It does |
 | --- | --- |
@@ -181,6 +184,12 @@ saying its number opens it, the screen shows its videos, and "play 3" plays one 
 **Jellyfin series** (`[series]`) opens its episodes the same way. A **Music Assistant
 playlist** (`[music playlist]`) is played as a queue. "Go back" (or "back to results") returns
 to the search above it; "previous page" stays within whichever list is open.
+
+Up to five rows a page, six pages: past the thirtieth result the assistant says so and
+suggests asking for something narrower. The page is served by the assistant router
+(`/media`), and while a list is open the screen streams it directly through
+`services/dashcast.nix` (`web:Results`) — so it is the page itself, not Home Assistant's
+cards and not its header. Playing or cancelling puts the room's own view back.
 
 A link or id may be given instead ("play `https://youtu.be/…`"). The list is kept for ten
 minutes, per room; speaking in another room still answers it, because there is one screen.

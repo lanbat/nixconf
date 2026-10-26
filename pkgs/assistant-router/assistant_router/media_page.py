@@ -6,6 +6,8 @@ router itself so the page and the API share an origin, and dashcast's browser
 (host networking) reaches both on the loopback.
 """
 
+import hashlib
+
 PAGE = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -48,7 +50,8 @@ PAGE = r"""<!doctype html>
   .row.first { border-color: var(--line); box-shadow: 0 0 0 1px rgba(242,165,22,.10), 0 12px 30px rgba(0,0,0,.28); }
   .thumb { position: relative; width: 174px; height: 98px; border-radius: 11px; overflow: hidden;
            flex: none; background: #14122e; }
-  .thumb img, .thumb svg { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .thumb .pic { position: absolute; inset: 0; }
+  .thumb .pic img, .thumb .pic svg { width: 100%; height: 100%; display: block; object-fit: cover; }
   .n { position: absolute; left: 8px; top: 8px; width: 28px; height: 28px; border-radius: 50%;
        background: var(--amber); color: #201a05; font-size: 15px; font-weight: 750;
        line-height: 28px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
@@ -101,7 +104,7 @@ PAGE = r"""<!doctype html>
   <div class="dots" id="dots"></div>
 </footer>
 <script>
-const BAT = `<svg viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
+const BAT = `<svg class="bat" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
   <defs><radialGradient id="g${Math.random().toString(36).slice(2)}" cx="50%" cy="40%" r="70%">
     <stop offset="0" stop-color="#2b2857"/><stop offset=".65" stop-color="#1c1a3a"/><stop offset="1" stop-color="#141230"/>
   </radialGradient></defs>
@@ -153,10 +156,14 @@ function draw(data) {
     row.className = "row" + (i === 0 ? " first" : "");
     row.onclick = () => act({action: "play", n: item.n});
     const thumb = el("div", "thumb");
+    // The picture is its own layer: a failed one becomes the bat without
+    // taking the number with it.
+    const pic = el("div", "pic");
     const img = document.createElement("img");
     img.src = "/media/thumb?u=" + encodeURIComponent(item.thumb || "");
-    img.onerror = () => { thumb.innerHTML = BAT; };
-    thumb.appendChild(img);
+    img.onerror = () => { pic.innerHTML = BAT; };
+    pic.appendChild(img);
+    thumb.appendChild(pic);
     thumb.appendChild(el("span", "n", item.n));
     const body = el("div", "body");
     body.appendChild(el("div", "title", item.title || ""));
@@ -191,6 +198,19 @@ function escapeHtml(s) {
 }
 
 let lastKey = null;
+let version = null;
+
+// The page is streamed by a browser that stays open across a router restart,
+// so a deployed change would not reach the screen until something reloaded
+// it.  Ask for the page's version and reload when it is not ours.
+async function checkVersion() {
+  try {
+    const r = await fetch("/media/version", {cache: "no-store"});
+    const v = (await r.text()).trim();
+    if (!version) version = v;
+    else if (v && v !== version) location.reload();
+  } catch (e) { /* the router is restarting */ }
+}
 
 function fingerprint(data) {
   return JSON.stringify([data.open, data.query, data.page, data.has_next, data.more,
@@ -210,8 +230,15 @@ async function refresh() {
   } catch (e) { /* the router restarted; the next poll will do */ }
 }
 refresh();
+checkVersion();
 setInterval(refresh, 1000);
+setInterval(checkVersion, 15000);
 </script>
 </body>
 </html>
 """
+
+
+# A short id for the page as this build has it, so a page already open on a
+# screen can notice a deployment and reload itself.
+VERSION = hashlib.sha256(PAGE.encode()).hexdigest()[:12]
