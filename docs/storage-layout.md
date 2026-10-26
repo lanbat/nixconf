@@ -13,7 +13,8 @@ Raspberry Pi 5
 │   │   ├── tv/                            ← one folder per show: Jellyfin takes every folder here for a series
 │   │   └── music-videos/
 │   ├── /mnt/storage-a/photos/             ← Immich originals / uploads
-│   └── /mnt/storage-a/surveillance/       ← Frigate recordings
+│   └── /mnt/storage-a/surveillance/       ← Frigate
+│       ├── recordings/
 │       ├── clips/
 │       └── exports/
 │
@@ -105,8 +106,7 @@ These paths live on `/dev/lanbat/root` and are accessible at boot without any un
 ├── postgresql-always-on/  PostgreSQL always-on instance: Authentik, Home Assistant, Grafana, Invidious
 ├── frigate/           (config.yml is rendered into the Nix store from the settings)
 │   ├── db/            Frigate SQLite event DB
-│   ├── clips/         Review snapshots and clips
-│   └── recordings/    Motion-only recordings
+│   └── model_cache/   Downloaded ML models
 ├── grafana/           Grafana dashboards, users, alert state
 ├── invidious/         Invidious hmac key (its database is on the always-on instance)
 ├── influxdb2/         InfluxDB data + WAL (BACK THIS UP)

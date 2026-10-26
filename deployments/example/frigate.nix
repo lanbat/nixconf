@@ -24,6 +24,9 @@ let
 in
 {
   lanbat.services.frigate.settings = {
+    # Recordings and clips live on this drive's /srv/storage/<drive>/surveillance.
+    drive = "a";
+
     detector.device = "AUTO";
 
     retention = {

@@ -376,7 +376,7 @@ class FakeJellyfin:
     async def episodes(self, series, start, limit):
         return JELLY_EPISODES[start : start + limit], len(JELLY_EPISODES) > start + limit
 
-    def stream(self, item):
+    async def stream(self, item):
         return f"http://192.168.1.10:8096/Videos/{item}/stream.mp4?api_key=k"
 
 

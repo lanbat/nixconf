@@ -48,11 +48,16 @@
 #
 # Storage
 # -------
-# All state is local (always-on tier):
-#   /var/lib/frigate/db/         — SQLite event metadata
-#   /var/lib/frigate/clips/      — review snapshots/clips
-#   /var/lib/frigate/recordings/ — motion-only recordings
-#   /var/cache/frigate/          — clip buffer (safe to lose)
+# The media is on the storage Pi over NFS (settings.drive,
+# modules/wiring/nfs.nix); the server's small root disk must not carry
+# bulk NVR data:
+#   /srv/storage/<drive>/surveillance/recordings/ — motion-only recordings
+#   /srv/storage/<drive>/surveillance/clips/      — review snapshots/clips
+#
+# The rest is local (always-on tier):
+#   /var/lib/frigate/db/          — SQLite event metadata
+#   /var/lib/frigate/model_cache/ — downloaded ML models
+#   /var/cache/frigate/           — clip buffer (safe to lose)
 #
 # rclone cloud sync will be added later.
 #
@@ -88,6 +93,10 @@ let
   yolov8nOpenVinoModel = pkgs.callPackage ../pkgs/frigate-yolov8n-openvino-model { };
 
   cfg = config.lanbat.services.frigate.settings;
+
+  # Where the server mounts the Pi storage drive (modules/wiring/nfs.nix);
+  # the recordings and clips live under it.
+  surveillance = "/srv/storage/${cfg.drive}/surveillance";
 
   # Frigate records and detects perfectly well on its own; MQTT is how it tells
   # Home Assistant about events. A deployment without a broker keeps the camera
@@ -303,6 +312,16 @@ let
           profile that loses its camera module (deployments/<profile>/frigate.nix
           is gitignored) cannot deploy a Frigate that silently records nothing.
           Meant for test fixtures.
+        '';
+      };
+
+      drive = mkOption {
+        type = types.strMatching "[a-z0-9]+";
+        default = "a";
+        description = ''
+          Pi storage drive holding the recordings and clips, by its key in the
+          storage host's storage.drives. The server container binds to that
+          drive's NFS mount (/srv/storage/<drive>/surveillance).
         '';
       };
 
@@ -564,6 +583,7 @@ in
     lanbat.services.frigate = {
       subdomain = "nvr";
       port = 5000;
+      units = [ "podman-frigate" ];
       consumes = lib.optional hasMqtt "mosquitto";
       # Its broker password, which mosquitto.nix declares.
       readsSecrets = lib.optional hasMqtt "mosquitto-frigate-pass";
@@ -571,6 +591,9 @@ in
       auth = "forward-auth";
       # Homepage's Frigate widget calls /api/* without an Authentik session.
       caddy.authBypassPaths = [ "/api/*" ];
+      # The recordings and clips are on the storage Pi (see Storage above);
+      # the db and model cache stay on the server.
+      nfs.drives = [ cfg.drive ];
       account = {
         uid = 995;
         container = true;
@@ -621,8 +644,8 @@ in
       volumes = [
         "${frigateConfig}:/config/config.yml:ro"
         "/var/lib/frigate/db:/media/frigate/db"
-        "/var/lib/frigate/clips:/media/frigate/clips"
-        "/var/lib/frigate/recordings:/media/frigate/recordings"
+        "${surveillance}/clips:/media/frigate/clips"
+        "${surveillance}/recordings:/media/frigate/recordings"
         # The models Frigate downloads (face detection, landmarks, embeddings,
         # plates). Kept, because Frigate looks for the face landmark model once,
         # as it starts, while a fresh container is still downloading it: with
@@ -711,7 +734,7 @@ in
       ];
       script = ''
         api=http://127.0.0.1:5000/api
-        probe=$(find /var/lib/frigate/clips/faces -mindepth 2 -maxdepth 2 -type f \
+        probe=$(find ${surveillance}/clips/faces -mindepth 2 -maxdepth 2 -type f \
           ! -path '*/faces/train/*' 2>/dev/null | head -n 1)
         if [ -z "$probe" ]; then
           echo "no faces in the library yet: nothing to build"
@@ -770,11 +793,11 @@ in
     # ---------------------------------------------------------------------------
     # State directories
     # ---------------------------------------------------------------------------
+    # The recordings and clips are on the Pi (see Storage above); tmpfiles
+    # creates only what stays on the server.
     systemd.tmpfiles.rules = [
       "d /var/cache/frigate           0750 frigate frigate -"
       "d /var/lib/frigate/db          0750 frigate frigate -"
-      "d /var/lib/frigate/clips       0750 frigate frigate -"
-      "d /var/lib/frigate/recordings  0750 frigate frigate -"
       "d /var/lib/frigate/model_cache 0750 frigate frigate -"
     ];
   };

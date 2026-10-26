@@ -1,10 +1,11 @@
 """Jellyfin's library: movies, series and episodes for the screen.
 
 Search and episode listing go through Jellyfin's API with the key
-jellyfin-bootstrap minted for this helper.  A title plays as a Jellyfin
-transcode URL (H.264/AAC, 720p) that the Show fetches over plain HTTP from the
-server's LAN address: the Caddy vhost asks for a browser login, which the Show
-cannot give.
+jellyfin-bootstrap minted for this helper.  A title plays as a Jellyfin URL on
+the server's LAN address that the Show fetches over plain HTTP: the Caddy vhost
+asks for a browser login, which the Show cannot give.  A file the Show decodes
+itself (MP4, H.264, AAC) is served as the file itself; anything else as a
+transcode (see stream()).
 
 Only the video libraries are searched; music and audiobooks stay with Music
 Assistant.
@@ -145,11 +146,50 @@ class Jellyfin:
         more = type(total) is int and total > start + len(out)
         return out, more
 
-    def stream(self, item_id: str) -> str:
-        """The transcoded MP4 the screen fetches (H.264/AAC, 720p at most)."""
+    async def stream(self, item_id: str) -> str:
+        """The MP4 the screen fetches: the file itself when it can play it.
+
+        The file, not a transcode, for an MP4 with H.264 video and AAC audio.
+        The screen fetches in chunks and closes the connection between them,
+        and Jellyfin kills a progressive transcode whose client has not read
+        for ten seconds (its kill timer for progressive jobs), deleting the
+        MP4 written so far; the screen then plays out its buffer and stops.
+        A static stream is a plain file with Range support, which it plays
+        like any downloaded MP4.
+
+        Anything else (HEVC, AV1, another container) still goes through the
+        transcode: the screen can't decode it, and that path stalls the same
+        way. The lasting fix is a pre-transcoded copy, as for YouTube's remux.
+        """
         key = self._key()
+        if await self._plays_statically(item_id):
+            return (f"{self.public_url}/Videos/{item_id}/stream.mp4"
+                    f"?static=true&api_key={key}")
         return (f"{self.public_url}/Videos/{item_id}/stream.mp4"
                 "?VideoCodec=h264&AudioCodec=aac&MaxHeight=720"
                 "&VideoBitrate=2500000&AudioBitrate=160000"
                 "&TranscodingContainer=mp4&TranscodingProtocol=http"
                 f"&api_key={key}")
+
+    async def _plays_statically(self, item_id: str) -> bool:
+        """MP4 with H.264 video and AAC audio: what the screen decodes itself."""
+        data = await self._get("/Items", {
+            "Ids": item_id,
+            "Recursive": "true",
+            "Fields": "MediaSources",
+        })
+        items = data.get("Items")
+        if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+            return False
+        sources = items[0].get("MediaSources")
+        if not isinstance(sources, list) or not sources or not isinstance(sources[0], dict):
+            return False
+        source = sources[0]
+        streams = source.get("MediaStreams")
+        if not isinstance(streams, list):
+            return False
+        video = next((s for s in streams if isinstance(s, dict) and s.get("Type") == "Video"), {})
+        audio = next((s for s in streams if isinstance(s, dict) and s.get("Type") == "Audio"), {})
+        return (str(source.get("Container") or "").lower() == "mp4"
+                and str(video.get("Codec") or "").lower() == "h264"
+                and str(audio.get("Codec") or "").lower() == "aac")
