@@ -97,9 +97,19 @@ let
       }) chain
     ) cfg.models
   );
-  fallbacks = lib.mapAttrsToList (name: chain: {
-    ${name} = lib.genList (i: "${name}-fallback-${toString (i + 1)}") (lib.length chain - 1);
-  }) cfg.models;
+  # LiteLLM walks one fallback list only: a fallback that itself fails does not
+  # fall back again unless it has its own entry. So each name in a chain falls
+  # back to every name after it, and the last one to nothing. Without this, two
+  # Gemini models down in a row ended the chain even with Groq behind them.
+  fallbacks = lib.concatLists (
+    lib.mapAttrsToList (
+      name: chain:
+      let
+        names = [ name ] ++ lib.genList (i: "${name}-fallback-${toString (i + 1)}") (lib.length chain - 1);
+      in
+      lib.imap0 (i: n: { ${n} = lib.drop (i + 1) names; }) names
+    ) cfg.models
+  );
 in
 {
   config = lib.mkMerge [
