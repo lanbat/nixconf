@@ -31,6 +31,7 @@ from .evidence import Evidence
 from .frigate import Frigate, FrigateError
 from .hass import Hass, HassError
 from .media_page import PAGE as MEDIA_PAGE, VERSION as MEDIA_VERSION
+from .screen_page import PAGE as SCREEN_PAGE, VERSION as SCREEN_VERSION
 from .mqtt import HomeAssistant
 from .irks import Irks
 from .lists import Lists, Personal
@@ -1051,6 +1052,42 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
         return web.Response(text=MEDIA_VERSION, content_type="text/plain",
                             headers={"Cache-Control": "no-store"})
 
+    async def screen_page(_request: web.Request) -> web.Response:
+        return web.Response(text=SCREEN_PAGE, content_type="text/html",
+                            headers={"Cache-Control": "no-store"})
+
+    async def screen_version(_request: web.Request) -> web.Response:
+        return web.Response(text=SCREEN_VERSION, content_type="text/plain",
+                            headers={"Cache-Control": "no-store"})
+
+    async def screen_state(request: web.Request) -> web.Response:
+        """What the screen's page draws: the room, who is around, and the next
+        things on the calendar, from what the bridges and the router know."""
+        room = _media_room(request)
+        items = bodies.screen_items(room) or {}
+        body_state = bodies.state(room)
+        person = items.get("person")
+        now = clock()
+        much = {"home": "Home", "away": "Away", "": "Away"}
+        glance = []
+        for key in sorted(people.names, key=lambda k: people.names[k].casefold()):
+            if key in people.strangers:
+                continue
+            where, _sure, _by = people.where(key, now)
+            glance.append({"key": key, "name": people.names[key],
+                           "where": much.get(where, where)})
+        return web.json_response({
+            "room": room or "",
+            "person": person,
+            "name": people.names.get(person, "") if person else "",
+            "present": bool(body_state and body_state.present),
+            "glance": glance,
+            "events": items.get("events", []),
+            "reminders": items.get("reminders", []),
+            "todos": items.get("todos", []),
+            "more": items.get("more", 0),
+        })
+
     async def media_results(request: web.Request) -> web.Response:
         return web.json_response(_media_list(_media_room(request)))
 
@@ -1109,6 +1146,9 @@ def make_app(cfg: Config, state: State | None = None, clock=time.monotonic,
     app.router.add_get("/media/results", media_results)
     app.router.add_post("/media/action", media_action)
     app.router.add_get("/media/thumb", media_thumb)
+    app.router.add_get("/screen", screen_page)
+    app.router.add_get("/screen/version", screen_version)
+    app.router.add_get("/screen/state", screen_state)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     return app

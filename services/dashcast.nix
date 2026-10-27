@@ -41,9 +41,10 @@ in
           # reaches the same port.
           HA_URL = "http://127.0.0.1:8123";
           LISTEN = ":${toString port}";
-          # The results page, served by the assistant router on the loopback;
-          # dashcast's browser (host networking) and the page share that origin.
-          DASHCAST_PAGES = "Results=http://127.0.0.1:8092/media";
+          # LANBAT's own pages, served by the assistant router on the loopback;
+          # dashcast's browser (host networking) and the pages share that origin.
+          # The screen shows Home by default and Results while a search is open.
+          DASHCAST_PAGES = "Home=http://127.0.0.1:8092/screen,Results=http://127.0.0.1:8092/media";
         };
         environmentFiles = [ config.lanbat.secrets.dashcast-env.path ];
         extraOptions = [

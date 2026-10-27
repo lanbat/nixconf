@@ -374,6 +374,19 @@ def test_a_search_shows_the_streamed_results_page_and_puts_it_away_after():
     assert paths(b.router({"act": {"view": ""}}, 2.0)) == ["lanbat-screen-kitchen"]
 
 
+def test_the_home_page_is_every_view_and_results_take_it_over():
+    b = brain(home_page="web:Home", results_page="web:Results")
+
+    def paths(outs):
+        return [c[2]["path"] for c in calls(outs, "dashboard_path")]
+
+    # Someone arrives: their screen is the home page, which says who they are.
+    assert paths(b.router({"here": [{"person": "akadmin", "name": "Kiril"}]}, 1.0)) == ["web:Home"]
+    # A search takes the screen, and closing it gives the home page back.
+    assert paths(b.router({"act": {"view": "media"}}, 2.0)) == ["web:Results"]
+    assert paths(b.router({"act": {"view": ""}}, 3.0)) == ["web:Home"]
+
+
 def test_someone_still_in_front_is_looked_at_again_when_the_router_loses_them():
     b = brain()
     b.state("person", True, 0.0)

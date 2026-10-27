@@ -28,56 +28,56 @@ PAGE = r"""<!doctype html>
       var(--bg);
     color: var(--ink);
     font-family: "Inter", "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-    display: flex; flex-direction: column; padding: 30px 34px 24px;
+    display: flex; flex-direction: column; padding: 22px 30px 18px;
   }
-  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; }
-  h1 { font-size: 30px; font-weight: 650; letter-spacing: -.02em; margin: 0; white-space: nowrap;
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 14px; }
+  h1 { font-size: 34px; font-weight: 650; letter-spacing: -.02em; margin: 0; white-space: nowrap;
        overflow: hidden; text-overflow: ellipsis; max-width: 900px; }
   h1 .q { color: var(--amber); }
-  .page { margin-left: auto; font-size: 17px; color: var(--muted); white-space: nowrap; }
+  .page { margin-left: auto; font-size: 19.5px; color: var(--muted); white-space: nowrap; }
   .page b { color: var(--ink); font-weight: 600; }
 
-  .list { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
-  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 20px; line-height: 1.6; }
-  .empty .bat { width: 190px; height: 107px; margin: 0 auto 18px; display: block; }
+  .list { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+  .empty { margin: auto; text-align: center; color: var(--muted); font-size: 23px; line-height: 1.6; }
+  .empty .bat { width: 220px; height: 124px; margin: 0 auto 20px; display: block; }
   .row {
     display: flex; align-items: stretch; gap: 18px; text-align: left; width: 100%;
     background: linear-gradient(180deg, var(--panel-2), var(--panel));
-    border: 1px solid rgba(255,255,255,.045); border-radius: 16px;
-    padding: 10px 16px 10px 10px; height: 118px; color: inherit; font: inherit;
+    border: 1px solid rgba(255,255,255,.045); border-radius: 18px;
+    padding: 7px 16px 7px 10px; height: 124px; color: inherit; font: inherit;
     cursor: pointer; appearance: none;
   }
   .row.first { border-color: var(--line); box-shadow: 0 0 0 1px rgba(242,165,22,.10), 0 12px 30px rgba(0,0,0,.28); }
-  .thumb { position: relative; width: 174px; height: 98px; border-radius: 11px; overflow: hidden;
+  .thumb { position: relative; width: 196px; height: 110px; border-radius: 12px; overflow: hidden;
            flex: none; background: #14122e; }
   .thumb .pic { position: absolute; inset: 0; }
   .thumb .pic img, .thumb .pic svg { width: 100%; height: 100%; display: block; object-fit: cover; }
-  .n { position: absolute; left: 8px; top: 8px; width: 28px; height: 28px; border-radius: 50%;
-       background: var(--amber); color: #201a05; font-size: 15px; font-weight: 750;
-       line-height: 28px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
-  .body { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 7px; flex: 1; }
-  .title { font-size: 21px; font-weight: 600; letter-spacing: -.01em; line-height: 1.18;
+  .n { position: absolute; left: 8px; top: 8px; width: 32px; height: 32px; border-radius: 50%;
+       background: var(--amber); color: #201a05; font-size: 17px; font-weight: 750;
+       line-height: 32px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .body { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; flex: 1; }
+  .title { font-size: 24px; font-weight: 600; letter-spacing: -.01em; line-height: 1.18;
            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .meta { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted);
+  .meta { display: flex; align-items: center; gap: 10px; font-size: 16px; color: var(--muted);
           overflow: hidden; white-space: nowrap; }
-  .chip { font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
-          padding: 3px 8px; border-radius: 999px; color: #cfe4ff; background: #23345c; }
+  .chip { font-size: 13.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+          padding: 3px 9px; border-radius: 999px; color: #cfe4ff; background: #23345c; }
   .chip.movie { color: #ffd9a6; background: #4a3415; }
   .chip.music { color: #d8c8ff; background: #35295c; }
   .chip.playlist { color: #bff0da; background: #1d3f35; }
-  .desc { font-size: 14.5px; color: #b9b3d9; line-height: 1.32;
+  .desc { font-size: 16.5px; color: #b9b3d9; line-height: 1.3;
           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-  footer { display: flex; align-items: center; gap: 18px; padding-top: 16px; }
-  .hint { color: var(--muted); font-size: 15.5px; }
+  footer { display: flex; align-items: center; gap: 18px; padding-top: 12px; }
+  .hint { color: var(--muted); font-size: 17.5px; }
   .hint b { color: var(--ink); font-weight: 600; }
   .dots { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-  .dot { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
-         font-size: 14.5px; color: var(--muted); background: rgba(255,255,255,.05);
+  .dot { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+         font-size: 16.5px; color: var(--muted); background: rgba(255,255,255,.05);
          border: 0; cursor: pointer; }
   .dot.on { background: var(--amber); color: #201a05; font-weight: 700; }
-  .dot.arrow { width: 42px; }
-  .more { font-size: 13px; color: #8f89b5; margin-left: 6px; }
+  .dot.arrow { width: 48px; }
+  .more { font-size: 15px; color: #8f89b5; margin-left: 6px; }
 </style>
 </head>
 <body>
