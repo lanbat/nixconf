@@ -627,9 +627,16 @@ RomM used to sit behind Caddy forward-auth; Authentik keeps the now-unused
 With `ACCOUNT_LINKING = auto` and `USERNAME = nickname`, the owner's
 first SSO login links to the pre-created admin; every other Authentik user is
 auto-registered as a normal user. Add people to the **git** group in Authentik
-(the application is bound to it). Git clients do not use OIDC: create a personal
-access token at `https://git.<domain>/user/settings/applications` and use it as
-the password for `git clone https://git.<domain>/<owner>/<repo>.git`.
+(the application is bound to it).
+
+Git clients do not use OIDC. Both of these work:
+
+- **HTTPS:** create a personal access token at
+  `https://git.<domain>/user/settings/applications` and use it as the password
+  for `git clone https://git.<domain>/<owner>/<repo>.git`.
+- **SSH:** add a public key under Settings → SSH / GPG Keys, then clone with
+  `git clone ssh://git@git.<domain>:2222/<owner>/<repo>.git`. Forgejo's own SSH
+  server listens on 2222; the host's admin sshd stays on 22.
 
 If this instance predates Forgejo, do **not** re-run
 `generate-oidc-secrets.sh` (it rotates every client secret). Add just Forgejo's
