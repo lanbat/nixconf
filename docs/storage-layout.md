@@ -149,6 +149,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 ├── bitmagnet/         Bitmagnet config
 ├── romm/              RomM config, artwork, saves and states
 ├── vaultwarden/       Vaultwarden SQLite DB + attachments (BACK THIS UP)
+├── forgejo/           Forgejo repositories, config and SQLite DB (BACK THIS UP)
 ├── syncthing/         Syncthing config + SQLite index (BACK THIS UP)
 │                      (actual synced files are on Pi/b/users/<user>/sync)
 ├── samba/             Samba configuration and state

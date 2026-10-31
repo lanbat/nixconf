@@ -108,6 +108,7 @@ pkgs.testers.runNixOSTest {
           AUTHENTIK_HA_CLIENT_SECRET=test
           AUTHENTIK_JELLYFIN_CLIENT_SECRET=test
           AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=test
+          AUTHENTIK_FORGEJO_CLIENT_SECRET=test
         '';
         nextcloud-admin-pass = "test-admin-password";
         nextcloud-oidc-env = ''
@@ -141,6 +142,10 @@ pkgs.testers.runNixOSTest {
         vaultwarden-env = ''
           ADMIN_TOKEN=test
           SSO_CLIENT_SECRET=test
+        '';
+        forgejo-env = ''
+          FORGEJO_ADMIN_PASSWORD=test-admin-password
+          FORGEJO_OAUTH_CLIENT_SECRET=test
         '';
         # A token of its own: InfluxDB provisioning sets the Telegraf auth to
         # this value, and an auth sharing the operator token's value would

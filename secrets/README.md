@@ -90,7 +90,8 @@ bash secrets/generate-oidc-secrets.sh
 ```
 
 This creates `authentik-oidc-secrets.age` and wires the matching secrets into
-`grafana-env.age`, `nextcloud-oidc-env.age`, and `immich-oidc-env.age`.  It
+`grafana-env.age`, `nextcloud-oidc-env.age`, `immich-oidc-env.age`,
+`romm-oidc-env.age`, `vaultwarden-env.age` and `forgejo-env.age`.  It
 also prints the client credentials needed for manual UI setup in Jellyfin.
 
 `generate-secrets.sh` also creates `hass-bootstrap-env.age` (owner username and
@@ -167,6 +168,13 @@ agenix -e grafana-alert-env.age
 #   SSO_CLIENT_SECRET=<the same value as AUTHENTIK_VAULTWARDEN_CLIENT_SECRET in
 #   authentik-oidc-secrets.age; generate both with generate-oidc-secrets.sh>
 agenix -e vaultwarden-env.age
+
+# ---- Forgejo ----
+# Two KEY=value lines:
+#   FORGEJO_ADMIN_PASSWORD=<openssl rand -hex 32>
+#   FORGEJO_OAUTH_CLIENT_SECRET=<the same value as AUTHENTIK_FORGEJO_CLIENT_SECRET
+#   in authentik-oidc-secrets.age; generate both with generate-oidc-secrets.sh>
+agenix -e forgejo-env.age
 
 # ---- Invidious ----
 # One line: the bare PostgreSQL password (no KEY=), e.g. openssl rand -hex 32.
@@ -283,7 +291,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | File | Format | Used by |
 |------|--------|---------|
 | `authentik-env.age` | `KEY=value` × 2 | Authentik server + worker |
-| `authentik-oidc-secrets.age` | `KEY=value` lines (one per OIDC client, `AUTHENTIK_<NAME>_CLIENT_SECRET`) | Authentik blueprints; shared with Jellyfin, Audiobookshelf and Vaultwarden (client secrets for `jellyfin-bootstrap`, `audiobookshelf-bootstrap` and `SSO_CLIENT_SECRET` in `vaultwarden-env.age`) |
+| `authentik-oidc-secrets.age` | `KEY=value` lines (one per OIDC client, `AUTHENTIK_<NAME>_CLIENT_SECRET`) | Authentik blueprints; shared with Jellyfin, Audiobookshelf, Vaultwarden and Forgejo (client secrets for `jellyfin-bootstrap`, `audiobookshelf-bootstrap`, `SSO_CLIENT_SECRET` in `vaultwarden-env.age` and `FORGEJO_OAUTH_CLIENT_SECRET` in `forgejo-env.age`) |
 | `nextcloud-admin-pass.age` | plaintext password | Nextcloud |
 | `nextcloud-oidc-env.age` | `KEY=value` × 2 | Nextcloud OIDC setup |
 | `immich-db-password.age` | `POSTGRES_PASSWORD=<value>` | Immich postgres container |
@@ -301,6 +309,7 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 | `grafana-env.age` | `KEY=value` × 4 | Grafana |
 | `grafana-alert-env.age` | `GRAFANA_ALERT_WEBHOOK_URL=<value>` | Grafana alerts (disk almost full, Frigate quiet); only with `lanbat.services.grafana.settings.alerting.enable` |
 | `vaultwarden-env.age` | `ADMIN_TOKEN=<value>`, `SSO_CLIENT_SECRET=<value>` (same value as `AUTHENTIK_VAULTWARDEN_CLIENT_SECRET` in `authentik-oidc-secrets.age`) | Vaultwarden |
+| `forgejo-env.age` | `FORGEJO_ADMIN_PASSWORD=<value>`, `FORGEJO_OAUTH_CLIENT_SECRET=<value>` (same value as `AUTHENTIK_FORGEJO_CLIENT_SECRET` in `authentik-oidc-secrets.age`) | Forgejo (`forgejo-bootstrap`: the break-glass admin and the Authentik OIDC source) |
 | `searxng-secret.age` | plaintext value | SearXNG session and image-proxy signing |
 | `homepage-widgets-env.age` | `KEY=value` lines for widget API keys/tokens | Homepage dashboard widgets |
 | `telegraf-token.age` | `TELEGRAF_INFLUXDB_TOKEN=<value>` | Telegraf (server + Pi); shared with InfluxDB on the server (write-token provisioning) |
