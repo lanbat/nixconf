@@ -7,8 +7,10 @@
 # ------
 # - NixOS-native service (no container) with a SQLite database: a small forge
 #   needs nothing more, and its whole state is one directory.
-# - HTTP(S) only. SSH clone would need a second SSH daemon on a free port, so
-#   clone/push/pull go over HTTPS with personal access tokens from the web UI.
+# - HTTPS clone/pull/push with personal access tokens from the web UI, and SSH
+#   clone/pull/push through Forgejo's own SSH server on port 2222. That server
+#   is separate from the admin sshd on 22, so it changes neither who can log in
+#   to the host nor the deploy path.
 # - Login is Authentik over OIDC: the catalogue provisions the OAuth2 provider
 #   and application (client id "forgejo"). Forgejo keeps its own accounts, so
 #   the bootstrap pre-creates the owner's account as the admin with a
@@ -90,6 +92,7 @@ in
   lanbat.services.forgejo = {
     subdomain = "git";
     inherit port;
+    extraPorts = [ 2222 ]; # Forgejo's built-in SSH server
     auth = "app";
     # Forgejo's OIDC callback. The source name is part of the path, so keep
     # authSource above in step with the auth source the bootstrap adds.
@@ -126,13 +129,21 @@ in
 
     settings = {
       server = {
-        # Localhost only; Caddy is the public entry point.
+        # Localhost HTTP; Caddy is the public entry point.
         HTTP_ADDR = "127.0.0.1";
         HTTP_PORT = port;
         DOMAIN = "git.${domain}";
         ROOT_URL = "https://git.${domain}/";
-        # HTTPS clone URLs; no separate SSH daemon.
-        DISABLE_SSH = true;
+
+        # SSH clone/push through Forgejo's built-in server on 2222, separate
+        # from the admin sshd on 22. SSH_DOMAIN and SSH_PORT are what the clone
+        # URLs show: ssh://git@git.<domain>:2222/<owner>/<repo>.git.
+        DISABLE_SSH = false;
+        START_SSH_SERVER = true;
+        SSH_LISTEN_HOST = "0.0.0.0";
+        SSH_LISTEN_PORT = 2222;
+        SSH_PORT = 2222;
+        SSH_DOMAIN = "git.${domain}";
       };
 
       # Accounts come from OIDC auto-registration, not open signup.
@@ -154,6 +165,10 @@ in
       };
     };
   };
+
+  # SSH clone/push. Forgejo's built-in server listens on 2222; the admin sshd
+  # stays on 22, so this adds no way into the host itself.
+  networking.firewall.allowedTCPPorts = [ 2222 ];
 
   # The state directory is a bind mount from the workload layer. On an
   # incremental switch (workload-online.target already active) the mount can

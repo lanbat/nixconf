@@ -550,8 +550,9 @@ journalctl -u vaultwarden -f
 
 Forgejo keeps its own accounts (SQLite in `/var/lib/forgejo`, on the workload
 layer). The owner admin is pre-created by `forgejo-bootstrap`; everyone else is
-auto-registered on their first Authentik login, and git clients use HTTPS
-personal access tokens rather than OIDC. Manage users from
+auto-registered on their first Authentik login. Git clients use an HTTPS
+personal access token or an SSH key rather than OIDC: SSH goes through Forgejo's
+own server on port 2222 (the host's admin sshd stays on 22). Manage users from
 `https://git.<domain>/admin/users`.
 
 ```bash
