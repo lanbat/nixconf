@@ -107,6 +107,7 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
   jellyfin/       — Jellyfin library metadata
   audiobookshelf/ — Audiobookshelf accounts, listening progress, book details and covers
   vaultwarden/    — Vaultwarden vault database and attachments
+  forgejo/        — Forgejo repositories, config and SQLite database
   syncthing/      — Syncthing configuration and block index
   qbittorrent/    — qBittorrent config and session state
   jackett/        — Jackett indexers (with their credentials and cookies), its API key, and the

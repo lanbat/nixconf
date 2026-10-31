@@ -20,6 +20,7 @@
 | Invidious state | always-on PostgreSQL (`invidious`) and `/var/lib/invidious/` (hmac key) | `pg_dump` and `backup-server.sh`; losing the hmac key only invalidates sessions |
 | Syncthing config + identity | `/var/lib/syncthing/.config/syncthing/` | `backup-server.sh` (without the index, which Syncthing rebuilds) |
 | Audiobookshelf accounts + listening progress | `/var/lib/audiobookshelf/config/` | `backup-server.sh` |
+| Forgejo repositories + accounts (SQLite) | `/var/lib/forgejo/` | `backup-server.sh` |
 
 ### Important (back up — slow to regenerate)
 

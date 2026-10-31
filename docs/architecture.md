@@ -133,6 +133,7 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Samba | Local smbpasswd (optionally Authentik LDAP) | SMB doesn't speak OIDC |
 | MQTT | Local password file | IoT devices don't speak OIDC |
 | Vaultwarden | Own account system + admin token | Bitwarden clients need direct API access; no forward auth |
+| Forgejo | Own accounts + native OIDC (Authentik) | Git hosting; the owner admin links on first SSO login, others auto-register, and git clients use HTTPS personal access tokens |
 | Grafana | OIDC (Authentik) + local admin | Native generic_oauth support |
 | InfluxDB | Token auth (not exposed publicly) | Accessed by Grafana only; no browser UI needed on LAN |
 | Sign-in code (`techo5-bridge`, 8775) | The firewall: the Echo Shows' addresses only | A QR code of the room's who link, which the device shows; plain HTTP, nothing more than the robot's NFC tag gives |
@@ -179,6 +180,7 @@ Caddy and Authentik on this one.
 | `youtube.<domain>` | Invidious (YouTube front-end) |
 | `ca.<domain>` | CA cert distribution |
 | `vault.<domain>` | Vaultwarden password manager |
+| `git.<domain>` | Forgejo git hosting |
 | `grafana.<domain>` | Grafana dashboards |
 | `sync.<domain>` | Syncthing web UI |
 | `music.<domain>` | Music Assistant web UI |

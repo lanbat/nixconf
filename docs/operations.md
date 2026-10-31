@@ -545,3 +545,28 @@ sudo systemctl restart vaultwarden
 # Logs
 journalctl -u vaultwarden -f
 ```
+
+## Forgejo
+
+Forgejo keeps its own accounts (SQLite in `/var/lib/forgejo`, on the workload
+layer). The owner admin is pre-created by `forgejo-bootstrap`; everyone else is
+auto-registered on their first Authentik login, and git clients use HTTPS
+personal access tokens rather than OIDC. Manage users from
+`https://git.<domain>/admin/users`.
+
+```bash
+# Restart Forgejo (e.g. after updating forgejo-env.age)
+sudo systemctl restart forgejo
+
+# Re-run the bootstrap (creates the admin / OIDC source only if missing)
+sudo systemctl restart forgejo-bootstrap
+
+# Logs
+journalctl -u forgejo -f
+journalctl -u forgejo-bootstrap -f
+```
+
+If `forgejo-bootstrap` fails, it retries every 30 seconds; `journalctl -u
+forgejo-bootstrap` names the missing secret or the failed CLI call. The unit is
+idempotent: it creates the admin only when the username is absent and adds the
+Authentik auth source only when it is not already listed.

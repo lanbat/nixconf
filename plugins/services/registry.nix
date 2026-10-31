@@ -18,6 +18,7 @@
   bitmagnet = ../../services/bitmagnet.nix;
   caddy = ../../services/caddy.nix;
   dashcast = ../../services/dashcast.nix;
+  forgejo = ../../services/forgejo.nix;
   frigate = ../../services/frigate.nix;
   grafana = ../../services/grafana.nix;
   home-assistant = ../../services/home-assistant.nix;

@@ -326,6 +326,11 @@ let
             secret = "AUTHENTIK_GRAFANA_CLIENT_SECRET";
           }
           {
+            n = "forgejo";
+            name = "Forgejo";
+            secret = "AUTHENTIK_FORGEJO_CLIENT_SECRET";
+          }
+          {
             n = "home-assistant";
             name = "Home Assistant";
             secret = "AUTHENTIK_HA_CLIENT_SECRET";
@@ -365,6 +370,7 @@ let
         })
         [
           "audiobookshelf"
+          "forgejo"
           "grafana"
           "home-assistant"
           "immich"
@@ -654,6 +660,17 @@ let
       && lib.any (
         u: u.url == "https://romm.${exampleDeploy.deployment.domain}/api/oauth/openid"
       ) p.attrs.redirect_uris
+    ))
+
+    (expect "Forgejo's OIDC redirect URI is its Authentik auth-source callback" (
+      let
+        p = byId "provider-forgejo" (oidcProviders base);
+      in
+      p != null
+      &&
+        map (u: u.url) p.attrs.redirect_uris == [
+          "https://git.${exampleDeploy.deployment.domain}/user/oauth2/Authentik/callback"
+        ]
     ))
 
     (expect "only services placed on the host appear" (

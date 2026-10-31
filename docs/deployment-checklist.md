@@ -487,10 +487,11 @@ bash secrets/generate-oidc-secrets.sh
 ```
 
 This creates `authentik-oidc-secrets.age` and updates `grafana-env.age`,
-`nextcloud-oidc-env.age`, `immich-oidc-env.age`, and `romm-oidc-env.age` with
-matching values; Jellyfin's and Audiobookshelf's setup units read their own
-client secrets from `authentik-oidc-secrets.age`. The script prints the client credentials needed for Home
-Assistant and Jellyfin (see manual steps below).
+`nextcloud-oidc-env.age`, `immich-oidc-env.age`, `romm-oidc-env.age`,
+`vaultwarden-env.age` and `forgejo-env.age` with matching values; Jellyfin's and
+Audiobookshelf's setup units read their own client secrets from
+`authentik-oidc-secrets.age`. The script prints the client credentials needed for
+Home Assistant and Jellyfin (see manual steps below).
 
 Deploy to apply the new secrets:
 
@@ -612,6 +613,37 @@ alongside Grafana, Nextcloud, and Immich. After deploying:
 RomM used to sit behind Caddy forward-auth; Authentik keeps the now-unused
 `romm` proxy provider and application from that setup until deleted by hand
 (Applications → Providers / Applications).
+
+#### Forgejo — automatic setup
+
+`forgejo-bootstrap` runs when the workload layer is unlocked:
+
+- Creates the owner (`settings.adminUser`, default `akadmin`) as Forgejo's admin
+  with the break-glass password `FORGEJO_ADMIN_PASSWORD` from `forgejo-env.age`.
+- Registers the **Authentik** OIDC authentication source (client id `forgejo`,
+  secret `FORGEJO_OAUTH_CLIENT_SECRET`, auto-discovery URL
+  `https://auth.<domain>/application/o/forgejo/.well-known/openid-configuration`).
+
+With `ACCOUNT_LINKING = auto` and `USERNAME = preferred_username`, the owner's
+first SSO login links to the pre-created admin; every other Authentik user is
+auto-registered as a normal user. Add people to the **git** group in Authentik
+(the application is bound to it). Git clients do not use OIDC: create a personal
+access token at `https://git.<domain>/user/settings/applications` and use it as
+the password for `git clone https://git.<domain>/<owner>/<repo>.git`.
+
+If this instance predates Forgejo, do **not** re-run
+`generate-oidc-secrets.sh` (it rotates every client secret). Add just Forgejo's
+two lines instead:
+
+```bash
+cd secrets
+agenix -e authentik-oidc-secrets.age
+# add: AUTHENTIK_FORGEJO_CLIENT_SECRET=<openssl rand -hex 32>
+agenix -e forgejo-env.age
+# add, using the same value as above:
+#   FORGEJO_OAUTH_CLIENT_SECRET=<value>
+#   FORGEJO_ADMIN_PASSWORD=<random break-glass password>
+```
 
 ### 3c. Samba user setup
 

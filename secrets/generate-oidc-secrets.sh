@@ -15,6 +15,8 @@
 #   - Creates/replaces immich-oidc-env.age
 #   - Creates/replaces romm-oidc-env.age
 #   - Appends/replaces SSO_CLIENT_SECRET in vaultwarden-env.age
+#   - Creates/updates forgejo-env.age (break-glass admin password + the same
+#     client secret, which Forgejo's bootstrap reads)
 #   - Prints client_id/secret for Home Assistant and Jellyfin
 #     (those services need manual UI config — see notes below each)
 #
@@ -97,6 +99,8 @@ JELLYFIN_SECRET=$(rand)
 ROMM_SECRET=$(rand)
 AUDIOBOOKSHELF_SECRET=$(rand)
 VAULTWARDEN_SECRET=$(rand)
+FORGEJO_SECRET=$(rand)
+FORGEJO_ADMIN_PASSWORD=$(rand)
 
 overwrite "authentik-oidc-secrets.age" \
 "AUTHENTIK_GRAFANA_CLIENT_SECRET=$GRAFANA_SECRET
@@ -106,7 +110,8 @@ AUTHENTIK_HA_CLIENT_SECRET=$HA_SECRET
 AUTHENTIK_JELLYFIN_CLIENT_SECRET=$JELLYFIN_SECRET
 AUTHENTIK_ROMM_CLIENT_SECRET=$ROMM_SECRET
 AUTHENTIK_AUDIOBOOKSHELF_CLIENT_SECRET=$AUDIOBOOKSHELF_SECRET
-AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_SECRET"
+AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_SECRET
+AUTHENTIK_FORGEJO_CLIENT_SECRET=$FORGEJO_SECRET"
 
 upsert_line "grafana-env.age" \
   "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=$GRAFANA_SECRET"
@@ -125,10 +130,15 @@ overwrite "romm-oidc-env.age" \
 upsert_line "vaultwarden-env.age" \
   "SSO_CLIENT_SECRET=$VAULTWARDEN_SECRET"
 
+upsert_line "forgejo-env.age" \
+  "FORGEJO_ADMIN_PASSWORD=$FORGEJO_ADMIN_PASSWORD"
+upsert_line "forgejo-env.age" \
+  "FORGEJO_OAUTH_CLIENT_SECRET=$FORGEJO_SECRET"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
-echo "Done. Grafana, Nextcloud, Immich, RomM, Audiobookshelf and Vaultwarden are fully wired."
+echo "Done. Grafana, Nextcloud, Immich, RomM, Audiobookshelf, Vaultwarden and Forgejo are fully wired."
 echo
 echo "Manual UI setup required for the following two services."
 echo "Secrets are also stored in authentik-oidc-secrets.age for later retrieval."

@@ -20,6 +20,8 @@
 #   - /var/lib/bitmagnet
 #   - /var/lib/audiobookshelf/config (accounts and listening progress)
 #   - /var/lib/vaultwarden (the database through SQLite's online backup)
+#   - /var/lib/forgejo (repositories and config, and the database through
+#     SQLite's online backup)
 #   - Syncthing's config and identity (/var/lib/syncthing/.config/syncthing,
 #     without the index, which Syncthing rebuilds)
 # A directory the host does not have is skipped, except a required one: its
@@ -148,6 +150,14 @@ if workload_online; then
   if [ -d /var/lib/vaultwarden ]; then
     copy_state /var/lib/vaultwarden vaultwarden --exclude 'db.sqlite3*' --exclude 'icon_cache/'
     sqlite3 /var/lib/vaultwarden/db.sqlite3 ".backup '$DEST/vaultwarden/db.sqlite3'"
+  fi
+
+  # Git repositories and config by rsync, and the live database through
+  # SQLite's online backup, so a push during the copy can't tear it.
+  if [ -d /var/lib/forgejo ]; then
+    install -d "$DEST/forgejo/data"
+    copy_state /var/lib/forgejo forgejo --exclude 'data/forgejo.db*' --exclude 'log/'
+    sqlite3 /var/lib/forgejo/data/forgejo.db ".backup '$DEST/forgejo/data/forgejo.db'"
   fi
 
   # Syncthing's device identity (cert.pem, key.pem) and folder config; the
