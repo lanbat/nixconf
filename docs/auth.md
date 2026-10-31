@@ -231,7 +231,7 @@ translation pattern differs by service:
   panel first), gated on the `vaultwarden` group, and the `offline_access` scope hands
   Bitwarden clients a refresh token. Forgejo's `forgejo-bootstrap` pre-creates the owner
   (`settings.adminUser`, default `akadmin`) as the admin with a break-glass password from
-  `forgejo-env.age`, and OIDC (`ACCOUNT_LINKING = auto`, `USERNAME = preferred_username`)
+  `forgejo-env.age`, and OIDC (`ACCOUNT_LINKING = auto`, `USERNAME = nickname`)
   links that account on first SSO login and auto-registers everyone else, gated on the
   `git` group; git CLI clients authenticate with an HTTPS personal access token, never
   OIDC. For these, layer-1
