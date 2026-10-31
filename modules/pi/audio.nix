@@ -94,6 +94,17 @@ in
     PULSE_SERVER = "unix:/run/pulse/native";
   };
 
+  # The Pi shares its audio device with Snapcast, the voice satellite and Kodi.
+  # A system-wide PipeWire gets no rtkit, so without these limits module-rt
+  # cannot raise its data loop above ordinary scheduling: a missed 5 ms
+  # deadline on the USB speaker is an audible click. Let it use real-time
+  # priority and lock its buffers.
+  systemd.services.pipewire.serviceConfig = {
+    LimitRTPRIO = 95;
+    LimitMEMLOCK = lib.mkForce "infinity";
+    Nice = -10;
+  };
+
   lanbat.voiceSatellite.speaker = "pipewire";
   lanbat.voiceSatellite.awakeSound = lib.mkIf satellite.enable (
     lib.mkDefault (

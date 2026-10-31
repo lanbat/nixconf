@@ -130,6 +130,14 @@ in
             name = "libpipewire-module-echo-cancel";
             args = {
               "library.name" = "aec/libspa-aec-webrtc";
+              # The PlayStation Eye is mixed to mono for the canceller. The
+              # module initialises all four of its streams from these two
+              # keys (the default is [ FL FR ]); leaving the sink/playback
+              # stereo while the capture/source are mono made WebRTC's
+              # ProcessStream fail with -9, kBadNumberChannelsError, on every
+              # buffer (2026-10-31).
+              "audio.channels" = 1;
+              "audio.position" = [ "MONO" ];
               # The module's own stream that records the microphone: named for
               # itself, aimed at the microphone node.
               "capture.props" = {
@@ -143,6 +151,13 @@ in
               "source.props" = {
                 "node.name" = cfg.echoCancellation.pulseSourceName;
                 "node.description" = "Echo-cancelled microphone";
+                # WebRTC's ProcessStream needs the captured input and the
+                # cancelled output to have the same channel count: the capture
+                # above is mixed down to mono, so the source must be mono too.
+                # A stereo source made every buffer fail with -9,
+                # kBadNumberChannelsError (2026-10-31).
+                "audio.channels" = 1;
+                "audio.position" = [ "MONO" ];
               };
               "sink.props" = {
                 "node.name" = cfg.echoCancellation.pulseSinkName;
