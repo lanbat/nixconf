@@ -624,7 +624,7 @@ RomM used to sit behind Caddy forward-auth; Authentik keeps the now-unused
   secret `FORGEJO_OAUTH_CLIENT_SECRET`, auto-discovery URL
   `https://auth.<domain>/application/o/forgejo/.well-known/openid-configuration`).
 
-With `ACCOUNT_LINKING = auto` and `USERNAME = preferred_username`, the owner's
+With `ACCOUNT_LINKING = auto` and `USERNAME = nickname`, the owner's
 first SSO login links to the pre-created admin; every other Authentik user is
 auto-registered as a normal user. Add people to the **git** group in Authentik
 (the application is bound to it). Git clients do not use OIDC: create a personal

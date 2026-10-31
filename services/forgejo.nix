@@ -12,10 +12,10 @@
 # - Login is Authentik over OIDC: the catalogue provisions the OAuth2 provider
 #   and application (client id "forgejo"). Forgejo keeps its own accounts, so
 #   the bootstrap pre-creates the owner's account as the admin with a
-#   break-glass password, and OIDC links to it (ACCOUNT_LINKING = auto, username
-#   from preferred_username); every other Authentik user is auto-registered on
-#   first sign-in. This is the Vaultwarden model, except Forgejo links by
-#   username rather than by email.
+#   break-glass password, and OIDC links to it (ACCOUNT_LINKING = auto, and
+#   USERNAME = nickname, the claim Authentik fills with the username); every
+#   other Authentik user is auto-registered on first sign-in. This is the
+#   Vaultwarden model, except Forgejo links by username rather than by email.
 #
 # Secrets
 # -------
@@ -145,7 +145,9 @@ in
       oauth2_client = {
         ENABLE_AUTO_REGISTRATION = true;
         ACCOUNT_LINKING = "auto";
-        USERNAME = "preferred_username";
+        # Forgejo accepts userid, nickname or email here; Authentik's nickname
+        # claim is the username, so it is the one that links to the owner.
+        USERNAME = "nickname";
         OPENID_CONNECT_SCOPES = "openid email profile";
         UPDATE_AVATAR = true;
         REGISTER_EMAIL_CONFIRM = false;
@@ -153,9 +155,23 @@ in
     };
   };
 
+  # The state directory is a bind mount from the workload layer. On an
+  # incremental switch (workload-online.target already active) the mount can
+  # start late, so order the secret helper and the service after it. Otherwise
+  # the three credential files can land on two different filesystems: the
+  # mount appears between the writes, hiding the first one.
+  systemd.services.forgejo-secrets = {
+    requires = [ "var-lib-forgejo.mount" ];
+    after = [ "var-lib-forgejo.mount" ];
+  };
+
   # The OIDC token exchange calls https://auth.<domain> server-side; trust
   # Caddy's internal CA (global environment.variables do not reach units).
-  systemd.services.forgejo = lib.mkIf hasSso {
+  systemd.services.forgejo = {
+    requires = [ "var-lib-forgejo.mount" ];
+    after = [ "var-lib-forgejo.mount" ];
+  }
+  // lib.optionalAttrs hasSso {
     environment.SSL_CERT_FILE = "/var/lib/caddy-local-ca/ca-certificates.crt";
   };
 
