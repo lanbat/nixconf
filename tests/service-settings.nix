@@ -589,17 +589,35 @@ let
     requests = twitchPkgs.requests;
     pythonTwitch = pythonTwitchAddon;
   };
-  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
+  # The power menu and Global Search are always installed, before the
+  # settings-switched add-ons (the order tv-box.nix builds them).
+  tvPowerAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-tv-power {
+    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  globalsearchAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-globalsearch {
+    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    tvPowerAddon
+    globalsearchAddon
+  ]);
   kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     addons.youtube
   ]);
   kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     twitchAddon
   ]);
   kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     addons.a4ksubtitles
   ]);
   # The Invidious add-on is newer than nixpkgs' pin; the repository builds it.
@@ -613,6 +631,8 @@ let
   };
   kodiInvidious = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     invidiousAddon
   ]);
   kodiOf =
