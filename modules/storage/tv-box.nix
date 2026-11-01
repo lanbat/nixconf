@@ -443,12 +443,10 @@ let
   # cage modesets the output to its EDID-preferred mode: 3840x2160@60 on the
   # Epson projector, which shows nothing on that signal, while Kodi has always
   # run at 1920x1080. wlr-randr talks to the compositor cage starts (the child
-  # inherits its WAYLAND_DISPLAY) and sets every output to 1080p before ES-DE
-  # creates its window. --no-update-check keeps the AppImage's update prompt
-  # ("NEW RELEASE AVAILABLE") off the screen; the store copy cannot update
-  # itself anyway.
-  tvGames = pkgs.writeShellApplication {
-    name = "tv-games";
+  # inherits its WAYLAND_DISPLAY); both kiosk sessions run this before their
+  # frontend creates its window.
+  tvDisplay = pkgs.writeShellApplication {
+    name = "tv-display";
     runtimeInputs = [
       pkgs.gnused
       pkgs.wlr-randr
@@ -458,8 +456,18 @@ let
       while IFS= read -r output; do
         [ -n "$output" ] || continue
         wlr-randr --output "$output" --mode 1920x1080 ||
-          echo "tv-games: $output: could not set 1920x1080" >&2
+          echo "tv-display: $output: could not set 1920x1080" >&2
       done <<< "$outputs"
+    '';
+  };
+
+  # --no-update-check keeps the AppImage's update prompt ("NEW RELEASE
+  # AVAILABLE") off the screen; the store copy cannot update itself anyway.
+  tvGames = pkgs.writeShellApplication {
+    name = "tv-games";
+    runtimeInputs = [ ];
+    text = ''
+      ${lib.getExe tvDisplay}
       set +e
       ${lib.getExe es-de} --no-update-check
       status=$?
@@ -472,6 +480,7 @@ let
     name = "tv-chiaki";
     runtimeInputs = [ ];
     text = ''
+      ${lib.getExe tvDisplay}
       set +e
       ${lib.getExe pkgs."chiaki-ng"}
       status=$?
