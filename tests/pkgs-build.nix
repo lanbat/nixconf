@@ -49,6 +49,12 @@ let
     inputstream-adaptive = pkgs.kodi-gbm.packages.inputstream-adaptive;
     inputstreamhelper = pkgs.kodi-gbm.packages.inputstreamhelper;
   };
+  kodiTvPower = pkgs.callPackage ../pkgs/kodi-addon-tv-power {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  kodiGlobalsearch = pkgs.callPackage ../pkgs/kodi-addon-globalsearch {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
+  };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
   xiaomiClockSync = pkgs.callPackage ../pkgs/xiaomi-clock-sync { };
   feedBridge = pkgs.callPackage ../pkgs/media-feed-bridge { };
@@ -74,6 +80,8 @@ pkgs.runCommand "pkgs-build-smoke"
       dashboards
       kodiBootstrap
       kodiInvidious
+      kodiTvPower
+      kodiGlobalsearch
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -102,7 +110,12 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${caPage}/index.html
     test -d ${dashboards}
     test -f ${kodiTvConfig}/sources.xml
+    test -f ${kodiTvConfig}/keymaps/power-menu.xml
+    grep -q 'RunScript(script.tv-power)' ${kodiTvConfig}/keymaps/power-menu.xml
     test -f ${kodiInvidious}/share/kodi/addons/plugin.video.invidious/addon.xml
+    test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/addon.xml
+    test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
+    test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite

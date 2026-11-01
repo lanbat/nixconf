@@ -2583,6 +2583,25 @@ let
       && lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-kodi.partOf
       && !(lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-games.partOf)
     ))
+    # chiaki-ng is a third session, and the power menu replaces Kodi's shutdown
+    # menu with the box's own items: the three sessions exclude one another,
+    # the power key opens script.tv-power, and the media user may reboot but no
+    # longer power off.
+    (expect "tv box: chiaki-ng is a third session and the power menu replaces shutdown" (
+      lvaTvBox.systemd.services ? tv-chiaki
+      && lib.elem "tv-kodi.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
+      && lib.elem "tv-games.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
+      && lib.hasInfix "chiaki-ng" (
+        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
+      )
+      && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-kodi.conflicts
+      && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-games.conflicts
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/userdata/keymaps/power-menu.xml" r
+      ) lvaTvBox.systemd.tmpfiles.rules
+      && lib.hasInfix "tv-chiaki.service" lvaTvBox.security.polkit.extraConfig
+      && !(lib.hasInfix "power-off" lvaTvBox.security.polkit.extraConfig)
+    ))
   ];
 
   partCases = map (c: c.value) (

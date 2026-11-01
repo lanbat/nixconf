@@ -47,7 +47,9 @@ external API, or the assistant router.
   DHT index. Media files live on the Pi's encrypted drives.
 - **Syncthing** and **Samba** for files, **Vaultwarden** for passwords, and
   **SearXNG** for search on the LAN.
-- **Kodi** and **EmulationStation** on the storage Pi's HDMI output.
+- **Kodi** (with Global Search), **EmulationStation** and **chiaki-ng** (PS4/PS5
+  remote play) on the storage Pi's HDMI output; the power key opens a box power
+  menu (restart Kodi, screen off over CEC, switch session, reboot).
 - **Android TV boxes** provisioned from the server over ADB: pinned apps, the
   internal CA and device-owner policy. [Android devices](android-devices.md).
 
