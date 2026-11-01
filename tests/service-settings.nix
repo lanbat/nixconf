@@ -29,11 +29,13 @@
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
 #   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch,
-#     subtitle and Invidious addons are off and need no key by default;
-#     settings.youtube, settings.twitch and settings.opensubtitles require
-#     kodi-youtube-env, kodi-twitch-token and kodi-opensubtitles-env and put
-#     their addon into the Kodi package; settings.invidious puts the addon in
-#     Kodi and points it at the deployment's instance over the internal CA.
+#     subtitle, Invidious and AdultHideout addons are off and need no key by
+#     default; settings.youtube, settings.twitch and settings.opensubtitles
+#     require kodi-youtube-env, kodi-twitch-token and kodi-opensubtitles-env
+#     and put their addon into the Kodi package; settings.invidious puts the
+#     addon in Kodi and points it at the deployment's instance over the
+#     internal CA; settings.adulthideout puts AdultHideout in Kodi and needs
+#     no secret.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -570,6 +572,11 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.invidious = true; } ];
     })).configurations.example-pi-storage.config;
+  # The TV box with AdultHideout, which needs no account or secret.
+  tvBoxAdulthideout =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [ { lanbat.services.kodi.settings.adulthideout = true; } ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -634,6 +641,19 @@ let
     tvPowerAddon
     globalsearchAddon
     invidiousAddon
+  ]);
+  # AdultHideout is not in nixpkgs either; the repository builds it from the
+  # same upstream release the old LibreELEC box ran.
+  adulthideoutPkgs = aarchPkgs.kodi-gbm.packages;
+  adulthideoutAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-adulthideout {
+    buildKodiAddon = adulthideoutPkgs.buildKodiAddon;
+    requests = adulthideoutPkgs.requests;
+  };
+  kodiAdulthideout = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    tvPowerAddon
+    globalsearchAddon
+    adulthideoutAddon
   ]);
   kodiOf =
     config:
@@ -1615,7 +1635,8 @@ let
 
     # The streaming addons are off by default, so the box runs plain Kodi and
     # its profile needs no key for them.
-    (expect "tv: the YouTube, Twitch, subtitle and Invidious addons are off by default and need no key"
+    (expect
+      "tv: the YouTube, Twitch, subtitle, Invidious and AdultHideout addons are off by default and need no key"
       (
         !(lvaTvBox.lanbat.secrets ? "kodi-youtube-env")
         && !(lvaTvBox.lanbat.secrets ? "kodi-twitch-token")
@@ -2647,6 +2668,15 @@ let
       # Quitting a frontend returns the screen to Kodi: the sessions run
       # through wrappers, and the wrapper starts tv-kodi on a clean exit (the
       # tv-chiaki wrapper is the ExecStart asserted above).
+    ))
+
+    # Appended after the TV cases above: the parts take cases by position, so
+    # inserting in the middle would move every later case to another part and
+    # change which variants each part evaluates (see the note at the top).
+    (expect "tv: settings.adulthideout puts AdultHideout in Kodi" (
+      kodiOf tvBoxAdulthideout == kodiAdulthideout.outPath
+      && !(tvBoxAdulthideout.lanbat.secrets ? "kodi-youtube-env")
+      && failedAssertions tvBoxAdulthideout == [ ]
     ))
   ];
 
