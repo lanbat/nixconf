@@ -19,7 +19,7 @@ let
         nativeBuildInputs = [ kodiBootstrap ];
       }
       ''
-        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos
+        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos $TMPDIR/media/adult
         cat > $TMPDIR/.kodi/userdata/sources.xml <<EOF
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <sources>
@@ -35,10 +35,13 @@ let
         KODI_HOME=$TMPDIR \
           KODI_VIDEO_SOURCES="documentary-series|$TMPDIR/media/documentary-series/|tvshows|metadata.tvshows.themoviedb.org.python|0|0
         music-videos|$TMPDIR/media/music-videos/|musicvideos|metadata.local|1|0" \
+          KODI_FILE_SOURCES="Private|$TMPDIR/media/adult/" \
           kodi-bootstrap sources-xml
         grep -q "<name>Documentary Series</name>" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "$TMPDIR/media/documentary-series/" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "<name>Music Videos</name>" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "<name>Private</name>" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "$TMPDIR/media/adult/" $TMPDIR/.kodi/userdata/sources.xml
         ! grep -q "old-name" $TMPDIR/.kodi/userdata/sources.xml
         touch $out
       '';
@@ -53,6 +56,9 @@ let
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
   };
   kodiGlobalsearch = pkgs.callPackage ../pkgs/kodi-addon-globalsearch {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  kodiPrivateMedia = pkgs.callPackage ../pkgs/kodi-addon-private-media {
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
   };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
@@ -82,6 +88,7 @@ pkgs.runCommand "pkgs-build-smoke"
       kodiInvidious
       kodiTvPower
       kodiGlobalsearch
+      kodiPrivateMedia
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -116,6 +123,10 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/addon.xml
     test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
     test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/default.py
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/delete.py
+    grep -q 'kodi.context.item' ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite

@@ -41,6 +41,11 @@
 # of a public one, and the box trusts that instance's internal-CA certificate
 # so both the add-on and inputstream.adaptive reach it.
 #
+# The private-group folder (settings.privateMedia, off by default) is a
+# browse-only Videos > Files source: never scanned, so it stays out of the
+# library and Global Search. script.private-media plays a random video from it,
+# and adds a delete action to its files' context menu (that path only).
+#
 # Audio: Kodi plays PCM into the system PipeWire (passthrough off), so with a
 # voice satellite on the box its films and music meet the satellite's ducking
 # and echo canceller. The satellite's companion (pkgs/lva-kodi-companion)
@@ -213,6 +218,31 @@ let
           Invidious in the deployment.
         '';
       };
+      privateMedia = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Let this box's Kodi read media/adult, the folder the storage Pi keeps
+          for the private group alone (drive b, mode 2770). Puts the TV account
+          in that group and lists the folder in Videos > Files as a browse-only
+          source named privateMediaName: it is never scanned, so nothing from it
+          joins the Movies library, a library update or Global Search.
+          Installs script.private-media, which plays a random video from the
+          folder and deletes the one selected from its context menu. Off by
+          default: anyone at the TV is this account.
+        '';
+      };
+      privateMediaName = lib.mkOption {
+        type = lib.types.addCheck lib.types.str (
+          name: name != "" && !(lib.hasInfix "|" name) && !(lib.hasInfix "\n" name)
+        );
+        default = "Private";
+        description = ''
+          Label of the folder's browse-only source in Videos > Files, and so
+          what it is called on screen. No "|" or newline: it travels to
+          kodi-bootstrap in a delimited environment variable.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -244,6 +274,15 @@ let
   );
   musicSourcesEnv = lib.concatStringsSep "\n" (
     lib.mapAttrsToList (name: path: "${name}|${path}") kodiCfg.musicSources
+  );
+  # The private-group folder on drive b (modules/storage/storage.nix). The
+  # add-on plays from and deletes in this same path, hard-coded there because
+  # Kodi runs it from the read-only store.
+  privateMediaPath = "/mnt/storage-b/media/adult/";
+  # name|path, one per line: Videos > Files only, never a library source, so
+  # Kodi never scans the folder and nothing from it reaches Global Search.
+  fileSourcesEnv = lib.optionalString kodiCfg.privateMedia (
+    "${kodiCfg.privateMediaName}|${privateMediaPath}"
   );
 
   kodiWebPort = 8080;
@@ -485,6 +524,10 @@ let
   globalsearchAddon = pkgs.callPackage ../../pkgs/kodi-addon-globalsearch {
     buildKodiAddon = kodiPkgs.buildKodiAddon;
   };
+  # Random play and delete for the private-group folder (settings.privateMedia).
+  privateMediaAddon = pkgs.callPackage ../../pkgs/kodi-addon-private-media {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+  };
   # withPackages takes the add-ons to install and resolves their dependencies
   # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
   # module and its six/requests dependencies.
@@ -499,6 +542,7 @@ let
     ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
     ++ lib.optionals kodiCfg.opensubtitles [ addons.a4ksubtitles ]
     ++ lib.optionals kodiCfg.invidious [ invidiousAddon ]
+    ++ lib.optionals kodiCfg.privateMedia [ privateMediaAddon ]
   );
 
   # Seeded once: Kodi rewrites its favourites.
@@ -637,9 +681,10 @@ in
         "video"
         "input"
         "render"
-        # Not "private": media/adult is for that group alone, and anyone at the
-        # TV is this account.
-      ];
+        # Not "private" by default: media/adult is for that group alone, and
+        # anyone at the TV is this account. settings.privateMedia adds it.
+      ]
+      ++ lib.optionals kodiCfg.privateMedia [ "private" ];
     };
 
     hardware.graphics.enable = true;
@@ -765,6 +810,7 @@ in
         environment = {
           KODI_HOME = home;
           KODI_VIDEO_SOURCES = videoSourcesEnv;
+          KODI_FILE_SOURCES = fileSourcesEnv;
           KODI_MUSIC_SOURCES = musicSourcesEnv;
         };
         script = "exec kodi-bootstrap";

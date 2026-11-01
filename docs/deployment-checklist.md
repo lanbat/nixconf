@@ -541,7 +541,15 @@ Grafana, Immich, and RomM OIDC come up fully automatically.
   plus a full scan on each bootstrap run
 
 Grant users access to the **Jellyfin** application in Authentik.  Adult content
-is only available via the hidden Samba `private` share (`@private` group).
+is only available via the hidden Samba `private` share (`@private` group). A
+TV-box profile that wants it on the TV too sets
+`lanbat.services.kodi.settings.privateMedia = true`: Kodi's account joins that
+group and the folder appears in **Videos → Files** as a browse-only source
+(named `privateMediaName`, `Private` by default). It is never scanned, so it
+stays out of the Movies library, library updates and Global Search. The same
+option installs **Private media** under *Add-ons → Programs*, which plays a
+random video from the folder; a file's context menu gains *Delete from disk*,
+and that action refuses anything outside the folder.
 
 Music videos get online metadata only through the IMVDb plugin, which needs a
 free API key: register at [imvdb.com/developers/api](https://imvdb.com/developers/api),

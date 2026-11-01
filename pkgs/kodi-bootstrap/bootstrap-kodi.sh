@@ -8,7 +8,8 @@
 # a music source nothing has scanned stays empty.
 #
 # kodi-bootstrap sources-xml: add a configured video source missing from the
-# seeded sources.xml (the Videos > Files list), leaving the rest alone.
+# seeded sources.xml (the Videos > Files list), leaving the rest alone. Includes
+# the browse-only ones (KODI_FILE_SOURCES), which never reach a library.
 set -euo pipefail
 
 KODI_HOME="${KODI_HOME:?KODI_HOME must be set}"
@@ -20,6 +21,7 @@ KODI_PORT="${KODI_PORT:-9090}"
 # line: name|path|content|scraper|recursive|useFolderNames for video,
 # name|path for music.
 mapfile -t VIDEO_SOURCES <<< "${KODI_VIDEO_SOURCES:-}"
+mapfile -t FILE_SOURCES <<< "${KODI_FILE_SOURCES:-}"
 mapfile -t MUSIC_SOURCES <<< "${KODI_MUSIC_SOURCES:-}"
 
 log() {
@@ -147,6 +149,43 @@ source_label() {
   printf '%s' "${out% }"
 }
 
+# Add one source to Videos > Files (sources.xml) and leave everything else in
+# the file alone. Kodi's library scan reads the paths in its database, not this
+# file, so a source added here alone stays browse-only.
+add_source_xml() {
+  local xml="$1" label="$2" path="$3" present
+  present="$(xmlstarlet sel -t -v "/sources/video/source[path='${path}']/name" "$xml" 2>/dev/null || true)"
+  if [[ -n "$present" ]]; then
+    # The path is what Kodi browses; keep its display name in step with the
+    # settings (an older seed may have called it "documentary-series").
+    if [[ "$present" != "$label" ]]; then
+      xmlstarlet ed -L -u "/sources/video/source[path='${path}']/name" -v "$label" "$xml"
+      log "renamed video source ${present} -> ${label} in sources.xml"
+    fi
+    return 0
+  fi
+  if xmlstarlet ed -L \
+    -s /sources/video -t elem -n source -v "" \
+    -s "/sources/video/source[last()]" -t elem -n name -v "$label" \
+    -s "/sources/video/source[last()]" -t elem -n path -v "$path" \
+    -s "/sources/video/source[last()]" -t elem -n allowsharing -v "true" \
+    "$xml"; then
+    log "added video source ${label} -> ${path} to sources.xml"
+  else
+    log "could not add ${label} to sources.xml"
+    return 1
+  fi
+}
+
+# xmlstarlet rewrites the file, so give it back to the Kodi account.
+give_back_sources() {
+  local xml="$1"
+  if id media >/dev/null 2>&1; then
+    chown media:media "$xml"
+  fi
+  chmod 0644 "$xml"
+}
+
 # Kodi's library scan reads the paths in its database, but Videos > Files reads
 # sources.xml. That file is seeded once, so a source configured since (the
 # documentary series, say) never appears there. Add the missing ones and leave
@@ -155,40 +194,34 @@ configure_video_sources_xml() {
   local xml="${USERDATA}/sources.xml"
   [[ -f "$xml" ]] || return 0
 
-  local spec name path label present
+  local spec name path
   for spec in "${VIDEO_SOURCES[@]}"; do
     [[ -n "$spec" ]] || continue
     IFS='|' read -r name path _ <<< "$spec"
     [[ -d "$path" ]] || continue
-    label="$(source_label "$name")"
-    present="$(xmlstarlet sel -t -v "/sources/video/source[path='${path}']/name" "$xml" 2>/dev/null || true)"
-    if [[ -n "$present" ]]; then
-      # The path is what Kodi browses; keep its display name in step with the
-      # settings (an older seed may have called it "documentary-series").
-      if [[ "$present" != "$label" ]]; then
-        xmlstarlet ed -L -u "/sources/video/source[path='${path}']/name" -v "$label" "$xml"
-        log "renamed video source ${present} -> ${label} in sources.xml"
-      fi
-      continue
-    fi
-    if xmlstarlet ed -L \
-      -s /sources/video -t elem -n source -v "" \
-      -s "/sources/video/source[last()]" -t elem -n name -v "$label" \
-      -s "/sources/video/source[last()]" -t elem -n path -v "$path" \
-      -s "/sources/video/source[last()]" -t elem -n allowsharing -v "true" \
-      "$xml"; then
-      log "added video source ${label} -> ${path} to sources.xml"
-    else
-      log "could not add ${label} to sources.xml"
-      return 1
-    fi
+    add_source_xml "$xml" "$(source_label "$name")" "$path" || return 1
   done
+  give_back_sources "$xml"
+  return 0
+}
 
-  # xmlstarlet rewrites the file, so give it back to the Kodi account.
-  if id media >/dev/null 2>&1; then
-    chown media:media "$xml"
-  fi
-  chmod 0644 "$xml"
+# Browse-only sources (settings.privateMedia): listed in Videos > Files, never
+# written into a library database, so Kodi never scans them and nothing from
+# them joins the library or Global Search. A source whose setting is turned off
+# stays in the file: Kodi rewrites sources.xml from its GUI, and removing the
+# entry would also remove one the user added there themselves.
+configure_file_sources_xml() {
+  local xml="${USERDATA}/sources.xml"
+  [[ -f "$xml" ]] || return 0
+
+  local spec name path
+  for spec in "${FILE_SOURCES[@]}"; do
+    [[ -n "$spec" ]] || continue
+    IFS='|' read -r name path <<< "$spec"
+    [[ -d "$path" ]] || continue
+    add_source_xml "$xml" "$name" "$path" || return 1
+  done
+  give_back_sources "$xml"
   return 0
 }
 
@@ -289,6 +322,7 @@ fi
 
 if [[ "${1:-}" == "sources-xml" ]]; then
   configure_video_sources_xml
+  configure_file_sources_xml
   exit 0
 fi
 
@@ -299,6 +333,7 @@ status=0
 configure_video_library || status=1
 configure_music_library || status=1
 configure_video_sources_xml || status=1
+configure_file_sources_xml || status=1
 if ((status == 0)); then
   log "library sources configured"
 else

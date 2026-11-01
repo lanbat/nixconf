@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<addon id="script.private-media" name="Private media" version="1.0.0" provider-name="lanbat">
+  <requires>
+    <import addon="xbmc.python" version="3.0.0"/>
+  </requires>
+  <extension point="xbmc.python.script" library="default.py"/>
+  <!-- "Delete from disk" on a file under the private folder. The condition
+       keeps it off every other item; delete.py refuses other paths too. -->
+  <extension point="kodi.context.item">
+    <menu id="kodi.core.main">
+      <item library="delete.py">
+        <label>Delete from disk</label>
+        <visible>String.StartsWith(ListItem.Path,&quot;/mnt/storage-b/media/adult/&quot;)</visible>
+      </item>
+    </menu>
+  </extension>
+  <extension point="xbmc.addon.metadata">
+    <summary lang="en_GB">Private media</summary>
+    <description lang="en_GB">Play a random video from media/adult, and delete the video selected in Videos &gt; Files.</description>
+    <platform>all</platform>
+    <license>MIT</license>
+  </extension>
+</addon>
