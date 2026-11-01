@@ -2611,7 +2611,9 @@ let
       lvaTvBox.systemd.services ? tv-chiaki
       && lib.elem "tv-kodi.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
       && lib.elem "tv-games.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
-      && lib.hasInfix "chiaki-ng" (toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart)
+      && lib.hasInfix "-tv-chiaki/bin/tv-chiaki" (
+        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
+      )
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-kodi.conflicts
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-games.conflicts
       && lib.any (
@@ -2624,6 +2626,27 @@ let
       && lib.any (
         r: lib.hasPrefix "L+ /home/media/.kodi/addons/skin.estuary" r
       ) lvaTvBox.systemd.tmpfiles.rules
+      # Kodi's System.Exec execs one path (arguments split on commas), so the
+      # menu and favourites call one-word wrappers from the profile.
+      && lib.all (n: lib.any (p: (p.name or "") == n) lvaTvBox.environment.systemPackages) [
+        "tv-switch-games"
+        "tv-switch-chiaki"
+      ]
+      # ES-DE's AppImage is an FHS environment on bubblewrap, which refuses to
+      # run while the logind session's ambient CAP_WAKE_ALARM is set; and cage
+      # exports DISPLAY=:0, so SDL needs to be told to use Wayland, with the
+      # Pi's GL 3.1 raised to the 3.3 ES-DE asks for.
+      && lvaTvBox.systemd.services.tv-games.serviceConfig.CapabilityBoundingSet == ""
+      && lvaTvBox.systemd.services.tv-games.environment.SDL_VIDEODRIVER == "wayland"
+      && lvaTvBox.systemd.services.tv-games.environment.MESA_GL_VERSION_OVERRIDE == "3.3"
+      # ES-DE's window has to be created at 1080p: the projector is blank in
+      # the 4K mode cage would modeset to, so a wrapper sets it first.
+      && lib.hasInfix "-tv-games/bin/tv-games" (
+        toString lvaTvBox.systemd.services.tv-games.serviceConfig.ExecStart
+      )
+      # Quitting a frontend returns the screen to Kodi: the sessions run
+      # through wrappers, and the wrapper starts tv-kodi on a clean exit (the
+      # tv-chiaki wrapper is the ExecStart asserted above).
     ))
   ];
 
