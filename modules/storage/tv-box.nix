@@ -17,7 +17,7 @@
 #   - In Kodi: the power key opens the TV power menu (script.tv-power), which
 #     switches to EmulationStation or chiaki-ng, restarts Kodi, turns the screen
 #     off over CEC, or reboots. Favourites also reach both switches.
-#   - In ES-DE: the "Kodi" system.
+#   - In ES-DE: the "Kodi" system. Quitting ES-DE or chiaki-ng returns to Kodi.
 #   - On any controller: hold the Guide button for 2 seconds, or Select and
 #     Start for 3 (tv-hotkey.service; works even when an emulator hangs); this
 #     cycles Kodi → EmulationStation → chiaki-ng.
@@ -424,6 +424,22 @@ let
 
   es-de = pkgs.callPackage ../../pkgs/es-de { };
 
+  # A frontend that is quit returns the screen to Kodi: the kiosk sessions have
+  # no window manager to fall back to, and nothing returns to tv-kodi on its
+  # own, so quitting ES-DE or chiaki-ng left the screen blank (2026-11-01).
+  # tv-switch writes the state file before it starts the session it was asked
+  # for, so a switch to another session (or to Kodi) does not bounce through
+  # Kodi here. Only a clean exit returns; a crash is left to the unit's
+  # restart.
+  returnToKodi = pkgs.writeShellApplication {
+    name = "tv-return-to-kodi";
+    runtimeInputs = [ pkgs.systemd ];
+    text = ''
+      [ "$(cat /var/lib/tv-session/current 2>/dev/null || true)" = "$1" ] || exit 0
+      exec systemctl start --no-block tv-kodi.service
+    '';
+  };
+
   # cage modesets the output to its EDID-preferred mode: 3840x2160@60 on the
   # Epson projector, which shows nothing on that signal, while Kodi has always
   # run at 1920x1080. wlr-randr talks to the compositor cage starts (the child
@@ -444,7 +460,23 @@ let
         wlr-randr --output "$output" --mode 1920x1080 ||
           echo "tv-games: $output: could not set 1920x1080" >&2
       done <<< "$outputs"
-      exec ${lib.getExe es-de} --no-update-check
+      set +e
+      ${lib.getExe es-de} --no-update-check
+      status=$?
+      [ "$status" -eq 0 ] && ${lib.getExe returnToKodi} games
+      exit "$status"
+    '';
+  };
+
+  tvChiaki = pkgs.writeShellApplication {
+    name = "tv-chiaki";
+    runtimeInputs = [ ];
+    text = ''
+      set +e
+      ${lib.getExe pkgs."chiaki-ng"}
+      status=$?
+      [ "$status" -eq 0 ] && ${lib.getExe returnToKodi} chiaki
+      exit "$status"
     '';
   };
 
@@ -767,7 +799,7 @@ in
         description = "chiaki-ng (PS4/PS5 remote play) on the TV";
         other = "tv-kodi.service";
         extraConflicts = [ "tv-games.service" ];
-        command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe pkgs."chiaki-ng"}";
+        command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe tvChiaki}";
       };
 
       lva-kodi-companion = lib.mkIf lvaHere {

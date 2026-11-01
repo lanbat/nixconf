@@ -2642,6 +2642,11 @@ let
       && lib.hasInfix "-tv-games/bin/tv-games" (
         toString lvaTvBox.systemd.services.tv-games.serviceConfig.ExecStart
       )
+      # Quitting a frontend returns the screen to Kodi (the sessions are
+      # wrapped, and the wrapper starts tv-kodi on a clean exit).
+      && lib.hasInfix "-tv-chiaki/bin/tv-chiaki" (
+        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
+      )
     ))
   ];
 
