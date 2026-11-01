@@ -36,73 +36,73 @@
     "source": "fdroid",
     "variants": {
       "arm64-v8a": {
-        "sha256": "sha256-mJal2betl2zBT49tiKtPV5UrRPm8MvaMh7A+GYcgSAY=",
-        "size": 15034751,
-        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_271.apk"
+        "sha256": "sha256-551QjXAafb9fZwV8e8F5kfK45v2QNZdaPUV5ic8bnrc=",
+        "size": 15092095,
+        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_288.apk"
       },
       "armeabi-v7a": {
-        "sha256": "sha256-mJal2betl2zBT49tiKtPV5UrRPm8MvaMh7A+GYcgSAY=",
-        "size": 15034751,
-        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_271.apk"
+        "sha256": "sha256-551QjXAafb9fZwV8e8F5kfK45v2QNZdaPUV5ic8bnrc=",
+        "size": 15092095,
+        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_288.apk"
       },
       "x86": {
-        "sha256": "sha256-mJal2betl2zBT49tiKtPV5UrRPm8MvaMh7A+GYcgSAY=",
-        "size": 15034751,
-        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_271.apk"
+        "sha256": "sha256-551QjXAafb9fZwV8e8F5kfK45v2QNZdaPUV5ic8bnrc=",
+        "size": 15092095,
+        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_288.apk"
       },
       "x86_64": {
-        "sha256": "sha256-mJal2betl2zBT49tiKtPV5UrRPm8MvaMh7A+GYcgSAY=",
-        "size": 15034751,
-        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_271.apk"
+        "sha256": "sha256-551QjXAafb9fZwV8e8F5kfK45v2QNZdaPUV5ic8bnrc=",
+        "size": 15092095,
+        "url": "https://f-droid.org/repo/io.github.sds100.keymapper_288.apk"
       }
     },
-    "versionCode": 271,
-    "versionName": "4.5.0-foss"
+    "versionCode": 288,
+    "versionName": "4.6.2-foss"
   },
   "rommapp/argosy-launcher": {
     "key": "rommapp/argosy-launcher",
     "minSdk": 26,
     "packageId": "com.nendo.argosy",
     "source": "github",
-    "tag": "v2.18.0",
+    "tag": "v2.27.3",
     "variants": {
       "arm64-v8a": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "armeabi": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "armeabi-v7a": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "mips": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "mips64": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "x86": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       },
       "x86_64": {
-        "sha256": "sha256-gAi1UEdOGHTb0Js1MwaX3x6ggbgfYW1CrC+pqGRZvBo=",
-        "size": 35416346,
-        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.18.0/argosy-v2.18.0.apk"
+        "sha256": "sha256-Uo58QBBy7jAMQccRFZeYX5H36EcaN9gEZC9JFYJ5ScA=",
+        "size": 29077344,
+        "url": "https://github.com/rommapp/argosy-launcher/releases/download/v2.27.3/argosy-v2.27.3.apk"
       }
     },
-    "versionCode": 3000343,
-    "versionName": "2.18.0"
+    "versionCode": 3000368,
+    "versionName": "2.27.3"
   }
 }
