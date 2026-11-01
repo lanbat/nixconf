@@ -2611,7 +2611,9 @@ let
       lvaTvBox.systemd.services ? tv-chiaki
       && lib.elem "tv-kodi.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
       && lib.elem "tv-games.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
-      && lib.hasInfix "chiaki-ng" (toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart)
+      && lib.hasInfix "-tv-chiaki/bin/tv-chiaki" (
+        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
+      )
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-kodi.conflicts
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-games.conflicts
       && lib.any (
@@ -2642,11 +2644,9 @@ let
       && lib.hasInfix "-tv-games/bin/tv-games" (
         toString lvaTvBox.systemd.services.tv-games.serviceConfig.ExecStart
       )
-      # Quitting a frontend returns the screen to Kodi (the sessions are
-      # wrapped, and the wrapper starts tv-kodi on a clean exit).
-      && lib.hasInfix "-tv-chiaki/bin/tv-chiaki" (
-        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
-      )
+      # Quitting a frontend returns the screen to Kodi: the sessions run
+      # through wrappers, and the wrapper starts tv-kodi on a clean exit (the
+      # tv-chiaki wrapper is the ExecStart asserted above).
     ))
   ];
 
