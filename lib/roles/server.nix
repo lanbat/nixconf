@@ -62,10 +62,13 @@ args@{
       # stall that wedged Caddy/Tang/sshd on 2026-11-01) panics the kernel, and
       # a panic reboots after 30 s.
       systemd.settings.Manager.RuntimeWatchdogSec = "30s";
+      # mkDefault so the NixOS test instrumentation (which sets
+      # hung_task_timeout_secs = 600) and any host override win without a
+      # duplicate-definition error; a real host still gets these values.
       boot.kernel.sysctl = {
-        "kernel.hung_task_timeout_secs" = 300;
-        "kernel.hung_task_panic" = 1;
-        "kernel.panic" = 30;
+        "kernel.hung_task_timeout_secs" = lib.mkDefault 300;
+        "kernel.hung_task_panic" = lib.mkDefault 1;
+        "kernel.panic" = lib.mkDefault 30;
       };
 
       # Large container crashes must not fill the host root or monopolise I/O
