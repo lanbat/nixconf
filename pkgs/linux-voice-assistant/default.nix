@@ -19,7 +19,7 @@
 }:
 
 let
-  version = "1.1.15";
+  version = "1.1.18";
 
   # The module always adds webrtc-noise-gain. Its bundled WebRTC code uses
   # uint32_t without including <cstdint>, which GCC 15 rejects; nixpkgs that
@@ -100,7 +100,7 @@ python3Packages.buildPythonApplication {
     owner = "OHF-Voice";
     repo = "linux-voice-assistant";
     tag = "v${version}";
-    hash = "sha256-n/d5+hwivoInpjrx5Wnv7WGPnyH9xmXFLD4Nvdc3M5A=";
+    hash = "sha256-QFg0mWZB6o/19fSaRfdfCF82Or7fWHK6m5DWwqdIYBc=";
   };
 
   env.SETUPTOOLS_SCM_PRETEND_VERSION = version;
@@ -169,7 +169,12 @@ python3Packages.buildPythonApplication {
   '';
 
   # libmpv, for python-mpv.
-  makeWrapperArgs = [ "--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ mpv-unwrapped ]}" ];
+  makeWrapperArgs = [
+    "--prefix"
+    "LD_LIBRARY_PATH"
+    ":"
+    "${lib.makeLibraryPath [ mpv-unwrapped ]}"
+  ];
 
   doCheck = false;
 
