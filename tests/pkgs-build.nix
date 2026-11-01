@@ -115,6 +115,11 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${kodiInvidious}/share/kodi/addons/plugin.video.invidious/addon.xml
     test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/addon.xml
     test -f ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
+    # Kodi's System.Exec execs its parameter, splitting arguments on commas, so
+    # the power menu must call the one-word session wrappers, not "tv-switch X".
+    grep -q 'tv-switch-games' ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
+    grep -q 'tv-switch-chiaki' ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
+    ! grep -qE 'System\.Exec\("[^"]* [^"]*"\)' ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
     test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant

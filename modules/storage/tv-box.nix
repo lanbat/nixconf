@@ -424,6 +424,30 @@ let
 
   es-de = pkgs.callPackage ../../pkgs/es-de { };
 
+  # cage modesets the output to its EDID-preferred mode: 3840x2160@60 on the
+  # Epson projector, which shows nothing on that signal, while Kodi has always
+  # run at 1920x1080. wlr-randr talks to the compositor cage starts (the child
+  # inherits its WAYLAND_DISPLAY) and sets every output to 1080p before ES-DE
+  # creates its window. --no-update-check keeps the AppImage's update prompt
+  # ("NEW RELEASE AVAILABLE") off the screen; the store copy cannot update
+  # itself anyway.
+  tvGames = pkgs.writeShellApplication {
+    name = "tv-games";
+    runtimeInputs = [
+      pkgs.gnused
+      pkgs.wlr-randr
+    ];
+    text = ''
+      outputs=$(wlr-randr 2>/dev/null | sed -n 's/^\([^ ]*\) ".*/\1/p' || true)
+      while IFS= read -r output; do
+        [ -n "$output" ] || continue
+        wlr-randr --output "$output" --mode 1920x1080 ||
+          echo "tv-games: $output: could not set 1920x1080" >&2
+      done <<< "$outputs"
+      exec ${lib.getExe es-de} --no-update-check
+    '';
+  };
+
   # ES-DE uses the first emulator listed for a system. Where its default isn't
   # installed or runs poorly on a Pi, list this one first.
   preferredEmulators = {
@@ -506,8 +530,8 @@ let
     <favourites>
       <favourite name="Power menu">RunScript(script.tv-power)</favourite>
       <favourite name="Global Search">RunScript(script.globalsearch)</favourite>
-      <favourite name="Games (EmulationStation)">System.Exec(&quot;/run/current-system/sw/bin/tv-switch games&quot;)</favourite>
-      <favourite name="chiaki-ng">System.Exec(&quot;/run/current-system/sw/bin/tv-switch chiaki&quot;)</favourite>
+      <favourite name="Games (EmulationStation)">System.Exec(&quot;/run/current-system/sw/bin/tv-switch-games&quot;)</favourite>
+      <favourite name="chiaki-ng">System.Exec(&quot;/run/current-system/sw/bin/tv-switch-chiaki&quot;)</favourite>
     </favourites>
   '';
 
@@ -519,6 +543,16 @@ let
     ];
     text = builtins.readFile ../../pkgs/tv-session/tv-switch.sh;
   };
+
+  # One-word entries for the power menu and the favourites. Kodi's System.Exec
+  # does not use a shell: it splits its parameter on commas and calls execvp,
+  # so "tv-switch games" is looked up as a program name containing a space and
+  # fails silently (no output, no log). These wrappers take the argument.
+  tvSwitchTo =
+    session:
+    pkgs.writeShellScriptBin "tv-switch-${session}" ''
+      exec ${lib.getExe tv-switch} ${session}
+    '';
 
   tv-hotkey = pkgs.writers.writePython3Bin "tv-hotkey" {
     libraries = [ pkgs.python3Packages.evdev ];
@@ -559,6 +593,13 @@ let
         # A logind session on tty1 gives the session the display and input
         # devices. Audio goes to the system-wide PipeWire (modules/pi/audio.nix).
         PAMName = "login";
+        # pam_systemd gives the session an ambient CAP_WAKE_ALARM (so rtcwake
+        # works unprivileged). bubblewrap refuses to start when it inherits a
+        # capability but is not setuid ("Unexpected capabilities but not
+        # setuid"), which broke ES-DE: its AppImage runs in an FHS environment
+        # built on bubblewrap. No session needs a capability, so bound them all
+        # away.
+        CapabilityBoundingSet = "";
         TTYPath = "/dev/tty1";
         TTYReset = true;
         TTYVHangup = true;
@@ -658,6 +699,8 @@ in
       es-de
       pkgs."chiaki-ng"
       tv-switch
+      (tvSwitchTo "games")
+      (tvSwitchTo "chiaki")
     ];
     # ES-DE looks for the cores in /run/current-system/sw/lib/retroarch/cores.
     environment.pathsToLink = [ "/lib/retroarch" ];
@@ -702,12 +745,24 @@ in
               INVIDIOUS_URL = invidiousUrl;
             };
           };
-      tv-games = session {
-        description = "EmulationStation on the TV";
-        other = "tv-kodi.service";
-        extraConflicts = [ "tv-chiaki.service" ];
-        command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe es-de}";
-      };
+      tv-games =
+        session {
+          description = "EmulationStation on the TV";
+          other = "tv-kodi.service";
+          extraConflicts = [ "tv-chiaki.service" ];
+          command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe tvGames}";
+        }
+        // {
+          # cage exports DISPLAY=:0 for Xwayland, so SDL would try X11/GLX and
+          # fail; the kiosk compositor is the display. The Pi's v3d reports
+          # OpenGL 3.1, and ES-DE's renderer asks for 3.3, so Mesa has to be told
+          # the driver can do it (ES-DE's INSTALL.md documents this for the
+          # Raspberry Pi).
+          environment = {
+            SDL_VIDEODRIVER = "wayland";
+            MESA_GL_VERSION_OVERRIDE = "3.3";
+          };
+        };
       tv-chiaki = session {
         description = "chiaki-ng (PS4/PS5 remote play) on the TV";
         other = "tv-kodi.service";
