@@ -448,16 +448,26 @@ let
   tvDisplay = pkgs.writeShellApplication {
     name = "tv-display";
     runtimeInputs = [
+      pkgs.coreutils
       pkgs.gnused
       pkgs.wlr-randr
     ];
     text = ''
-      outputs=$(wlr-randr 2>/dev/null | sed -n 's/^\([^ ]*\) ".*/\1/p' || true)
+      # cage forks the frontend once the Wayland socket exists, which can be a
+      # moment before the compositor advertises the output: wait for it.
+      try=0
+      names=""
+      while [ -z "$names" ] && [ "$try" -lt 20 ]; do
+        names=$(wlr-randr 2>/dev/null | sed -n 's/^\([^ ]*\) ".*/\1/p' || true)
+        try=$((try + 1))
+        [ -n "$names" ] || sleep 0.2
+      done
+      [ -n "$names" ] || echo "tv-display: no Wayland outputs found" >&2
       while IFS= read -r output; do
         [ -n "$output" ] || continue
         wlr-randr --output "$output" --mode 1920x1080 ||
           echo "tv-display: $output: could not set 1920x1080" >&2
-      done <<< "$outputs"
+      done <<< "$names"
     '';
   };
 
