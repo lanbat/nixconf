@@ -20,7 +20,6 @@
 #    Directories:
 #      /mnt/storage-b/media/         — music, documentaries, ROMs, books and the rest
 #      /mnt/storage-b/media/adult/   — private group only (Samba + NFS gated)
-#      /mnt/storage-b/nextcloud/     — Nextcloud external storage
 #      /mnt/storage-b/users/         — per-user SMB home dirs
 #      /mnt/storage-b/shared/        — shared SMB space
 #      /mnt/storage-b/backups/       — backup target (restic repositories)
@@ -79,7 +78,7 @@ let
   drives = config.lanbat.hosts.${config.lanbat.hostKey}.storage.drives;
 
   # The directory tree each drive gets, keyed by drive name. The services put
-  # their data on a named drive (Immich on a, Nextcloud on b and so on, see the
+  # their data on a named drive (Immich on a, Samba on b and so on, see the
   # layout above), so the tree belongs to the name rather than to the position.
   # A drive with no entry here is still unlocked, initialised and exported; it
   # just starts empty.
@@ -116,10 +115,6 @@ let
         # group media, readable to every media user behind this folder's lock.
         chgrp -R ${toString privateGid} "$base/media/adult" 2>/dev/null || true
         chmod -R o-rwx "$base/media/adult" 2>/dev/null || true
-      '')
-      (forService "nextcloud" ''
-        # Nextcloud owns bulk user data; the Samba shared space is group media.
-        install -d -m 0750 -o ${uidOf "nextcloud"} -g nogroup "$base/nextcloud"
       '')
       ''
         install -d -m 0755 -o root -g nogroup "$base/users"

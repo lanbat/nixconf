@@ -36,10 +36,10 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
                          │  │  Caddy (443/80)         PostgreSQL (5432/5433)  │ │      │
                          │  │  Authentik (9000)        Redis (6379, 6380)     │ │      │
                          │  │  Home Assistant (8123)   Mosquitto (1883)       │ │      │
-                         │  │  Nextcloud (8080)        Samba (445)            │ │      │
-                         │  │  Vaultwarden (8222)      Grafana (3030)         │ │      │
-                         │  │  InfluxDB (8086)         Music Assistant (8095) │ │      │
-                         │  │  Snapserver (1704/1780)  Telegraf               │ │      │
+                         │  │  Vaultwarden (8222)      Samba (445)            │ │      │
+                         │  │  Grafana (3030)          InfluxDB (8086)        │ │      │
+                         │  │  Music Assistant (8095)  Telegraf               │ │      │
+                         │  │  Snapserver (1704/1780)                         │ │      │
                          │  │  Wyoming pipeline + satellite (10700)           │ │      │
                          │  │  Jellyfin / Frigate / Immich / qBittorrent      │ │      │
                          │  │  Bitmagnet / Syncthing / Homepage / SearXNG     │ │      │
@@ -77,7 +77,6 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
                          │  ┌──────────────────────────────────────────────────────┐   │
                          │  │ LUKS2  →  XFS (pquota)   [locked until Tang replies] │   │
                          │  │  /mnt/storage-b/media/  the rest of the media        │   │
-                         │  │  /mnt/storage-b/nextcloud/   (Nextcloud)             │   │
                          │  │  /mnt/storage-b/users/       (SMB homes)             │   │
                          │  │  /mnt/storage-b/shared/      (SMB shared)            │   │
                          │  │  /mnt/storage-b/backups/     (backup target)         │   │
@@ -118,7 +117,6 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | Authentik | local only | It IS the identity provider |
 | Homepage | none | LAN landing page |
 | Home Assistant | Native OIDC (`auth_oidc`, linked by username) + local password fallback | Companion apps sign in through authentik with a device code; API clients use long-lived tokens |
-| Nextcloud | OIDC (user_oidc app) + local admin | Native OIDC support |
 | Immich | Caddy forward-auth (Authentik) + native OIDC | Bootstrap admin links to Authentik email; mobile apps use /api/* |
 | Jellyfin | OIDC (plugin) or local | Native OIDC plugin available |
 | Frigate | Caddy forward-auth (Authentik) | No native OIDC |
@@ -165,7 +163,6 @@ Caddy and Authentik on this one.
 |---|---|
 | `home.<domain>` | Homepage dashboard |
 | `auth.<domain>` | Authentik IdP |
-| `cloud.<domain>` | Nextcloud |
 | `photos.<domain>` | Immich |
 | `media.<domain>` | Jellyfin |
 | `audiobooks.<domain>` | Audiobookshelf |

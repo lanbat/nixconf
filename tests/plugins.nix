@@ -257,7 +257,7 @@ let
       ]
     ))
 
-    (expectThrow "a service no enabled plugin offers" (resolve [ media ] [ "nextcloud" ]))
+    (expectThrow "a service no enabled plugin offers" (resolve [ media ] [ "nonexistent" ]))
 
     (expectThrow "two plugins offering the same service" (resolve [ media clashing ] [ "jellyfin" ]))
 

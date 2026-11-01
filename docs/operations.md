@@ -270,7 +270,7 @@ ssh admin@pi5
 sudo xfs_quota -x -c "report -pb -h" /mnt/storage-a
 sudo xfs_quota -x -c "report -pb -h" /mnt/storage-b
 
-# Per-user unified quotas (Syncthing, Samba, Nextcloud, …)
+# Per-user unified quotas (Syncthing, Samba, …)
 sudo quota-report-users
 
 # Set a project limit (example: cap surveillance at 500 GB)
@@ -435,19 +435,6 @@ journalctl -u home-assistant -n 200
 
 # HA config check
 sudo -u hass hass --script check_config -c /var/lib/hass
-```
-
-## Nextcloud
-
-```bash
-# Run Nextcloud OCC commands
-sudo -u nextcloud /run/current-system/sw/bin/nextcloud-occ <command>
-
-# Scan for new files in external storage
-sudo -u nextcloud nextcloud-occ files:scan --all
-
-# Check Nextcloud status
-sudo -u nextcloud nextcloud-occ status
 ```
 
 ## Grafana

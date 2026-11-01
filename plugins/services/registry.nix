@@ -32,7 +32,6 @@
   mosquitto = ../../services/mosquitto.nix;
   llm-gateway = ../../services/llm-gateway.nix;
   music-assistant = ../../services/music-assistant.nix;
-  nextcloud = ../../services/nextcloud.nix;
   person-mapper = ../../services/person-mapper.nix;
   postgresql = ../../services/postgresql.nix;
   qbittorrent = ../../services/qbittorrent.nix;

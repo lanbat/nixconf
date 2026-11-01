@@ -25,7 +25,6 @@
     { name: "jellyfin", port: 8096, sub: "media" },
     { name: "mosquitto", port: 1883, sub: null },
     { name: "music-assistant", port: 8095, sub: "music" },
-    { name: "nextcloud", port: 8080, sub: "cloud" },
     { name: "postgresql", port: 5432, sub: null },
     { name: "qbittorrent", port: 8090, sub: "torrent" },
     { name: "redis", port: 6379, sub: null },
@@ -306,7 +305,6 @@
       { id: "wyoming", n: "Wyoming voice", s: "LAN-internal", lane: "boot" },
       { id: "telegraf", n: "Telegraf", s: "internal only", lane: "boot" },
       // waits for unlock-workload
-      { id: "nextcloud", n: "Nextcloud", s: "cloud.<domain>", lane: "workload" },
       { id: "immich", n: "Immich", s: "photos.<domain>", lane: "workload", nfs: true },
       { id: "jellyfin", n: "Jellyfin", s: "media.<domain>", lane: "workload", nfs: true },
       { id: "qbt", n: "qBittorrent", s: "torrent.<domain>", lane: "workload", nfs: true },

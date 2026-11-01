@@ -218,8 +218,8 @@ availability requirements:
 - Set `tier = "workload"`, list the `/var/lib` directories in `state` and the systemd
   units in `units`. The wiring creates the mode-0000 stubs, bind-mounts
   `/mnt/workload/<dir>` over them, and moves the units under `workload-online.target`.
-- Current members: Nextcloud, Immich, Jellyfin, Audiobookshelf, Vaultwarden, Syncthing,
-  Samba, qBittorrent, Bitmagnet, RomM, PostgreSQL (workload instance)
+- Current members: Immich, Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba,
+  qBittorrent, Bitmagnet, RomM, PostgreSQL (workload instance)
 
 When in doubt, prefer **always-on** for monitoring/automation/infrastructure services
 and **workload-gated** for personal data vaults (passwords, photos, documents, media).
@@ -270,11 +270,6 @@ Its `units` then bind to the NFS mounts, stop when Pi storage disappears and res
 it comes back. Use `nfs.units` when only some units touch the storage. The unit name of a
 container is `podman-<container-name>`; for NixOS-native services use the actual unit
 name (e.g. `samba-smbd`, not `samba`).
-
-**Soft dependency exception:** Nextcloud keeps bulk user data on Pi storage through the
-External Storage app but deliberately omits `nfs.drives`. Hard-binding would stop the
-entire app (including OIDC login) when NFS drops; external folders fail individually
-instead. Document the reason in the service file if you add another soft dependency.
 
 ### Secrets
 - **Declare a requirement, read through the accessor.** A service lists the secrets it
@@ -329,7 +324,7 @@ nix eval --json .#nixosConfigurations.example-server.config.lanbat.services \
 On the Pi: 2049 (NFS) and 10700 (Wyoming satellite), both restricted to the server.
 
 ### Caddy auth
-- Services with **native OIDC** (Nextcloud, Immich, Grafana): `auth = "app"`.
+- Services with **native OIDC** (Immich, Grafana): `auth = "app"`.
 - Services with **no auth** of their own (Frigate, qBittorrent, Bitmagnet, RomM): `auth = "forward-auth"`.
 - Services with **their own account system** (Vaultwarden, Jellyfin): `auth = "app"` and
   `apiClients = true` — clients need direct API access.

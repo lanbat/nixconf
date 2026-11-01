@@ -19,7 +19,7 @@
 #   secrets/mosquitto-frigate-pass.age — choose a password for the Frigate MQTT user
 #   secrets/rclone-frigate-config.age  — run: rclone config, then paste the result
 #
-# OIDC client secrets (Grafana, Nextcloud, Immich, HA, Jellyfin) are handled
+# OIDC client secrets (Grafana, Immich, HA, Jellyfin) are handled
 # by a separate script once Authentik is running:
 #   bash secrets/generate-oidc-secrets.sh
 
@@ -61,9 +61,6 @@ echo
 encrypt authentik-env.age \
   "AUTHENTIK_POSTGRESQL__PASSWORD=$(rand 36)
 AUTHENTIK_SECRET_KEY=$(rand 50)"
-
-# ---- Nextcloud ----
-encrypt nextcloud-admin-pass.age "$(rand 24)"
 
 # ---- Immich ----
 encrypt immich-db-password.age "POSTGRES_PASSWORD=$(rand 36)"

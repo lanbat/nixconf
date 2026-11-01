@@ -10,7 +10,7 @@
 # State: /var/lib/jackett holds the indexers' credentials, cookies and the API
 # key, so it lives on the workload layer. The nixpkgs module's tmpfiles rule for
 # its data directory only creates empty directories under the stub while the
-# layer is locked, the same as Nextcloud's; workloadDirs gives the mounted
+# layer is locked, the same as Immich's; workloadDirs gives the mounted
 # directories their owner.
 #
 # qBittorrent: its Jackett search plugin reads

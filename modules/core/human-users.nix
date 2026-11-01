@@ -7,7 +7,6 @@
 #
 #   /mnt/storage-b/users/<username>/
 #     files/    — Samba home share
-#     cloud/    — Nextcloud external storage
 #     sync/     — Syncthing folder (personal, not shared/)
 #     photos/   — Immich external library
 #
@@ -104,7 +103,6 @@ in
         type = types.listOf types.str;
         default = [
           "files"
-          "cloud"
           "sync"
           "photos"
         ];
@@ -196,7 +194,6 @@ in
           )
         );
         default = {
-          cloud.name = "nextcloud";
           photos.name = "immich";
           # Syncthing's user comes from the upstream NixOS module rather than a
           # lanbat account, so take the uid that module assigns it. ids.uids is

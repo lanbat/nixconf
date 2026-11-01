@@ -13,7 +13,7 @@ The short version, and the rule that makes the whole design work:
   UI, never in Nix.
 
 A user that Nix cannot see is a user that no service can see. Everything downstream of
-authentik (Home Assistant, Grafana, Nextcloud, …) treats an authentik username as the
+authentik (Home Assistant, Grafana, Immich, …) treats an authentik username as the
 source of truth.
 
 ## The identity provider
@@ -95,7 +95,6 @@ browser ──▶ service (sets its own session from the ID token)
 | Frigate, Music Assistant, Snapcast, Zigbee2MQTT, Syncthing, qBittorrent, Bitmagnet | forward-auth | no | pure forward auth |
 | Immich | forward-auth | yes | web UI forward-authed; mobile app OIDC + `apiClients` |
 | Grafana | app | yes | `generic_oauth`, maps roles from a claim (see below) |
-| Nextcloud | app | yes | `user_oidc` app; sync clients via `apiClients` |
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
 | Vaultwarden | app | yes | **own account system** (Bitwarden) plus OIDC; SSO signs in by matching the email to an existing account (created from the admin panel or its API), gated on the `vaultwarden` group |
@@ -218,7 +217,7 @@ translation pattern differs by service:
   (`services/grafana.nix`). Every authentik user lands as **Viewer** by default; being
   in the `grafana-admins` group promotes them to **Admin**. This is entitlement expressed
   as *a group name carried in the OIDC `groups` claim*.
-- **Email-matched admin (Nextcloud, Immich, Audiobookshelf, Jellyfin).** These create an
+- **Email-matched admin (Immich, Audiobookshelf, Jellyfin).** These create an
   *admin* account whose email is derived from the owner's authentik identity
   (`lanbat.deployment.immich.adminEmail` defaults to `head ssoUsers @ rootDomain`, e.g.
   `akadmin@10ctr.vg.cd`). When that same identity signs in over OIDC, the provider maps
@@ -334,6 +333,6 @@ browser ─▶ Caddy (grafana.<domain>, auth="app") ─▶ Grafana
 | Caddy forward-auth wiring | `modules/wiring/caddy.nix` |
 | service description schema (`auth`, `oidc`, `apiClients`) | `modules/core/services.nix` |
 | POSIX users + storage quotas | `modules/core/human-users.nix` |
-| per-service identity mapping | `services/<name>.nix` (HA, Grafana, Immich, Nextcloud, Jellyfin, RomM, Audiobookshelf) |
+| per-service identity mapping | `services/<name>.nix` (HA, Grafana, Immich, Jellyfin, RomM, Audiobookshelf) |
 | adding a user, day to day | [docs/operations.md](operations.md#adding-a-user) |
 | what "always-on vs workload" means for access at boot | [docs/secure-layers.md](secure-layers.md) |
