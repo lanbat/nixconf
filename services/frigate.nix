@@ -16,7 +16,7 @@
 # deployments/example/frigate.nix shows every option with placeholder values.
 # Evaluation fails when Frigate has no camera, unless settings.allowNoCameras.
 #
-# Frigate 0.17 constraints the rendering keeps:
+# Frigate 0.18 constraints the rendering keeps:
 #   - camera inputs live under cameras.<name>.ffmpeg.inputs (Camera.__init__
 #     reads config['ffmpeg']['inputs']);
 #   - an input takes no output_args (CameraInput has additionalProperties:
@@ -521,7 +521,7 @@ let
 
     classification.bird.enabled = false;
 
-    version = "0.17-0";
+    version = "0.18-0";
   } cfg.extraConfig;
 
   frigateConfig = (pkgs.formats.yaml { }).generate "frigate.yml" rendered;
@@ -634,7 +634,7 @@ in
     # Frigate container
     # ---------------------------------------------------------------------------
     virtualisation.oci-containers.containers."frigate" = {
-      image = "ghcr.io/blakeblackshear/frigate:stable";
+      image = "ghcr.io/blakeblackshear/frigate:0.18.2@sha256:fd60f99ffd4eb6c42360ed4e14953e270586f239309ab3983e55b2e97ffac09a";
 
       # environmentFiles would become systemd EnvironmentFile= (read before
       # ExecStartPre runs, so the file doesn't exist yet).  Use --env-file in
@@ -712,7 +712,7 @@ in
     # ---------------------------------------------------------------------------
     # Face classifier
     # ---------------------------------------------------------------------------
-    # Frigate (0.17) builds its face classifier on a thread of its own, and a
+    # Frigate (0.18) builds its face classifier on a thread of its own, and a
     # build often never finishes: the first one, while Frigate is still
     # starting, and often the one after any change to the library (a face
     # enrolled or deleted clears it). Recognition then names nobody ("No face

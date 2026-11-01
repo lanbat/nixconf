@@ -2021,12 +2021,12 @@ let
       && lib.hasInfix ''"https://photos.home.example.com"'' base.systemd.services.podman-immich-server.preStart
     ))
 
-    (expect "immich: images are pinned to the deployed v3.2.1 digests" (
+    (expect "immich: images are pinned to the deployed v3.3.5 digests" (
       imageOf base "immich-server"
-      == "ghcr.io/immich-app/immich-server:v3.2.1@sha256:87bb1b208434a8503e1a2465edd84f3cf94bd72c66feb7ca474629015b8dbfd6"
+      == "ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6"
       &&
         imageOf base "immich-machine-learning"
-        == "ghcr.io/immich-app/immich-machine-learning:v3.2.1@sha256:49a53dbf5fbea5c785075667056fb010498969b9143005df5434868035bf5654"
+        == "ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56"
     ))
 
     (expect "immich: machine learning cannot exhaust the host" (

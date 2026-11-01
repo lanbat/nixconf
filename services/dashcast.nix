@@ -35,7 +35,7 @@ in
       };
 
       virtualisation.oci-containers.containers.dashcast = {
-        image = "ghcr.io/huskerminion/techo5-dashcast:latest";
+        image = "ghcr.io/huskerminion/techo5-dashcast:latest@sha256:06c14662fb249d7b7685db30936a869251d96c23f0e30e13afc15670b869bef1";
         environment = {
           # Host networking: the loopback is Home Assistant, and the device
           # reaches the same port.

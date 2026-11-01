@@ -217,7 +217,7 @@ in
   lanbat.redis.databases.romm.index = 2;
 
   virtualisation.oci-containers.containers."romm" = {
-    image = "docker.io/rommapp/romm:5";
+    image = "docker.io/rommapp/romm:5.4.1@sha256:8677fb7b81b1d3db20b849e989a1dadc2a11159e51eb34a2acdcb01102274edf";
 
     environment = {
       ROMM_PORT = toString port;

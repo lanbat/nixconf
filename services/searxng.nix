@@ -38,7 +38,7 @@ in
   };
 
   virtualisation.oci-containers.containers."searxng" = {
-    image = "docker.io/searxng/searxng:latest";
+    image = "docker.io/searxng/searxng:latest@sha256:2d8d40c0d69d8b458d394701d284ccb052b25a19c18c930d8920296953caafe2";
 
     # --pull=newer: on each start, check the registry and pull if a newer
     # image is available — keeps engine parsers in sync with upstream sites.

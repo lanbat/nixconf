@@ -242,7 +242,7 @@ in
 
   # Run qBittorrent as an OCI container to simplify volume mounts.
   virtualisation.oci-containers.containers."qbittorrent" = {
-    image = "lscr.io/linuxserver/qbittorrent:5.2.3";
+    image = "lscr.io/linuxserver/qbittorrent:5.3.0@sha256:05c1454f9a32967affc1f34f67f8cc0cc57dd805dca45489fe797095a6286556";
 
     environment = {
       # Mapped to the host qbt account below, so NFS media dirs (qbt:media,

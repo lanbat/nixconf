@@ -44,10 +44,10 @@
 }:
 
 let
-  immichVersion = "v3.2.1";
+  immichVersion = "v3.3.5";
   immichDigests = {
-    server = "sha256:87bb1b208434a8503e1a2465edd84f3cf94bd72c66feb7ca474629015b8dbfd6";
-    machineLearning = "sha256:49a53dbf5fbea5c785075667056fb010498969b9143005df5434868035bf5654";
+    server = "sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6";
+    machineLearning = "sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56";
   };
   domain = config.lanbat.deployment.domain;
   bootstrap = pkgs.callPackage ../pkgs/immich-bootstrap { };
