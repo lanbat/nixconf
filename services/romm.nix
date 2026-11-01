@@ -27,12 +27,14 @@
 # media/roms and media/roms-browser/mame.
 #
 # Auth: RomM's own accounts. The first visit runs RomM's setup wizard, which
-# creates the admin account; the browser then also logs in through Authentik
-# OIDC, and apps such as Argosy Launcher pair by code (apiClients = true, no
-# forward auth — clients need direct API access). The admin's email must
-# match the Authentik user, so the OIDC login lands on the same account:
-# romm-admin-email copies it from Authentik (settings.authentikAdmin, default
-# akadmin) each time RomM starts. Password login stays enabled as a fallback.
+# creates the admin account, and every Authentik account then gets its own
+# RomM user on first OIDC login (matched by email, created when none exists).
+# Roles come from Authentik's groups: "authentik Admins" maps to RomM admin,
+# everyone else to a normal user. romm-admin-email keeps the wizard's admin on
+# the Authentik admin's email (settings.authentikAdmin, default akadmin), so
+# akadmin's OIDC login lands on it rather than creating a second account.
+# Apps such as Argosy Launcher pair by code (apiClients = true, no forward
+# auth — clients need direct API access). Password login stays as a fallback.
 #
 # Arcade games in the browser
 # ---------------------------
@@ -244,9 +246,15 @@ in
       OIDC_REDIRECT_URI = "${rommUrl}/api/oauth/openid";
       OIDC_SERVER_APPLICATION_URL = "https://auth.${domain}/application/o/romm";
       OIDC_TLS_CACERTFILE = "/etc/ssl/lanbat/ca-root.crt";
-      # Match the Authentik login to the existing admin by email; never create
-      # a second account. Password login stays as the fallback.
-      OIDC_ALLOW_REGISTRATION = "false";
+      # Every Authentik account gets its own RomM user on first OIDC login:
+      # RomM matches by email, then creates one when none matches. The role
+      # comes from Authentik's groups — members of "authentik Admins" are RomM
+      # admins, everyone else a normal user. Password login stays as the
+      # fallback.
+      OIDC_ALLOW_REGISTRATION = "true";
+      OIDC_CLAIM_ROLES = "groups";
+      OIDC_ROLE_ADMIN = "authentik Admins";
+      OIDC_ROLE_VIEWER = "*";
       DISABLE_USERPASS_LOGIN = "false";
     };
     environmentFiles = [

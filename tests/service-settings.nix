@@ -1956,7 +1956,10 @@ let
         base.systemd.services.romm-browser-romsets.environment.SOURCE_DIR
         == "/srv/storage/b/media/roms/mame"
       && (envOf base "romm").REDIS_PORT == "6379"
-      && (envOf base "romm").OIDC_ALLOW_REGISTRATION == "false"
+      && (envOf base "romm").OIDC_ALLOW_REGISTRATION == "true"
+      && (envOf base "romm").OIDC_CLAIM_ROLES == "groups"
+      && (envOf base "romm").OIDC_ROLE_ADMIN == "authentik Admins"
+      && (envOf base "romm").OIDC_ROLE_VIEWER == "*"
       && (envOf base "romm").DISABLE_USERPASS_LOGIN == "false"
       && lib.hasSuffix "/api/oauth/openid" (envOf base "romm").OIDC_REDIRECT_URI
       && lib.hasInfix "-v user=akadmin " base.systemd.services.romm-admin-email.script
