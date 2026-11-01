@@ -2591,9 +2591,7 @@ let
       lvaTvBox.systemd.services ? tv-chiaki
       && lib.elem "tv-kodi.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
       && lib.elem "tv-games.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
-      && lib.hasInfix "chiaki-ng" (
-        toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart
-      )
+      && lib.hasInfix "chiaki-ng" (toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart)
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-kodi.conflicts
       && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-games.conflicts
       && lib.any (
