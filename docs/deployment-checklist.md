@@ -600,19 +600,23 @@ cd secrets && agenix -e authentik-oidc-secrets.age
 alongside Grafana, Nextcloud, and Immich. After deploying:
 
 1. Visit `https://romm.<domain>` once to run RomM's setup wizard and create the
-   admin account. RomM matches an OIDC login to an existing account by email and
-   never creates a second one, so the admin needs the Authentik user's email:
-   `romm-admin-email` copies it from Authentik's `akadmin` (the RomM setting
-   `authentikAdmin`) at unlock and each time RomM starts, and on the first visit
-   as soon as the wizard has created the admin. `journalctl -u romm-admin-email`
-   says what it did.
+   initial admin account. `romm-admin-email` gives it the Authentik admin's
+   email (the RomM setting `authentikAdmin`, default `akadmin`) at unlock and
+   each time RomM starts, and on the first visit as soon as the wizard has
+   created the admin; `journalctl -u romm-admin-email` says what it did.
+   After that, every Authentik account gets its own RomM user on its first OIDC
+   login: RomM matches by email, then creates one when none matches. Roles come
+   from Authentik groups — members of `authentik Admins` are RomM admins, and
+   everyone else is a normal user.
 2. Grant users access to the **RomM** application in Authentik. App clients
    such as Argosy Launcher pair with RomM directly by code, bypassing
    Authentik.
 
 RomM used to sit behind Caddy forward-auth; Authentik keeps the now-unused
 `romm` proxy provider and application from that setup until deleted by hand
-(Applications → Providers / Applications).
+(Applications → Providers / Applications). Leaving it in place collides with
+the OIDC provider of the same name and leaves the old forward-auth redirect
+URIs registered, which makes the romm login fail with **Redirect URI Error**.
 
 #### Forgejo — automatic setup
 

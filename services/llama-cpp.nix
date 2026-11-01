@@ -44,8 +44,12 @@
 # recognition), so the unit is capped and runs at lower priority: three
 # threads for generation, four for prompt processing, a share of CPU below the
 # default, 400% at most, a memory ceiling with no swap (swap is already full
-# on the server, and locked pages cannot be swapped out anyway), and the
-# kernel's OOM killer picks it first. Measured without any of these on:
+# on the server), and the kernel's OOM killer picks it first. The weights are
+# deliberately NOT mlocked: mlocking pinned ~2.4 GiB the host could never
+# reclaim, which drove the 2026-11-01 freeze -- the global OOM stalled
+# direct-reclaim and wedged Caddy/Tang/sshd until a power cycle. Keeping the
+# weights in the page cache lets the kernel evict them under pressure instead
+# of OOM-wedging the box. Measured without any of these on:
 # llama-server's threads wait for one another, so a thread descheduled by a
 # busier service slows all of them; keep the thread count at or below the free
 # cores rather than lowering the priority further.
@@ -204,8 +208,8 @@ in
           "--chat-template-kwargs"
           ''{"enable_thinking":false}''
           "--no-webui"
-          # Keep the weights in memory rather than let the page cache evict them.
-          "--mlock"
+          # No --mlock: see "Resource limits" -- the weights must stay in the
+          # page cache so the kernel can evict them under memory pressure.
         ];
       };
 
@@ -218,7 +222,6 @@ in
         CPUQuota = "400%";
         MemoryMax = model.memoryMax;
         MemorySwapMax = 0;
-        LimitMEMLOCK = "infinity";
         # The first to go if the host runs out of memory.
         OOMScoreAdjust = 500;
         # The module waits five minutes between restarts; a voice assistant
