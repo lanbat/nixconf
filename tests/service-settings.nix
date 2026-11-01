@@ -589,17 +589,35 @@ let
     requests = twitchPkgs.requests;
     pythonTwitch = pythonTwitchAddon;
   };
-  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
+  # The power menu and Global Search are always installed, before the
+  # settings-switched add-ons (the order tv-box.nix builds them).
+  tvPowerAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-tv-power {
+    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  globalsearchAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-globalsearch {
+    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
+  };
+  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [
+    addons.joystick
+    tvPowerAddon
+    globalsearchAddon
+  ]);
   kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     addons.youtube
   ]);
   kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     twitchAddon
   ]);
   kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     addons.a4ksubtitles
   ]);
   # The Invidious add-on is newer than nixpkgs' pin; the repository builds it.
@@ -613,6 +631,8 @@ let
   };
   kodiInvidious = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
+    tvPowerAddon
+    globalsearchAddon
     invidiousAddon
   ]);
   kodiOf =
@@ -2582,6 +2602,28 @@ let
         ]
       && lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-kodi.partOf
       && !(lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-games.partOf)
+    ))
+    # chiaki-ng is a third session, and the power menu replaces Kodi's shutdown
+    # menu with the box's own items: the three sessions exclude one another,
+    # the power key opens script.tv-power, and the media user may reboot but no
+    # longer power off.
+    (expect "tv box: chiaki-ng is a third session and the power menu replaces shutdown" (
+      lvaTvBox.systemd.services ? tv-chiaki
+      && lib.elem "tv-kodi.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
+      && lib.elem "tv-games.service" lvaTvBox.systemd.services.tv-chiaki.conflicts
+      && lib.hasInfix "chiaki-ng" (toString lvaTvBox.systemd.services.tv-chiaki.serviceConfig.ExecStart)
+      && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-kodi.conflicts
+      && lib.elem "tv-chiaki.service" lvaTvBox.systemd.services.tv-games.conflicts
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/userdata/keymaps/power-menu.xml" r
+      ) lvaTvBox.systemd.tmpfiles.rules
+      && lib.hasInfix "tv-chiaki.service" lvaTvBox.security.polkit.extraConfig
+      && !(lib.hasInfix "power-off" lvaTvBox.security.polkit.extraConfig)
+      # The home Power button opens the menu too: the patched Estuary is
+      # installed as a user add-on over the bundled skin.
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/addons/skin.estuary" r
+      ) lvaTvBox.systemd.tmpfiles.rules
     ))
   ];
 

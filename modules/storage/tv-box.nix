@@ -4,19 +4,23 @@
 # with the films, music and ROMs on the storage drives (loaded via the lanbat-tv
 # plugin, for the storage-pi role).
 #
-# Two sessions take turns on the screen. Each is a systemd service that runs
-# as the "media" user on tty1, and each conflicts with the other, so starting
-# one stops the other:
-#   tv-kodi.service   Kodi, drawing directly to the display (GBM)
-#   tv-games.service  ES-DE (EmulationStation) in the cage kiosk compositor;
-#                     the emulators it starts run in the same session
+# Three sessions take turns on the screen. Each is a systemd service that runs
+# as the "media" user on tty1, and each conflicts with the others, so starting
+# one stops the others:
+#   tv-kodi.service    Kodi, drawing directly to the display (GBM)
+#   tv-games.service   ES-DE (EmulationStation) in the cage kiosk compositor;
+#                      the emulators it starts run in the same session
+#   tv-chiaki.service  chiaki-ng (PS4/PS5 remote play) in the cage compositor
 #
-# Switching sessions: `tv-switch kodi|games|toggle` starts one and remembers
-# it in /var/lib/tv-session/current, so the Pi boots back into it.
-#   - In Kodi: Favourites → "Games (EmulationStation)".
+# Switching sessions: `tv-switch kodi|games|chiaki|toggle` starts one and
+# remembers it in /var/lib/tv-session/current, so the Pi boots back into it.
+#   - In Kodi: the power key opens the TV power menu (script.tv-power), which
+#     switches to EmulationStation or chiaki-ng, restarts Kodi, turns the screen
+#     off over CEC, or reboots. Favourites also reach both switches.
 #   - In ES-DE: the "Kodi" system.
 #   - On any controller: hold the Guide button for 2 seconds, or Select and
-#     Start for 3 (tv-hotkey.service; works even when an emulator hangs).
+#     Start for 3 (tv-hotkey.service; works even when an emulator hangs); this
+#     cycles Kodi → EmulationStation → chiaki-ng.
 #   - In a game, Select + Start quits back to ES-DE, and holding Start opens
 #     the RetroArch menu.
 #
@@ -359,6 +363,9 @@ let
       "PIPEWIRE:Default";
   lvaKodiCompanion = pkgs.callPackage ../../pkgs/lva-kodi-companion { };
   kodiTvConfig = pkgs.callPackage ../../pkgs/kodi-tv-config { };
+  # Estuary with its Power buttons opening script.tv-power; installed as a user
+  # add-on over the bundled skin.
+  estuaryPowerSkin = pkgs.callPackage ../../pkgs/kodi-skin-estuary-power { };
   kodiBootstrap = pkgs.callPackage ../../pkgs/kodi-bootstrap { };
 
   # Tuned for the Raspberry Pi 5: emulators that run well on it. Another board
@@ -470,12 +477,24 @@ let
     inputstream-adaptive = kodiPkgs.inputstream-adaptive;
     inputstreamhelper = kodiPkgs.inputstreamhelper;
   };
+  # The TV power menu (which replaces Kodi's shutdown menu) and the Global
+  # Search add-on, both installed regardless of the options above.
+  tvPowerAddon = pkgs.callPackage ../../pkgs/kodi-addon-tv-power {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+  };
+  globalsearchAddon = pkgs.callPackage ../../pkgs/kodi-addon-globalsearch {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+  };
   # withPackages takes the add-ons to install and resolves their dependencies
   # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
   # module and its six/requests dependencies.
   kodi = pkgs.kodi-gbm.withPackages (
     addons:
-    [ addons.joystick ]
+    [
+      addons.joystick
+      tvPowerAddon
+      globalsearchAddon
+    ]
     ++ lib.optionals kodiCfg.youtube [ addons.youtube ]
     ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
     ++ lib.optionals kodiCfg.opensubtitles [ addons.a4ksubtitles ]
@@ -485,7 +504,10 @@ let
   # Seeded once: Kodi rewrites its favourites.
   kodiFavourites = pkgs.writeText "favourites.xml" ''
     <favourites>
+      <favourite name="Power menu">RunScript(script.tv-power)</favourite>
+      <favourite name="Global Search">RunScript(script.globalsearch)</favourite>
       <favourite name="Games (EmulationStation)">System.Exec(&quot;/run/current-system/sw/bin/tv-switch games&quot;)</favourite>
+      <favourite name="chiaki-ng">System.Exec(&quot;/run/current-system/sw/bin/tv-switch chiaki&quot;)</favourite>
     </favourites>
   '';
 
@@ -509,10 +531,11 @@ let
       description,
       other,
       command,
+      extraConflicts ? [ ],
     }:
     {
       inherit description;
-      conflicts = [ other ];
+      conflicts = [ other ] ++ extraConflicts;
       after = [
         "systemd-user-sessions.service"
         "systemd-logind.service"
@@ -633,6 +656,7 @@ in
       esdeCoreNames
       pkgs.ppsspp-sdl
       es-de
+      pkgs."chiaki-ng"
       tv-switch
     ];
     # ES-DE looks for the cores in /run/current-system/sw/lib/retroarch/cores.
@@ -655,6 +679,7 @@ in
           (session {
             description = "Kodi on the TV";
             other = "tv-games.service";
+            extraConflicts = [ "tv-chiaki.service" ];
             command = "${kodi}/bin/kodi-standalone";
             extraAfter = [ "kodi-bootstrap.service" ] ++ unlockUnits;
           })
@@ -680,7 +705,14 @@ in
       tv-games = session {
         description = "EmulationStation on the TV";
         other = "tv-kodi.service";
+        extraConflicts = [ "tv-chiaki.service" ];
         command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe es-de}";
+      };
+      tv-chiaki = session {
+        description = "chiaki-ng (PS4/PS5 remote play) on the TV";
+        other = "tv-kodi.service";
+        extraConflicts = [ "tv-games.service" ];
+        command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe pkgs."chiaki-ng"}";
       };
 
       lva-kodi-companion = lib.mkIf lvaHere {
@@ -771,7 +803,7 @@ in
         script = ''
           session=$(cat /var/lib/tv-session/current 2>/dev/null || echo kodi)
           case "$session" in
-            kodi | games) ;;
+            kodi | games | chiaki) ;;
             *) session=kodi ;;
           esac
           systemctl start --no-block "tv-$session.service"
@@ -802,16 +834,25 @@ in
 
       "d ${home}/.kodi 0755 media media -"
       "d ${home}/.kodi/userdata 0755 media media -"
+      # Estuary whose Power buttons open script.tv-power, overriding the bundled
+      # skin (Kodi prefers ~/.kodi/addons over the system add-ons with the same
+      # id), so the home-screen Power button shows the box's own menu.
+      "d ${home}/.kodi/addons 0755 media media -"
+      "L+ ${home}/.kodi/addons/skin.estuary - - - - ${estuaryPowerSkin}"
       # Kodi never writes advancedsettings.xml: a link keeps it the
       # repository's (a copy made once never saw a later change).
       "L+ ${home}/.kodi/userdata/advancedsettings.xml - - - - ${kodiTvConfig}/advancedsettings.xml"
+      # The power key opens the TV power menu instead of Kodi's shutdown menu.
+      "d ${home}/.kodi/userdata/keymaps 0755 media media -"
+      "L+ ${home}/.kodi/userdata/keymaps/power-menu.xml - - - - ${kodiTvConfig}/keymaps/power-menu.xml"
       "C ${home}/.kodi/userdata/sources.xml - - - - ${kodiTvConfig}/sources.xml"
       "C ${home}/.kodi/userdata/favourites.xml - - - - ${kodiFavourites}"
       "z ${home}/.kodi/userdata/favourites.xml 0644 media media -"
     ];
 
-    # The media user may switch TV sessions, reboot and power off, and nothing
-    # else.
+    # The media user may switch TV sessions and reboot, and nothing else. The
+    # box is always on: power-off is not granted, and the power menu offers it
+    # to no one.
     security.polkit.enable = true;
     security.polkit.extraConfig = ''
       polkit.addRule(function (action, subject) {
@@ -821,13 +862,12 @@ in
         if (action.id == "org.freedesktop.systemd1.manage-units") {
           var unit = action.lookup("unit");
           var verb = action.lookup("verb");
-          if ((unit == "tv-kodi.service" || unit == "tv-games.service") &&
+          if ((unit == "tv-kodi.service" || unit == "tv-games.service" || unit == "tv-chiaki.service") &&
               (verb == "start" || verb == "restart")) {
             return polkit.Result.YES;
           }
         }
-        if (action.id == "org.freedesktop.login1.power-off" ||
-            action.id == "org.freedesktop.login1.reboot") {
+        if (action.id == "org.freedesktop.login1.reboot") {
           return polkit.Result.YES;
         }
         return polkit.Result.NOT_HANDLED;

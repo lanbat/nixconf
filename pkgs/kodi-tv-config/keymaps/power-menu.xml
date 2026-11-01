@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The power key opens the TV box's own power menu (script.tv-power) instead
+     of Kodi's shutdown menu. Kodi's default keymap maps the keyboard <power>
+     to ActivateWindow(ShutdownMenu) and the remote <power> to ShutDown(); both
+     are overridden here, under <global> (Kodi's fall-through window — a bare
+     <keyboard>/<remote> at the top level is treated as a window name and is
+     ignored), so neither the stock Shutdown/Suspend/Reboot dialog nor a
+     power-off appears — the box is always on. -->
+<keymap>
+  <global>
+    <keyboard>
+      <power>RunScript(script.tv-power)</power>
+    </keyboard>
+    <remote>
+      <power>RunScript(script.tv-power)</power>
+    </remote>
+  </global>
+</keymap>

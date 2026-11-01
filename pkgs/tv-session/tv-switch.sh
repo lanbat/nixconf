@@ -1,16 +1,23 @@
 # Start a TV session and remember it for the next boot.
-# Usage: tv-switch kodi|games|toggle
+# Usage: tv-switch kodi|games|chiaki|toggle
 state=/var/lib/tv-session/current
 
 case "${1:-toggle}" in
-kodi | games)
+kodi | games | chiaki)
   next=$1
   ;;
 toggle)
-  if systemctl is-active --quiet tv-games.service; then next=kodi; else next=games; fi
+  # Cycle kodi -> games -> chiaki -> kodi.
+  if systemctl is-active --quiet tv-kodi.service; then
+    next=games
+  elif systemctl is-active --quiet tv-games.service; then
+    next=chiaki
+  else
+    next=kodi
+  fi
   ;;
 *)
-  echo "usage: tv-switch kodi|games|toggle" >&2
+  echo "usage: tv-switch kodi|games|chiaki|toggle" >&2
   exit 2
   ;;
 esac
