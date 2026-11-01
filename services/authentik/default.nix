@@ -47,7 +47,7 @@ let
   domain = config.lanbat.deployment.domain;
 
   # Authentik version — pin this and bump deliberately.
-  authentikVersion = "2024.12.5";
+  authentikVersion = "2025.2.4";
 
   # Shared environment variables for both containers.
   # Secrets (PostgreSQL password + secret key) are injected via environmentFiles
