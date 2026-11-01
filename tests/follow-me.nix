@@ -236,7 +236,7 @@ let
     }
   );
 
-  haPython = pkgs.home-assistant.python.withPackages (ps: [
+  haPython = pkgs.home-assistant.python3Packages.python.withPackages (ps: [
     ps.homeassistant
     ps.colorlog # `hass --script check_config` imports it
   ]);

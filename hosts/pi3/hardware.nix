@@ -30,6 +30,9 @@
 
   nixpkgs.hostPlatform = "aarch64-linux";
 
+  # No ZFS pools on the Pi; NixOS 26.11 changed this default and warns.
+  boot.zfs.forceImportRoot = false;
+
   # Wi-Fi/Bluetooth firmware (brcmfmac43430/43455, BCM43430A1.hcd) and the VideoCore blobs.
   hardware.enableRedistributableFirmware = true;
 
@@ -49,12 +52,12 @@
   # Kept on the card, size- and age-capped, and flushed every 10 s so that what
   # was logged just before a crash or power loss survives it. A volatile journal
   # lost every panic message.
-  services.journald.extraConfig = ''
-    Storage=persistent
-    SystemMaxUse=64M
-    MaxRetentionSec=1week
-    SyncIntervalSec=10s
-  '';
+  services.journald.settings.Journal = lib.mkForce {
+    Storage = "persistent";
+    SystemMaxUse = "64M";
+    MaxRetentionSec = "1week";
+    SyncIntervalSec = "10s";
+  };
 
   # A Pi 3 that crashed on a sagging supply stayed down until it was
   # power-cycled (2026-10-21). systemd pets the SoC's watchdog (bcm2835-wdt),

@@ -184,33 +184,26 @@ in
       services.llama-cpp = {
         enable = true;
         package = llamaCpp;
-        model = "${modelFile}";
-        host = "127.0.0.1";
-        inherit port;
-        extraFlags = [
-          "--alias"
-          cfg.model
-          "--threads"
-          (toString cfg.threads)
-          "--threads-batch"
-          (toString cfg.batchThreads)
-          "--ctx-size"
-          (toString cfg.contextSize)
+        settings = {
+          model = "${modelFile}";
+          host = "127.0.0.1";
+          inherit port;
+          alias = cfg.model;
+          threads = cfg.threads;
+          threads-batch = cfg.batchThreads;
+          ctx-size = cfg.contextSize;
           # One slot: the previous request's tokens stay cached for the next one.
-          "--parallel"
-          "1"
-          "--cache-reuse"
-          "256"
+          parallel = 1;
+          cache-reuse = 256;
           # The model's own chat template, which carries its tool-call format.
-          "--jinja"
+          jinja = true;
           # qwen3-1.7b would otherwise think at length before every reply, which
           # costs seconds of generation; the 2507 instruct models ignore this.
-          "--chat-template-kwargs"
-          ''{"enable_thinking":false}''
-          "--no-webui"
+          chat-template-kwargs = ''{"enable_thinking":false}'';
+          no-webui = true;
           # No --mlock: see "Resource limits" -- the weights must stay in the
           # page cache so the kernel can evict them under memory pressure.
-        ];
+        };
       };
 
       systemd.services.llama-cpp.serviceConfig = {

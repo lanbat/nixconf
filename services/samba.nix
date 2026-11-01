@@ -50,6 +50,7 @@
 #   Shares are backed by the Pi's drives.  Stop Samba when Pi is gone.
 {
   config,
+  options,
   pkgs,
   lib,
   ...
@@ -417,11 +418,24 @@ in
   services.avahi = {
     enable = true;
     nssmdns4 = true;
-    publish = {
-      enable = true;
-      userServices = true;
-    };
-  };
+  }
+  // (
+    if options.services.avahi ? settings then
+      {
+        settings.publish = {
+          "disable-publishing" = false;
+          "disable-user-service-publishing" = false;
+          "publish-addresses" = true;
+        };
+      }
+    else
+      {
+        publish = {
+          enable = true;
+          userServices = true;
+        };
+      }
+  );
 
   systemd.services.samba-smbd = {
     serviceConfig = {
