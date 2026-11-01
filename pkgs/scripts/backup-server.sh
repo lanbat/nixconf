@@ -12,7 +12,6 @@
 #   - /var/lib/tang  (Tang private keys — required; control layer only)
 #   - /var/lib/authentik
 #   - /var/lib/invidious (hmac key; its database comes from the PostgreSQL dump)
-#   - /var/lib/nextcloud
 #   - /var/lib/immich/profile
 #   - /var/lib/music-assistant
 #   - /var/lib/qbittorrent
@@ -138,7 +137,6 @@ fi
 
 if workload_online; then
   echo "  Backing up workload-layer state..."
-  copy_state /var/lib/nextcloud             nextcloud
   copy_state /var/lib/qbittorrent           qbittorrent
   copy_state /var/lib/jackett               jackett
   copy_state /var/lib/bitmagnet             bitmagnet

@@ -26,8 +26,6 @@
 #     and the NFS dependency follows; PostgreSQL, Redis and its own API are
 #     reached at the ports of their descriptions.
 #   - Grafana: its InfluxDB datasource follows InfluxDB's endpoint port.
-#   - Nextcloud: the bulk data directories default to drive b's nextcloud,
-#     and a profile moves them.
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
 #   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch,
@@ -45,9 +43,7 @@
 #     rejected. Wi-Fi is off by default; on, the bridge gets the
 #     stackchan-wifi credential, a state directory and a port open to the
 #     LAN alone.
-#   - The Redis index registry keeps today's indexes and rejects a clash, and
-#     Nextcloud's database is the workload instance's "nextcloud" over its
-#     socket, as database.createLocally made it.
+#   - The Redis index registry keeps today's indexes and rejects a clash.
 #
 # Split into parts, one check each (service-settings, -2, ... -8): every
 # variant is a whole profile evaluation, and the whole list in one process grew
@@ -688,7 +684,7 @@ let
     }
   ];
 
-  # ── Redis indexes and Nextcloud's database ───────────────────────────────
+  # ── Redis indexes ────────────────────────────────────────────────────────
   redisClash = serverWith [ { lanbat.redis.databases.other.index = 1; } ];
 
   envOf = config: container: config.virtualisation.oci-containers.containers.${container}.environment;
@@ -795,18 +791,6 @@ let
   ];
   immichUpload =
     config: lib.head config.virtualisation.oci-containers.containers.immich-server.volumes;
-
-  # ── Nextcloud ────────────────────────────────────────────────────────────
-  nextcloudMoved = serverWith [
-    {
-      lanbat.services.nextcloud.settings.storage = {
-        drive = "a";
-        path = "cloud";
-      };
-    }
-  ];
-  nextcloudDirs =
-    config: lib.filter (lib.hasInfix " nextcloud nextcloud ") config.systemd.tmpfiles.rules;
 
   expect = name: ok: if ok then null else name;
 
@@ -2067,19 +2051,6 @@ let
       && base.services.grafana.settings.server.root_url == "https://grafana.home.example.com"
     ))
 
-    (expect "nextcloud: the bulk data directories keep today's paths, and move" (
-      lib.all (rule: lib.elem rule (nextcloudDirs base)) [
-        "d /srv/storage/b/nextcloud          0750 nextcloud nextcloud -"
-        "d /srv/storage/b/nextcloud/external 0750 nextcloud nextcloud -"
-        "d /srv/storage/b/nextcloud/users    0750 nextcloud nextcloud -"
-      ]
-      && lib.elem "d /srv/storage/a/cloud/users    0750 nextcloud nextcloud -" (
-        nextcloudDirs nextcloudMoved
-      )
-      && !lib.any (lib.hasPrefix "d /srv/storage/b/nextcloud") (nextcloudDirs nextcloudMoved)
-      && nextcloudMoved.lanbat.services.nextcloud.nfs.drives == [ ]
-    ))
-
     (expect "redis: the consumers keep today's indexes" (
       lib.mapAttrs (_: db: db.index) base.lanbat.redis.databases == {
         authentik = 0;
@@ -2093,23 +2064,6 @@ let
 
     (expect "redis: two consumers claiming one index are rejected" (
       lib.any (lib.hasInfix "index 1 is claimed by immich and other") (failedAssertions redisClash)
-    ))
-
-    (expect "nextcloud: the workload instance's nextcloud database, over its socket" (
-      let
-        nc = base.services.nextcloud;
-        pg = base.services.postgresql;
-      in
-      !nc.database.createLocally
-      && nc.config.dbhost == "/run/postgresql"
-      && nc.config.dbname == "nextcloud"
-      && nc.config.dbuser == "nextcloud"
-      && nc.config.dbpassFile == null
-      && base.lanbat.postgresql.databases.nextcloud.instance == "workload"
-      && lib.elem "nextcloud" pg.ensureDatabases
-      && lib.any (u: u.name == "nextcloud" && u.ensureDBOwnership) pg.ensureUsers
-      && lib.elem "postgresql.target" base.systemd.services.nextcloud-setup.requires
-      && lib.elem "postgresql.target" base.systemd.services.nextcloud-setup.after
     ))
 
     (expect "jellyfin: IMVDb is off by default and needs no key" (

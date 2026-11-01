@@ -31,7 +31,7 @@
 # while the container runs on). Rules, contact point and policy are read-only
 # in the UI; change them here.
 #
-# OIDC setup (chicken-and-egg, same pattern as Nextcloud/Immich)
+# OIDC setup (chicken-and-egg, same pattern as Immich)
 # -----
 #   1. Deploy Grafana (OIDC settings reference env vars that are empty → login
 #      falls back to local admin).

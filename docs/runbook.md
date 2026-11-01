@@ -18,8 +18,8 @@ Caddy, PostgreSQL (always-on instance), Redis, Authentik, Home Assistant, Zigbee
 Mosquitto, Frigate, Snapcast, Wyoming pipeline, SearXNG, Redlib, Invidious, Telegraf, Homepage.
 
 **Workload-gated (locked until you run `unlock-workload`)**:
-Nextcloud, Immich, Jellyfin, Vaultwarden, Syncthing, Samba, qBittorrent, Bitmagnet,
-and the PostgreSQL workload instance that holds their databases.
+Immich, Jellyfin, Vaultwarden, Syncthing, Samba, qBittorrent, Bitmagnet, and the
+PostgreSQL workload instance that holds their databases.
 
 After a reboot: SSH works immediately, always-on services are running, both
 LUKS layers are locked. Unlock in order:
@@ -48,13 +48,13 @@ sudo unlock-workload
 ```
 
 This opens `/dev/lanbat/workload`, mounts `/mnt/workload`, activates all bind mounts,
-and starts `workload-online.target` — bringing up Nextcloud, Immich, Jellyfin,
-Vaultwarden, Syncthing, Samba, qBittorrent and Bitmagnet.
+and starts `workload-online.target` — bringing up Immich, Jellyfin, Vaultwarden,
+Syncthing, Samba, qBittorrent and Bitmagnet.
 
 Verify:
 ```bash
 sudo server-health
-systemctl status phpfpm-nextcloud podman-immich-server jellyfin
+systemctl status podman-immich-server jellyfin
 ```
 
 ### Combined (if you want both at once)
@@ -104,84 +104,6 @@ sudo server-health
 Shows LUKS mapper state, mount status, Tang health, disk usage of the host root, free
 space in the LVM volume group, and key service states. To grow a full volume, see
 `docs/operations.md` § Disk space.
-
----
-
-## Nextcloud major version upgrade
-
-Nextcloud is pinned in `services/nextcloud.nix` (`services.nextcloud.package`).
-**Do not skip majors** — upgrade one major at a time, deploy, verify, then repeat.
-The pin stops nixpkgs from jumping two majors in one deploy; it does not run the
-upgrade for you.
-
-### Before you change the pin
-
-On the server, with the workload layer unlocked:
-
-```bash
-sudo unlock-workload   # if not already unlocked
-sudo -u nextcloud nextcloud-occ status
-```
-
-Note the `version:` line. It must match the major you are upgrading **from**
-(e.g. `32.x.x` before changing the pin to `pkgs.nextcloud33`). If the running
-version is unknown or behind the pin, stop and reconcile before deploying a newer
-major.
-
-### Back up first
-
-See `docs/backup.md`. At minimum before a major upgrade:
-
-| What | Location |
-|---|---|
-| Nextcloud config + app state | `/var/lib/nextcloud/` (workload layer) |
-| PostgreSQL workload databases | `pg_dumpall` on the workload instance (port 5432, socket `/run/postgresql`) |
-| Bulk user data (External Storage) | `/srv/storage/b/nextcloud/` (Pi LUKS — usually already durable) |
-
-Run a manual workload backup (`docs/runbook.md` § Running backups manually) or
-ensure the nightly `backup-server` timer has a recent snapshot. If the upgrade
-fails, restore `/var/lib/nextcloud/` and the workload PostgreSQL dump from
-`docs/backup.md` § Restore procedure before retrying.
-
-### Prerequisites (workload gate)
-
-Nextcloud and its database live on the **workload** tier. These must be up:
-
-```bash
-sudo unlock-workload
-systemctl is-active postgresql phpfpm-nextcloud nextcloud-setup
-```
-
-Pi NFS (`srv-storage-b.mount`) is optional for the upgrade itself; external
-storage folders show errors while the Pi is down but the core app migrates
-without them.
-
-### Upgrade one major
-
-1. Edit `services/nextcloud.nix`: bump `package = pkgs.nextcloudNN` by one major
-   (currently `pkgs.nextcloud32`; next step is `pkgs.nextcloud33`).
-2. From the workstation: `deploy --skip-checks path:.#homelab-server`.
-3. On the server, watch migration units:
-   ```bash
-   journalctl -u nextcloud-setup -u nextcloud-update-db -f
-   ```
-4. Verify:
-   ```bash
-   sudo -u nextcloud nextcloud-occ status
-   sudo -u nextcloud nextcloud-occ app:list
-   ```
-   Open `https://cloud.<domain>`, log in (Authentik OIDC or break-glass admin),
-   and spot-check file sync.
-
-### After upgrading
-
-- Re-run `nix flake check` — the nixpkgs evaluation warning for Nextcloud clears
-  only when the pin reaches the latest packaged major (currently 33).
-- Third-party and community apps often lag a major release; Nextcloud may
-  **auto-disable** incompatible apps during migration. Re-enable or update them
-  in the Apps UI or with `nextcloud-occ app:update --all`.
-- `user_oidc` is configured by `nextcloud-oidc-setup`; confirm OIDC login still
-  works after the upgrade.
 
 ---
 
@@ -367,7 +289,7 @@ rm -rf /tmp/restore-test
 ## Raspberry Pi secure-volume backup guidance
 
 The Pi's NVMe volumes (`/mnt/storage-a`, `/mnt/storage-b`) hold bulk media,
-downloads, and nextcloud data. Back up from **inside the unlocked filesystem**
+downloads, and user data. Back up from **inside the unlocked filesystem**
 using restic or rsync:
 
 ```bash

@@ -11,7 +11,6 @@
 #     blueprint; Authentik reads them via !Env at startup, and Jellyfin's,
 #     Audiobookshelf's and Vaultwarden's configs read their own)
 #   - Appends/replaces GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET in grafana-env.age
-#   - Creates/replaces nextcloud-oidc-env.age
 #   - Creates/replaces immich-oidc-env.age
 #   - Creates/replaces romm-oidc-env.age
 #   - Appends/replaces SSO_CLIENT_SECRET in vaultwarden-env.age
@@ -92,7 +91,6 @@ echo "Generating OIDC client secrets..."
 echo
 
 GRAFANA_SECRET=$(rand)
-NEXTCLOUD_SECRET=$(rand)
 IMMICH_SECRET=$(rand)
 HA_SECRET=$(rand)
 JELLYFIN_SECRET=$(rand)
@@ -104,7 +102,6 @@ FORGEJO_ADMIN_PASSWORD=$(rand)
 
 overwrite "authentik-oidc-secrets.age" \
 "AUTHENTIK_GRAFANA_CLIENT_SECRET=$GRAFANA_SECRET
-AUTHENTIK_NEXTCLOUD_CLIENT_SECRET=$NEXTCLOUD_SECRET
 AUTHENTIK_IMMICH_CLIENT_SECRET=$IMMICH_SECRET
 AUTHENTIK_HA_CLIENT_SECRET=$HA_SECRET
 AUTHENTIK_JELLYFIN_CLIENT_SECRET=$JELLYFIN_SECRET
@@ -115,10 +112,6 @@ AUTHENTIK_FORGEJO_CLIENT_SECRET=$FORGEJO_SECRET"
 
 upsert_line "grafana-env.age" \
   "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=$GRAFANA_SECRET"
-
-overwrite "nextcloud-oidc-env.age" \
-"NEXTCLOUD_OIDC_CLIENT_ID=nextcloud
-NEXTCLOUD_OIDC_CLIENT_SECRET=$NEXTCLOUD_SECRET"
 
 overwrite "immich-oidc-env.age" \
 "IMMICH_OAUTH_CLIENT_ID=immich
@@ -138,7 +131,7 @@ upsert_line "forgejo-env.age" \
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
-echo "Done. Grafana, Nextcloud, Immich, RomM, Audiobookshelf, Vaultwarden and Forgejo are fully wired."
+echo "Done. Grafana, Immich, RomM, Audiobookshelf, Vaultwarden and Forgejo are fully wired."
 echo
 echo "Manual UI setup required for the following two services."
 echo "Secrets are also stored in authentik-oidc-secrets.age for later retrieval."

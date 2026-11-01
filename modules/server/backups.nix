@@ -298,9 +298,6 @@ in
   # lanbat.postgresql.databases and the connection details from
   # lanbat.postgresql.instances, as below, rather than naming either: services
   # add and move databases, and a written-out list silently misses them.
-  # Nextcloud is the exception: its upstream module creates its database on the
-  # workload instance (database.createLocally), so it appears in
-  # services.postgresql.ensureDatabases but not in lanbat.postgresql.databases.
   #
   # systemd.services."postgresql-dump" =
   #   let

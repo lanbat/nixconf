@@ -31,7 +31,6 @@
 # line per OIDC client, AUTHENTIK_<NAME>_CLIENT_SECRET unless the service
 # sets oidc.secretVariable):
 #   AUTHENTIK_GRAFANA_CLIENT_SECRET=<40+ random chars>
-#   AUTHENTIK_NEXTCLOUD_CLIENT_SECRET=<40+ random chars>
 #   AUTHENTIK_IMMICH_CLIENT_SECRET=<40+ random chars>
 #   AUTHENTIK_HA_CLIENT_SECRET=<40+ random chars>
 #   AUTHENTIK_JELLYFIN_CLIENT_SECRET=<40+ random chars>
@@ -41,8 +40,6 @@
 # Each secret must also appear in the corresponding service env file so the
 # service side knows the shared secret:
 #   grafana-env.age       → GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=<grafana-value>
-#   nextcloud-oidc-env.age → NEXTCLOUD_OIDC_CLIENT_ID=nextcloud
-#                            NEXTCLOUD_OIDC_CLIENT_SECRET=<nextcloud-value>
 #   immich-oidc-env.age   → IMMICH_OAUTH_CLIENT_ID=immich
 #                            IMMICH_OAUTH_CLIENT_SECRET=<immich-value>
 #   romm-oidc-env.age     → OIDC_CLIENT_SECRET=<romm-value>

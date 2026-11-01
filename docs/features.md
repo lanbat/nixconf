@@ -45,8 +45,8 @@ external API, or the assistant router.
   [Echo Shows](techo5.md#playing-video-music-radio-and-podcasts-on-the-screen).
 - **qBittorrent**, **Jackett** for indexers, and **Bitmagnet** as an on-demand
   DHT index. Media files live on the Pi's encrypted drives.
-- **Nextcloud**, **Syncthing** and **Samba** for files, **Vaultwarden** for
-  passwords, and **SearXNG** for search on the LAN.
+- **Syncthing** and **Samba** for files, **Vaultwarden** for passwords, and
+  **SearXNG** for search on the LAN.
 - **Kodi** and **EmulationStation** on the storage Pi's HDMI output.
 - **Android TV boxes** provisioned from the server over ADB: pinned apps, the
   internal CA and device-owner policy. [Android devices](android-devices.md).

@@ -346,11 +346,6 @@ let
             secret = "AUTHENTIK_JELLYFIN_CLIENT_SECRET";
           }
           {
-            n = "nextcloud";
-            name = "Nextcloud";
-            secret = "AUTHENTIK_NEXTCLOUD_CLIENT_SECRET";
-          }
-          {
             n = "romm";
             name = "RomM";
             secret = "AUTHENTIK_ROMM_CLIENT_SECRET";
@@ -375,7 +370,6 @@ let
           "home-assistant"
           "immich"
           "jellyfin"
-          "nextcloud"
           "romm"
           "vaultwarden"
         ];

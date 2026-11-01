@@ -17,9 +17,9 @@ The server uses a three-layer design. See `docs/secure-layers.md` for full detai
   is unavailable and the Pi cannot auto-unlock its NVMe drives.
 
 - **`/dev/lanbat/workload` (workload LUKS)** — LUKS2-encrypted. Contains workload-gated service
-  data: Nextcloud, Immich, Jellyfin, Vaultwarden, Syncthing, Samba, qBittorrent,
-  Bitmagnet, including the PostgreSQL instance with the Nextcloud, Immich and Bitmagnet
-  databases. Unlocked manually by admin after each reboot (`unlock-workload`).
+  data: Immich, Jellyfin, Vaultwarden, Syncthing, Samba, qBittorrent, Bitmagnet,
+  including the PostgreSQL instance with the Immich and Bitmagnet databases.
+  Unlocked manually by admin after each reboot (`unlock-workload`).
 
 **Threat model**: if the server is stolen while both LUKS layers are locked, the
 attacker gets SSH access to an empty host but cannot reach Tang (Pi drives stay locked)
@@ -45,7 +45,7 @@ visible, so it is treated as lower-sensitivity data.
   in agenix (`secrets/caddy-ca-root-key.age`) and the public cert in the repo
   (`secrets/caddy-ca-root.crt`), so a host-root reinstall does not mint a new
   root. Client devices must still install that root once (see `ca.<domain>`).
-- Services that handle sensitive data (Authentik, Nextcloud, Immich) use OIDC.
+- Services that handle sensitive data (Authentik, Immich, Vaultwarden) use OIDC.
 
 ### Internal CA trust on client devices
 
@@ -141,7 +141,7 @@ the pinned root need no further change.
 - Authentik is the single point of failure for most service auth.
 - If Authentik is compromised, all OIDC-integrated services are compromised.
 - Mitigation: Authentik runs only on the server (always-on tier, starts at boot).
-- All services retain break-glass local admin accounts (Nextcloud admin, HA admin, etc.) — these do not go through Authentik.
+- All services retain break-glass local admin accounts (HA admin, etc.) — these do not go through Authentik.
 - Authentik's own PostgreSQL password is managed via agenix (encrypted at rest in git).
 
 ## Home Assistant and Zigbee
@@ -183,7 +183,7 @@ the pinned root need no further change.
 
 ## Least privilege
 
-- Service users (nextcloud 990, immich 991, jellyfin 992, qbt 994, frigate 995) run with no sudo.
+- Service users (immich 991, jellyfin 992, qbt 994, frigate 995) run with no sudo.
 - Each service has its own user/group; they share the `media` group only for storage access.
 - Containers run as non-root where possible (linuxserver.io images use PUID/PGID).
 - The `admin` human user has `wheel` but is not used for day-to-day service management.
@@ -191,7 +191,6 @@ the pinned root need no further change.
 ## Break-glass accounts
 
 Every service has a local admin account that does not go through Authentik:
-- Nextcloud: `admin` user with password from agenix.
 - Home Assistant: local admin configured at first setup.
 - qBittorrent: local web UI password (set at first run, stored in `/var/lib/qbittorrent`).
 - Authentik: initial admin set at `/if/flow/initial-setup/`.

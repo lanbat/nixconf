@@ -32,7 +32,7 @@
 # /var/lib/forgejo — SQLite DB, repositories, LFS, custom config (back this up!)
 #
 # Workload tier: repositories are user data, available once the workload layer
-# is unlocked, like Nextcloud's files.
+# is unlocked, like Immich's photos.
 {
   config,
   lib,

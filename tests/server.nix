@@ -103,17 +103,11 @@ pkgs.testers.runNixOSTest {
         '';
         authentik-oidc-secrets = ''
           AUTHENTIK_GRAFANA_CLIENT_SECRET=test
-          AUTHENTIK_NEXTCLOUD_CLIENT_SECRET=test
           AUTHENTIK_IMMICH_CLIENT_SECRET=test
           AUTHENTIK_HA_CLIENT_SECRET=test
           AUTHENTIK_JELLYFIN_CLIENT_SECRET=test
           AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=test
           AUTHENTIK_FORGEJO_CLIENT_SECRET=test
-        '';
-        nextcloud-admin-pass = "test-admin-password";
-        nextcloud-oidc-env = ''
-          NEXTCLOUD_OIDC_CLIENT_ID=nextcloud
-          NEXTCLOUD_OIDC_CLIENT_SECRET=test
         '';
         immich-db-password = "POSTGRES_PASSWORD=test-db-password\n";
         immich-oidc-env = ''
@@ -177,7 +171,7 @@ pkgs.testers.runNixOSTest {
         server.fail("systemctl is-active control-online.target")
         server.fail("systemctl is-active workload-online.target")
         server.fail("systemctl is-active postgresql.service")
-        server.succeed('test "$(stat -c %a /var/lib/nextcloud)" = 0')
+        server.succeed('test "$(stat -c %a /var/lib/immich)" = 0')
 
     with subtest("always-on services start"):
         for unit in [

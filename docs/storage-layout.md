@@ -25,7 +25,6 @@ Raspberry Pi 5
     │   ├── music/albums/                      ← qBittorrent's music torrents, seeded in place; music/
     │   │                                        can be a Syncthing folder (settings.folders, ignorePerms)
     │   └── roms-browser/mame/                 ← zip copies of the arcade sets, for RomM's browser player
-    ├── /mnt/storage-b/nextcloud/          ← Nextcloud external storage
     ├── /mnt/storage-b/users/              ← per-user SMB home dirs
     │   ├── admin/
     │   │   └── sync/<folder>/                 ← one directory per Syncthing folder
@@ -135,8 +134,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 
 ```
 /mnt/workload/
-├── postgresql/        PostgreSQL workload instance: Nextcloud, Immich, Bitmagnet, RomM
-├── nextcloud/         Nextcloud app + config (bulk data is on Pi)
+├── postgresql/        PostgreSQL workload instance: Immich, Bitmagnet, RomM
 ├── immich/
 │   ├── thumbs/        Generated thumbnails
 │   ├── encoded-video/ Re-encoded video previews
@@ -169,7 +167,6 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Authentik | server-local | always-on PostgreSQL | — |
 | Home Assistant | server-local | always-on PostgreSQL | — |
 | Assistant router | server-local (request log) | server-local SQLite (sightings) | workload (sightings' pictures) |
-| Nextcloud | server-local | workload PostgreSQL | Pi/b (external storage) |
 | Immich | server-local | workload PostgreSQL | Pi/a/photos |
 | Jellyfin | server-local | server-local | Pi/a/media + Pi/b/media |
 | Audiobookshelf | server-local | server-local (SQLite) | Pi/b/media/audiobooks (read in place) |
@@ -211,7 +208,6 @@ Run `quota-setup.sh` on the Pi after first format (see docs/deployment-checklist
 | media-b | 101 | /mnt/storage-b/media | B | no limit |
 | photos | 102 | /mnt/storage-a/photos | A | no limit |
 | surveillance | 103 | /mnt/storage-a/surveillance | A | 500 GB soft, 550 GB hard |
-| nextcloud | 200 | /mnt/storage-b/nextcloud | B | 500 GB soft, 550 GB hard |
 | shared | 202 | /mnt/storage-b/shared | B | 200 GB soft, 220 GB hard |
 | user-* | 300+ | /mnt/storage-b/users/<user> | B | per-user (see human-users.nix) |
 | backups | 203 | /mnt/storage-b/backups | B | 300 GB soft, 350 GB hard |
@@ -220,7 +216,7 @@ Run `quota-setup.sh` on the Pi after first format (see docs/deployment-checklist
 
 Human user storage is declared in `lanbat.humanUsers` (see `modules/core/human-users.nix`).
 Each user gets one XFS **project quota** on their entire directory tree under
-`/mnt/storage-b/users/<username>/`, covering Samba, Nextcloud, Syncthing and Immich data.
+`/mnt/storage-b/users/<username>/`, covering Samba, Syncthing and Immich data.
 
 Default quota: `lanbat.userStorage.defaultQuota` (100 GB soft / 110 GB hard).
 Override per user with `lanbat.humanUsers.<name>.quota`.
@@ -264,7 +260,6 @@ This drive sees the most write I/O (downloads + surveillance).
 If it fills, remove old recordings first.
 
 **Drive B** holds user data and backups:
-- Nextcloud external storage (mixed read/write)
 - SMB user homes (mixed)
 - Shared space
 - Server backups (periodic writes)

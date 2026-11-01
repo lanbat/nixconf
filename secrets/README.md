@@ -90,8 +90,8 @@ bash secrets/generate-oidc-secrets.sh
 ```
 
 This creates `authentik-oidc-secrets.age` and wires the matching secrets into
-`grafana-env.age`, `nextcloud-oidc-env.age`, `immich-oidc-env.age`,
-`romm-oidc-env.age`, `vaultwarden-env.age` and `forgejo-env.age`.  It
+`grafana-env.age`, `immich-oidc-env.age`, `romm-oidc-env.age`,
+`vaultwarden-env.age` and `forgejo-env.age`.  It
 also prints the client credentials needed for manual UI setup in Jellyfin.
 
 `generate-secrets.sh` also creates `hass-bootstrap-env.age` (owner username and
@@ -114,14 +114,6 @@ cd secrets
 # AUTHENTIK_SECRET_KEY signs sessions and tokens — generate once and never
 # rotate unless you intend to invalidate all active sessions.
 agenix -e authentik-env.age
-
-# ---- Nextcloud ----
-# Single-line plaintext password:
-agenix -e nextcloud-admin-pass.age
-# Two KEY=value lines (fill in after creating Authentik OIDC app):
-#   NEXTCLOUD_OIDC_CLIENT_ID=<value>
-#   NEXTCLOUD_OIDC_CLIENT_SECRET=<value>
-agenix -e nextcloud-oidc-env.age
 
 # ---- Immich ----
 # One KEY=value line:
@@ -292,8 +284,6 @@ Put the internal CA's public certificate (`caddy-ca-root.crt`) there too, or set
 |------|--------|---------|
 | `authentik-env.age` | `KEY=value` × 2 | Authentik server + worker |
 | `authentik-oidc-secrets.age` | `KEY=value` lines (one per OIDC client, `AUTHENTIK_<NAME>_CLIENT_SECRET`) | Authentik blueprints; shared with Jellyfin, Audiobookshelf, Vaultwarden and Forgejo (client secrets for `jellyfin-bootstrap`, `audiobookshelf-bootstrap`, `SSO_CLIENT_SECRET` in `vaultwarden-env.age` and `FORGEJO_OAUTH_CLIENT_SECRET` in `forgejo-env.age`) |
-| `nextcloud-admin-pass.age` | plaintext password | Nextcloud |
-| `nextcloud-oidc-env.age` | `KEY=value` × 2 | Nextcloud OIDC setup |
 | `immich-db-password.age` | `POSTGRES_PASSWORD=<value>` | Immich postgres container |
 | `immich-oidc-env.age` | `KEY=value` × 2 | Immich server container |
 | `mosquitto-ha-pass.age` | plaintext password | Mosquitto (Home Assistant user); shared with Home Assistant |

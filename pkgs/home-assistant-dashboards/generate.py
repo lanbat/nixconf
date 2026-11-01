@@ -581,7 +581,7 @@ def system_view(home: Home, links: dict) -> dict:
         cards = [heading("Services", "mdi:apps")]
         icons = {"Grafana": "mdi:chart-areaspline", "Frigate": "mdi:cctv", "Music Assistant": "mdi:music",
                  "Zigbee2MQTT": "mdi:zigbee", "Homepage": "mdi:view-dashboard", "Jellyfin": "mdi:filmstrip",
-                 "Immich": "mdi:image-multiple", "Nextcloud": "mdi:cloud"}
+                 "Immich": "mdi:image-multiple"}
         for name in sorted(links):
             card = link_button(name, links[name], icons.get(name, "mdi:open-in-new"))
             card["grid_options"] = {"columns": 4}

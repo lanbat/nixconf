@@ -85,8 +85,8 @@ Generate all purely-random secrets automatically:
 bash secrets/generate-secrets.sh
 ```
 
-This generates and encrypts: Authentik, Nextcloud, Immich, InfluxDB, Grafana,
-and Vaultwarden secrets.  It skips any `.age` file that already exists, so it
+This generates and encrypts: Authentik, Immich, InfluxDB, Grafana, and
+Vaultwarden secrets.  It skips any `.age` file that already exists, so it
 is safe to re-run.
 
 The script prints instructions for the secrets it **cannot** generate
@@ -94,7 +94,6 @@ automatically — those that depend on external setup:
 
 | Secret | When to fill in |
 |---|---|
-| `nextcloud-oidc-env.age` | After creating Authentik OIDC app (step 3b) |
 | `immich-oidc-env.age` | After creating Authentik OIDC app (step 3b) |
 | `romm-oidc-env.age` | After creating Authentik OIDC app (step 3b) |
 | `grafana-env.age` | Update OAuth secret + InfluxDB token after steps 3b/3h |
@@ -117,9 +116,6 @@ echo -n "YOUR_HA_PASSWORD"     | agenix -e mosquitto-ha-pass.age
 echo -n "YOUR_FRIGATE_PASSWORD" | agenix -e mosquitto-frigate-pass.age
 
 # OIDC — placeholders, overwritten at step 3b
-echo "NEXTCLOUD_OIDC_CLIENT_ID=CHANGE_ME
-NEXTCLOUD_OIDC_CLIENT_SECRET=CHANGE_ME" | agenix -e nextcloud-oidc-env.age
-
 echo "IMMICH_OAUTH_CLIENT_ID=CHANGE_ME
 IMMICH_OAUTH_CLIENT_SECRET=CHANGE_ME" | agenix -e immich-oidc-env.age
 
@@ -487,8 +483,8 @@ bash secrets/generate-oidc-secrets.sh
 ```
 
 This creates `authentik-oidc-secrets.age` and updates `grafana-env.age`,
-`nextcloud-oidc-env.age`, `immich-oidc-env.age`, `romm-oidc-env.age`,
-`vaultwarden-env.age` and `forgejo-env.age` with matching values; Jellyfin's and
+`immich-oidc-env.age`, `romm-oidc-env.age`, `vaultwarden-env.age` and
+`forgejo-env.age` with matching values; Jellyfin's and
 Audiobookshelf's setup units read their own client secrets from
 `authentik-oidc-secrets.age`. The script prints the client credentials needed for
 Home Assistant and Jellyfin (see manual steps below).
@@ -500,19 +496,7 @@ deploy --skip-checks path:.#homelab-server
 ```
 
 After the deploy, Authentik restarts and the blueprints run automatically.
-Grafana, Immich, and RomM OIDC come up fully automatically.  Nextcloud needs
-one extra step (see below).
-
-#### Nextcloud — install the OIDC app
-
-The `user_oidc` Nextcloud app must be installed before OIDC will work.
-Log in at `https://cloud.<domain>` as the local `admin`, then either:
-
-- **Via the Nextcloud Apps UI:** Apps → Search "OpenID Connect user backend" → Install & Enable.
-- **Via occ:** `sudo -u nextcloud nextcloud-occ app:install user_oidc`
-
-Once the app is enabled, the `nextcloud-oidc-setup` systemd service runs
-automatically and registers the Authentik provider.  No further steps needed.
+Grafana, Immich, and RomM OIDC come up fully automatically.
 
 #### Home Assistant — bootstrap secret and SSO users
 
@@ -597,7 +581,7 @@ cd secrets && agenix -e authentik-oidc-secrets.age
 #### RomM — OIDC login
 
 `generate-oidc-secrets.sh` (see above) wires RomM's client secret automatically,
-alongside Grafana, Nextcloud, and Immich. After deploying:
+alongside Grafana and Immich. After deploying:
 
 1. Visit `https://romm.<domain>` once to run RomM's setup wizard and create the
    initial admin account. `romm-admin-email` gives it the Authentik admin's
@@ -663,7 +647,7 @@ agenix -e forgejo-env.age
 sudo smbpasswd -a admin
 # Repeat for other users.
 
-# User storage trees (files/, sync/, cloud/, photos/) are created by
+# User storage trees (files/, sync/, photos/) are created by
 # human-users.nix on the server and user-storage-quotas.service on the Pi.
 # Re-deploy both hosts after adding lanbat.humanUsers entries.
 ```
@@ -1098,7 +1082,3 @@ plugin configuration before every qBittorrent start.
 - Back up the Tang key directory: `docs/runbook.md` § Backing up Tang keys.
 - Test Pi unlock after a server reboot to verify Clevis/Tang works.
 - Pin container image versions when stability matters.
-- **Nextcloud major upgrades:** check the running version with
-  `sudo -u nextcloud nextcloud-occ status`, back up (`docs/backup.md`), then bump
-  `services.nextcloud.package` one major at a time — full steps in
-  `docs/runbook.md` § Nextcloud major version upgrade.

@@ -55,7 +55,7 @@ let
     ) (lib.attrValues config.lanbat.services)
   );
 
-  # /var/lib/nextcloud → var-lib-nextcloud.mount
+  # /var/lib/immich → var-lib-immich.mount
   mountUnit = path: "${lib.replaceStrings [ "/" ] [ "-" ] (lib.removePrefix "/" path)}.mount";
   bindMountUnits = map (d: mountUnit "/var/lib/${d}") stateDirs;
 

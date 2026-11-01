@@ -14,7 +14,6 @@
 | Caddy intermediate/leaf state | `/var/lib/caddy/` | `backup-server.sh` (regenerates from root if lost) |
 | agenix secrets | `secrets/*.age` | git repository |
 | Frigate config | Rendered from `lanbat.services.frigate.settings` in your `deploy.nix` | Back up `deploy.nix` and the modules it lists (gitignored) |
-| Nextcloud config | `/var/lib/nextcloud/` | `backup-server.sh` (back up before any major upgrade — see `docs/runbook.md` § Nextcloud major version upgrade) |
 | Vaultwarden data | `/var/lib/vaultwarden/` | `backup-server.sh` (the database through SQLite's online backup) |
 | Grafana state | always-on PostgreSQL (`grafana`) | `pg_dump` via `backup-server.sh`; dashboards are provisioned from this repo |
 | Invidious state | always-on PostgreSQL (`invidious`) and `/var/lib/invidious/` (hmac key) | `pg_dump` and `backup-server.sh`; losing the hmac key only invalidates sessions |
@@ -31,7 +30,6 @@
 | Immich DB | workload PostgreSQL (`immich`) | `pg_dump` via `backup-server.sh` |
 | InfluxDB data (metrics history) | `/var/lib/influxdb2/` | Not backed up: copying the live database isn't safe, and losing it only loses history |
 | Kodi library | `/var/lib/kodi/.kodi/` | manual rsync |
-| Nextcloud user data | `/srv/storage/b/nextcloud/` | Already on Pi LUKS storage |
 | qBittorrent config | `/var/lib/qbittorrent/` | `backup-server.sh` |
 | Jackett indexers, credentials and API key | `/var/lib/jackett/` | `backup-server.sh` (it holds private-indexer logins: treat the backup as a secret). qBittorrent's `jackett.json` is rewritten from this key on every start, so it needs no backup of its own |
 | Music Assistant state | `/var/lib/music-assistant/` | `backup-server.sh` |

@@ -25,8 +25,8 @@ SERVER — one disk (hosts/server/disk.nix)
 - **Contains**: NixOS, SSH, networking, firewall, admin scripts, systemd units,
   always-on service data (always-on PostgreSQL, Authentik, HA, Grafana, Invidious,
   InfluxDB, Mosquitto, Frigate, Caddy TLS certs, container images)
-- **Does NOT contain**: Tang keys, workload-gated service data (Nextcloud, Immich,
-  Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM)
+- **Does NOT contain**: Tang keys, workload-gated service data (Immich, Jellyfin,
+  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM)
 
 After a reboot, this layer is immediately accessible. SSH works. Admin tools
 work. Nothing sensitive is exposed.
@@ -50,9 +50,9 @@ will not start until that target is active.
 - **Filesystem**: LUKS2 → ext4
 - **Mount**: `/mnt/workload` (manual, not at boot)
 - **Unlocked by**: admin passphrase (`unlock-workload`)
-- **Contains**: workload-gated service data (Nextcloud, Immich, Jellyfin,
-  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM), including the workload
-  PostgreSQL instance that holds the Nextcloud, Immich, Bitmagnet and RomM databases
+- **Contains**: workload-gated service data (Immich, Jellyfin, Audiobookshelf,
+  Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM), including
+  the workload PostgreSQL instance that holds the Immich, Bitmagnet and RomM databases
 
 Bind mounts overlay `/var/lib/<service>` paths with subdirectories of
 `/mnt/workload`. The `workload-online.target` is activated once all bind mounts
@@ -101,9 +101,8 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
 
 ```
 /mnt/workload/
-  postgresql/     — PostgreSQL workload instance: Nextcloud, Immich, Bitmagnet, RomM databases
-  nextcloud/      — Nextcloud home (config, apps, data)
-  immich/         — Immich thumbnails, encoded video, profiles, ML model cache
+  postgresql/     — PostgreSQL workload instance: Immich, Bitmagnet, RomM databases
+  immich/         — Immich media, ML model cache and state
   jellyfin/       — Jellyfin library metadata
   audiobookshelf/ — Audiobookshelf accounts, listening progress, book details and covers
   vaultwarden/    — Vaultwarden vault database and attachments
@@ -165,12 +164,12 @@ boot
       │                     SearXNG, Redlib, Invidious, Telegraf)
       └── [admin] unlock-workload
            └── /mnt/workload mounted
-                └── bind mounts activated (/var/lib/nextcloud, etc.)
+                └── bind mounts activated (/var/lib/immich, etc.)
                      └── workload-online.target activated
                           └── gated services start
-                               (Nextcloud, Immich, Jellyfin, Audiobookshelf,
-                                Vaultwarden, Syncthing, Samba, qBittorrent,
-                                Jackett, Bitmagnet, RomM)
+                               (Immich, Jellyfin, Audiobookshelf, Vaultwarden,
+                                Syncthing, Samba, qBittorrent, Jackett, Bitmagnet,
+                                RomM)
 ```
 
 ## Raspberry Pi unlock model

@@ -5,7 +5,7 @@
 #   postgresql            Workload tier: data on the workload LUKS layer
 #                         (/var/lib/postgresql), starts after unlock-workload.
 #                         Port 5432, socket /run/postgresql. Managed by the
-#                         NixOS module. Nextcloud, Immich, Bitmagnet, RomM.
+#                         NixOS module. Immich, Bitmagnet, RomM.
 #
 #   postgresql-always-on  Always-on tier: data on the host root
 #                         (/var/lib/postgresql-always-on), starts at boot.

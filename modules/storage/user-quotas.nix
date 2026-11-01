@@ -2,8 +2,8 @@
 #
 # Apply per-user XFS project quotas on the user storage drive
 # (lanbat.userStorage.drive, B by default) after it is unlocked.
-# Each human user's entire directory tree (files, cloud, sync, photos) shares
-# one project quota — the single enforcement point for unified storage limits.
+# Each human user's entire directory tree (files, sync, photos) shares one
+# project quota — the single enforcement point for unified storage limits.
 {
   config,
   pkgs,
@@ -77,9 +77,6 @@ let
           install -d -m 0700 -o ${toString humanUsers.${user}.uid} -g ${
             toString humanUsers.${user}.uid
           } "${path}/files"
-          install -d -m 0770 -o ${toString userStorage.serviceOwners.cloud.uid} -g ${
-            toString humanUsers.${user}.uid
-          } "${path}/cloud"
           install -d -m 0770 -o ${toString userStorage.serviceOwners.sync.uid} -g ${
             toString humanUsers.${user}.uid
           } "${path}/sync"

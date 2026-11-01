@@ -192,7 +192,6 @@ Services run in two tiers. See [docs/secure-layers.md](docs/secure-layers.md) fo
 
 | Service | URL | Auth |
 |---|---|---|
-| Nextcloud | `cloud.<domain>` | OIDC |
 | Immich | `photos.<domain>` | OIDC |
 | Jellyfin | `media.<domain>` | OIDC / local |
 | qBittorrent | `torrent.<domain>` | Caddy fwd-auth |
@@ -240,7 +239,7 @@ the checked-in `deployments/example` profile as `example-server` and
 - **Pi is storage + TV** — encrypted drives, NFS export, Kodi and EmulationStation.
 - **Fail safe** — NFS-dependent services stop when the Pi is unreachable; they restart automatically when storage returns.
 - **No Kubernetes** — systemd + Podman + NixOS modules are sufficient and far simpler.
-- **Minimal containers** — NixOS native services are preferred where modules exist (Nextcloud, Jellyfin, HA, Samba, etc.). Containers are used where native packaging is impractical (Authentik, Immich, Frigate, etc.).
+- **Minimal containers** — NixOS native services are preferred where modules exist (Jellyfin, HA, Samba, etc.). Containers are used where native packaging is impractical (Authentik, Immich, Frigate, etc.).
 - **One place per service** — a service's vhost, tier, storage dependencies, account and secrets are declared in its own file and checked at evaluation.
 
 ## Contributing
