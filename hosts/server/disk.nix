@@ -8,6 +8,9 @@
 #     root      150 GiB    ext4  /              host layer, always available
 #     control   1 GiB      LUKS2 → ext4         control layer, /mnt/control
 #     workload  80% free   LUKS2 → ext4         workload layer, /mnt/workload
+#     swap      4 GiB      dm-crypt (random)    OOM cushion, encrypted swap; the
+#                                               swap device is declared in
+#                                               lib/roles/server.nix, not here
 #     (free)    ~20%       unallocated headroom
 #
 # Why LVM with free space: the host root holds the Nix store, container
@@ -89,6 +92,12 @@ in
           size = "80%FREE";
           priority = 2000;
           content = lockedVolume "workload";
+        };
+        # A bare LV: lib/roles/server.nix turns it into encrypted swap (dm-crypt
+        # with a random key each boot), so disko must not format it. Fixed size,
+        # so it never affects workload's 80%FREE above.
+        swap = {
+          size = "4G";
         };
       };
     };
