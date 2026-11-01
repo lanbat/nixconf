@@ -171,19 +171,6 @@ let
           (the voice plugin).
         '';
       };
-      volumeKeysDevice = lib.mkOption {
-        type = lib.types.str;
-        default = "*Consumer Control*";
-        description = ''
-          Glob of the input device whose media volume keys Kodi's evdev input
-          grabs but never maps. Kodi's GBM input grabs every /dev/input device
-          but registers only one keyboard; on a keyboard whose volume keys are
-          a separate HID interface (the "Consumer Control" device) they are
-          grabbed and dropped. The matched device is made root-only so Kodi
-          cannot open it, and kodi-volume-keys reads it and drives Kodi's
-          volume over its TCP JSON-RPC.
-        '';
-      };
       youtube = lib.mkOption {
         type = lib.types.bool;
         default = false;
@@ -373,7 +360,6 @@ let
   lvaKodiCompanion = pkgs.callPackage ../../pkgs/lva-kodi-companion { };
   kodiTvConfig = pkgs.callPackage ../../pkgs/kodi-tv-config { };
   kodiBootstrap = pkgs.callPackage ../../pkgs/kodi-bootstrap { };
-  kodiVolumeKeys = pkgs.callPackage ../../pkgs/kodi-volume-keys { };
 
   # Tuned for the Raspberry Pi 5: emulators that run well on it. Another board
   # would want its own list.
@@ -641,15 +627,6 @@ in
     hardware.xpadneo.enable = true;
     boot.kernelModules = [ "joydev" ];
 
-    # Kodi's GBM evdev input grabs every /dev/input device but only registers
-    # its main keyboard. A wireless keyboard whose volume keys are a separate
-    # HID "Consumer Control" interface therefore loses them: Kodi grabs the
-    # events and drops them. Make that device root-only so Kodi cannot open
-    # it; kodi-volume-keys (root) reads it and drives Kodi over JSON-RPC.
-    services.udev.extraRules = ''
-      SUBSYSTEM=="input", ATTRS{name}=="${kodiCfg.volumeKeysDevice}", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess", ENV{LIBINPUT_IGNORE_DEVICE}="1"
-    '';
-
     environment.systemPackages = [
       kodi
       retroarch
@@ -704,28 +681,6 @@ in
         description = "EmulationStation on the TV";
         other = "tv-kodi.service";
         command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe es-de}";
-      };
-
-      # Kodi's input layer grabs every input device, so the volume keys on a
-      # separate Consumer Control interface never reach it. The udev rule
-      # above keeps that device root-only; this reads it and sends the action
-      # to Kodi's password-less TCP JSON-RPC.
-      kodi-volume-keys = {
-        description = "Forward the TV keyboard's volume keys to Kodi";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "tv-kodi.service" ];
-        environment = {
-          VOLUME_DEVICE = kodiCfg.volumeKeysDevice;
-          KODI_PORT = toString kodiEventsPort;
-        };
-        serviceConfig = {
-          ExecStart = lib.getExe kodiVolumeKeys;
-          Restart = "always";
-          RestartSec = "5s";
-          # Reads an input device and talks to Kodi on the loopback.
-          IPAddressDeny = "any";
-          IPAddressAllow = "localhost";
-        };
       };
 
       lva-kodi-companion = lib.mkIf lvaHere {
