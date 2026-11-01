@@ -18,7 +18,11 @@ python3Packages.buildPythonApplication {
     install -Dm755 satellite_camera.py $out/bin/satellite-camera
   '';
   dependencies = [ python3Packages.websockets ];
-  makeWrapperArgs = [ "--set-default FFMPEG ${ffmpeg-headless}/bin/ffmpeg" ];
+  makeWrapperArgs = [
+    "--set-default"
+    "FFMPEG"
+    "${ffmpeg-headless}/bin/ffmpeg"
+  ];
   doCheck = false;
   meta = {
     description = "Send a satellite camera's faces to the assistant router, only when something moves";

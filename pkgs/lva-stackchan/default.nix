@@ -23,9 +23,13 @@ python3Packages.buildPythonApplication {
     python3Packages.pyserial-asyncio-fast
   ];
   makeWrapperArgs = [
-    "--set-default PW_RECORD ${pipewire}/bin/pw-record"
+    "--set-default"
+    "PW_RECORD"
+    "${pipewire}/bin/pw-record"
     # The Wi-Fi link's certificate, made on first start.
-    "--set-default OPENSSL ${lib.getExe openssl}"
+    "--set-default"
+    "OPENSSL"
+    "${lib.getExe openssl}"
   ];
   doCheck = false;
   meta = {

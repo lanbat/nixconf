@@ -18,7 +18,9 @@ python3Packages.buildPythonApplication {
     install -Dm755 doa_order.py $out/bin/doa-order
   '';
   makeWrapperArgs = [
-    "--set-default PW_RECORD ${pipewire}/bin/pw-record"
+    "--set-default"
+    "PW_RECORD"
+    "${pipewire}/bin/pw-record"
   ];
   doCheck = false;
   meta = {
