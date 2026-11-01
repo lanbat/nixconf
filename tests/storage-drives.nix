@@ -364,8 +364,10 @@ let
         in
         env.BACKUP_DATABASES_ALWAYS_ON == declaredOn "always-on"
         && env.BACKUP_DATABASES_WORKLOAD == declaredOn "workload"
+        && env.BACKUP_SKIP_DATABASES == "bitmagnet nextcloud"
         && lib.hasInfix "{BACKUP_DATABASES_ALWAYS_ON:-}" script
         && lib.hasInfix "{BACKUP_DATABASES_WORKLOAD:-}" script
+        && lib.hasInfix "BACKUP_SKIP_DATABASES:-" script
         && !(lib.hasInfix "authentik hass grafana" script)
       ))
       (expect "one drive: nothing refers to the absent a or b" (
