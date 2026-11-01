@@ -541,7 +541,10 @@ Grafana, Immich, and RomM OIDC come up fully automatically.
   plus a full scan on each bootstrap run
 
 Grant users access to the **Jellyfin** application in Authentik.  Adult content
-is only available via the hidden Samba `private` share (`@private` group).
+is only available via the hidden Samba `private` share (`@private` group). A
+TV-box profile that wants it on the TV too sets
+`lanbat.services.kodi.settings.privateLibrary = true`: Kodi's account joins that
+group and the folder becomes a movies source with Kodi's local scraper.
 
 Music videos get online metadata only through the IMVDb plugin, which needs a
 free API key: register at [imvdb.com/developers/api](https://imvdb.com/developers/api),

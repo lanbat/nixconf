@@ -213,6 +213,17 @@ let
           Invidious in the deployment.
         '';
       };
+      privateLibrary = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Let this box's Kodi read media/adult, the folder the storage Pi keeps
+          for the private group alone (drive b, mode 2770). Puts the TV account
+          in that group and scans the folder as a movies source with Kodi's
+          local scraper, so titles come from the filenames rather than a
+          metadata lookup. Off by default: anyone at the TV is this account.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -580,7 +591,17 @@ in
     # profile's change to one field keeps the rest.
     lanbat.settingsSchema.kodi = kodiSettings;
     lanbat.services.kodi.settings = {
-      videoSources = lib.mapAttrs (_: lib.mapAttrs (_: lib.mkDefault)) videoSourceDefaults;
+      videoSources =
+        lib.mapAttrs (_: lib.mapAttrs (_: lib.mkDefault)) videoSourceDefaults
+        // lib.optionalAttrs kodiCfg.privateLibrary {
+          # The folder behind the private group. Its key names it "Adult" in
+          # Videos > Files; the fields stay overridable like the defaults.
+          adult = lib.mapAttrs (_: lib.mkDefault) {
+            path = "/mnt/storage-b/media/adult/";
+            content = "movies";
+            scraper = "metadata.local";
+          };
+        };
       musicSources = lib.mapAttrs (_: lib.mkDefault) musicSourceDefaults;
     };
 
@@ -637,9 +658,10 @@ in
         "video"
         "input"
         "render"
-        # Not "private": media/adult is for that group alone, and anyone at the
-        # TV is this account.
-      ];
+        # Not "private" by default: media/adult is for that group alone, and
+        # anyone at the TV is this account. settings.privateLibrary adds it.
+      ]
+      ++ lib.optionals kodiCfg.privateLibrary [ "private" ];
     };
 
     hardware.graphics.enable = true;
