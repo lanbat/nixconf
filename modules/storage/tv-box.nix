@@ -363,6 +363,9 @@ let
       "PIPEWIRE:Default";
   lvaKodiCompanion = pkgs.callPackage ../../pkgs/lva-kodi-companion { };
   kodiTvConfig = pkgs.callPackage ../../pkgs/kodi-tv-config { };
+  # Estuary with its Power buttons opening script.tv-power; installed as a user
+  # add-on over the bundled skin.
+  estuaryPowerSkin = pkgs.callPackage ../../pkgs/kodi-skin-estuary-power { };
   kodiBootstrap = pkgs.callPackage ../../pkgs/kodi-bootstrap { };
 
   # Tuned for the Raspberry Pi 5: emulators that run well on it. Another board
@@ -831,6 +834,11 @@ in
 
       "d ${home}/.kodi 0755 media media -"
       "d ${home}/.kodi/userdata 0755 media media -"
+      # Estuary whose Power buttons open script.tv-power, overriding the bundled
+      # skin (Kodi prefers ~/.kodi/addons over the system add-ons with the same
+      # id), so the home-screen Power button shows the box's own menu.
+      "d ${home}/.kodi/addons 0755 media media -"
+      "L+ ${home}/.kodi/addons/skin.estuary - - - - ${estuaryPowerSkin}"
       # Kodi never writes advancedsettings.xml: a link keeps it the
       # repository's (a copy made once never saw a later change).
       "L+ ${home}/.kodi/userdata/advancedsettings.xml - - - - ${kodiTvConfig}/advancedsettings.xml"

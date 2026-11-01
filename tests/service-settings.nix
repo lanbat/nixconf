@@ -2601,6 +2601,11 @@ let
       ) lvaTvBox.systemd.tmpfiles.rules
       && lib.hasInfix "tv-chiaki.service" lvaTvBox.security.polkit.extraConfig
       && !(lib.hasInfix "power-off" lvaTvBox.security.polkit.extraConfig)
+      # The home Power button opens the menu too: the patched Estuary is
+      # installed as a user add-on over the bundled skin.
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/addons/skin.estuary" r
+      ) lvaTvBox.systemd.tmpfiles.rules
     ))
   ];
 
