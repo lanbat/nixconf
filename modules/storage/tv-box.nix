@@ -224,6 +224,15 @@ let
           metadata lookup. Off by default: anyone at the TV is this account.
         '';
       };
+      adulthideout = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Install AdultHideout (plugin.video.adulthideout), the third-party
+          add-on that streams adult videos from public sites. It needs no
+          account or secret.
+        '';
+      };
     };
   };
   kodiCfg = config.lanbat.services.kodi.settings;
@@ -571,6 +580,10 @@ let
   globalsearchAddon = pkgs.callPackage ../../pkgs/kodi-addon-globalsearch {
     buildKodiAddon = kodiPkgs.buildKodiAddon;
   };
+  adulthideoutAddon = pkgs.callPackage ../../pkgs/kodi-addon-adulthideout {
+    buildKodiAddon = kodiPkgs.buildKodiAddon;
+    requests = kodiPkgs.requests;
+  };
   # withPackages takes the add-ons to install and resolves their dependencies
   # (requiredKodiAddons), so listing the Twitch add-on also pulls in its python
   # module and its six/requests dependencies.
@@ -585,6 +598,7 @@ let
     ++ lib.optionals kodiCfg.twitch [ twitchAddon ]
     ++ lib.optionals kodiCfg.opensubtitles [ addons.a4ksubtitles ]
     ++ lib.optionals kodiCfg.invidious [ invidiousAddon ]
+    ++ lib.optionals kodiCfg.adulthideout [ adulthideoutAddon ]
   );
 
   # Seeded once: Kodi rewrites its favourites.

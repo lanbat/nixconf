@@ -55,6 +55,10 @@ let
   kodiGlobalsearch = pkgs.callPackage ../pkgs/kodi-addon-globalsearch {
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
   };
+  kodiAdulthideout = pkgs.callPackage ../pkgs/kodi-addon-adulthideout {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
+    requests = pkgs.kodi-gbm.packages.requests;
+  };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
   xiaomiClockSync = pkgs.callPackage ../pkgs/xiaomi-clock-sync { };
   feedBridge = pkgs.callPackage ../pkgs/media-feed-bridge { };
@@ -82,6 +86,7 @@ pkgs.runCommand "pkgs-build-smoke"
       kodiInvidious
       kodiTvPower
       kodiGlobalsearch
+      kodiAdulthideout
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -121,6 +126,8 @@ pkgs.runCommand "pkgs-build-smoke"
     grep -q 'tv-switch-chiaki' ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
     ! grep -qE 'System\.Exec\("[^"]* [^"]*"\)' ${kodiTvPower}/share/kodi/addons/script.tv-power/default.py
     test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
+    test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/addon.xml
+    test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/default.py
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite
