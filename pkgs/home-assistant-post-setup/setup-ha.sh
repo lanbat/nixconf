@@ -549,11 +549,13 @@ SATELLITE_AREAS_JQ='
                            and ((.data.url // "") | contains("//" + $w.dlna_host + ":")))
           | .entry_id)) as $dlna
       | .data.devices |= map(
-          if ((.config_entries | any(. as $e | $sat | index($e)))
-              or (.config_entries | any(. as $e | $tv | index($e)))
-              or (.config_entries | any(. as $e | $dlna | index($e)))
+          # Home Assistant registry (version 3): one config_entry_id per device;
+          # the old config_entries array was removed, so match it directly.
+          if ((.config_entry_id as $e | ($sat | index($e)) != null)
+              or (.config_entry_id as $e | ($tv | index($e)) != null)
+              or (.config_entry_id as $e | ($dlna | index($e)) != null)
               or ($w.hostname != null and .name == $w.hostname
-                  and (.config_entries | any(. as $e | $ma | index($e)))))
+                  and (.config_entry_id as $e | ($ma | index($e)) != null)))
           then .area_id = $area else . end))'
 
 satellite_areas_wanted() {

@@ -199,7 +199,10 @@ in
           jinja = true;
           # qwen3-1.7b would otherwise think at length before every reply, which
           # costs seconds of generation; the 2507 instruct models ignore this.
-          chat-template-kwargs = ''{"enable_thinking":false}'';
+          # The backslashes are for systemd: ExecStart is unquoted, so it would
+          # otherwise strip the quotes and hand llama.cpp `{enable_thinking:false}`
+          # (invalid JSON, so llama-server exits 1).
+          chat-template-kwargs = ''{\"enable_thinking\":false}'';
           no-webui = true;
           # No --mlock: see "Resource limits" -- the weights must stay in the
           # page cache so the kernel can evict them under memory pressure.
