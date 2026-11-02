@@ -199,6 +199,19 @@
         };
         ha-oidc-secret = import ./tests/ha-oidc-secret.nix { inherit pkgs; };
         jellyfin-dlna = import ./tests/jellyfin-dlna.nix { inherit pkgs; };
+        jellyfin-watch = import ./tests/jellyfin-watch.nix {
+          inherit
+            lib
+            pkgs
+            inputs
+            self
+            agenix
+            disko
+            deploy-rs
+            nixpkgs
+            nixos-raspberrypi
+            ;
+        };
         home-assistant-post-setup-dlna = import ./tests/home-assistant-post-setup-dlna.nix {
           inherit pkgs;
         };

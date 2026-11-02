@@ -207,6 +207,16 @@
         inputs.self.lanbatPlugins.voice
         inputs.self.lanbatPlugins.dns
       ];
+      modules = [
+        # Jellyfin runs on the server and reads this Pi's media over NFS, where
+        # its inotify realtime monitor never fires. Watch the media here and
+        # tell Jellyfin to rescan when files change
+        # (modules/storage/jellyfin-watch.nix). The secret resolves to a
+        # placeholder because the example profile is never deployed.
+        {
+          lanbat.storagePi.jellyfinWatch.enable = true;
+        }
+      ];
     };
 
     # A Raspberry Pi 3 with a speaker and a microphone: a Snapcast speaker and
