@@ -1550,6 +1550,9 @@ let
       lib.elem "tv-kodi.service" scan.wantedBy
       && lib.elem "tv-kodi.service" scan.after
       && lib.hasInfix "music-scan" scan.script
+      # Stopped with Kodi (partOf); a deploy that changes the Kodi package
+      # must not treat the TERM as a failed scan and roll itself back.
+      && lib.elem "SIGTERM" scan.serviceConfig.SuccessExitStatus
     ))
 
     # The library sources come from settings: the repository's layout by
