@@ -199,138 +199,155 @@ let
 
 in
 {
-  environment.systemPackages = [ pkgs.restic ];
+  options.lanbat.backups.skipDatabases = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = [
+      "bitmagnet"
+      "nextcloud"
+    ];
+    description = ''
+      Databases to leave out of backup-server's per-database dumps.
+      bitmagnet's torrent index re-crawls from scratch and nextcloud was
+      removed; neither is worth the space.
+    '';
+  };
 
-  # ── Server → Pi backup (active) ────────────────────────────────────────────
-  # Nightly rsync/pg_dump of server state to /srv/storage/b/backups/server.
-  # Requires Pi NFS (srv-storage-b.mount). Skips control/workload paths when
-  # the matching LUKS layer is locked — see pkgs/scripts/backup-server.sh.
-  systemd.services."backup-server" = {
-    description = "Backup server state to Pi storage";
-    after = [
-      "srv-storage-b.mount"
-      "network-online.target"
-    ];
-    wants = [ "srv-storage-b.mount" ];
-    path = with pkgs; [
-      rsync
-      gzip
-      postgresql
-      sqlite
-      util-linux # runuser, to dump as postgres
-    ];
-    # The databases each PostgreSQL instance holds, as the profile declares
-    # them (lanbat.postgresql.databases), each dumped on its own besides
-    # pg_dumpall.
-    environment =
-      let
-        on =
-          instance:
-          lib.concatStringsSep " " (
-            lib.sort (a: b: a < b) (
-              lib.attrNames (lib.filterAttrs (_: db: db.instance == instance) cfg.postgresql.databases)
-            )
-          );
-      in
-      {
-        BACKUP_DATABASES_ALWAYS_ON = on "always-on";
-        BACKUP_DATABASES_WORKLOAD = on "workload";
+  config = {
+    environment.systemPackages = [ pkgs.restic ];
+
+    # ── Server → Pi backup (active) ────────────────────────────────────────────
+    # Nightly rsync/pg_dump of server state to /srv/storage/b/backups/server.
+    # Requires Pi NFS (srv-storage-b.mount). Skips control/workload paths when
+    # the matching LUKS layer is locked — see pkgs/scripts/backup-server.sh.
+    systemd.services."backup-server" = {
+      description = "Backup server state to Pi storage";
+      after = [
+        "srv-storage-b.mount"
+        "network-online.target"
+      ];
+      wants = [ "srv-storage-b.mount" ];
+      path = with pkgs; [
+        rsync
+        gzip
+        postgresql
+        sqlite
+        util-linux # runuser, to dump as postgres
+      ];
+      # The databases each PostgreSQL instance holds, as the profile declares
+      # them (lanbat.postgresql.databases), each dumped on its own. skipDatabases
+      # is carried separately so the script can leave out the rebuildable or
+      # removed ones.
+      environment =
+        let
+          on =
+            instance:
+            lib.concatStringsSep " " (
+              lib.sort (a: b: a < b) (
+                lib.attrNames (lib.filterAttrs (_: db: db.instance == instance) cfg.postgresql.databases)
+              )
+            );
+        in
+        {
+          BACKUP_DATABASES_ALWAYS_ON = on "always-on";
+          BACKUP_DATABASES_WORKLOAD = on "workload";
+          BACKUP_SKIP_DATABASES = lib.concatStringsSep " " cfg.backups.skipDatabases;
+        };
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${
+          pkgs.callPackage ../../pkgs/scripts { domain = cfg.deployment.domain; }
+        }/bin/backup-server";
       };
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = "${
-        pkgs.callPackage ../../pkgs/scripts { domain = cfg.deployment.domain; }
-      }/bin/backup-server";
     };
-  };
 
-  systemd.timers."backup-server" = {
-    description = "Nightly server backup timer";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnCalendar = "03:00";
-      RandomizedDelaySec = "30min";
-      Persistent = true;
+    systemd.timers."backup-server" = {
+      description = "Nightly server backup timer";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = "03:00";
+        RandomizedDelaySec = "30min";
+        Persistent = true;
+      };
     };
+
+    # ── Restic tracks (optional, off by default) ───────────────────────────────
+    # Uncomment and configure lanbat.backups.* repos in the deployment profile. Merge every
+    # enabled track into one systemd.services / systemd.timers attr each:
+    #
+    # systemd.services = lib.mkMerge [
+    #   (mkResticService {
+    #     name = "host";
+    #     repoPath = cfg.backups.hostRepo;
+    #     passwordFile = config.lanbat.secrets.restic-host-password.path;
+    #     paths = [
+    #       "/etc"
+    #       "/root"
+    #       "/var/lib/nixos"
+    #     ];
+    #   })
+    #   (mkResticService {
+    #     name = "control";
+    #     repoPath = cfg.backups.controlRepo;
+    #     passwordFile = config.lanbat.secrets.restic-control-password.path;
+    #     paths = [ "/mnt/control" ];
+    #     extraRequires = [ "control-online.target" ];
+    #     extraAfter = [ "control-online.target" ];
+    #   })
+    #   (mkResticService {
+    #     name = "workload";
+    #     repoPath = cfg.backups.workloadRepo;
+    #     passwordFile = config.lanbat.secrets.restic-workload-password.path;
+    #     paths = [ "/mnt/workload" ];
+    #     extraRequires = [ "workload-online.target" ];
+    #     extraAfter = [ "workload-online.target" ];
+    #   })
+    # ];
+    # systemd.timers = lib.mkMerge [
+    #   (mkResticTimer "host" "02:00")
+    #   (mkResticTimer "control" "03:00")
+    #   (mkResticTimer "workload" "03:30")
+    # ];
+
+    # ── PostgreSQL dump helper (run before workload backup) ────────────────────
+    # Dumps every database to /mnt/workload/postgresql-dumps/ for consistent backup.
+    # Not enabled. If you revive it, take the databases from
+    # lanbat.postgresql.databases and the connection details from
+    # lanbat.postgresql.instances, as below, rather than naming either: services
+    # add and move databases, and a written-out list silently misses them.
+    #
+    # systemd.services."postgresql-dump" =
+    #   let
+    #     pg = config.lanbat.postgresql;
+    #     # instance name -> names of the databases that live on it
+    #     databasesOn =
+    #       instance:
+    #       lib.attrNames (lib.filterAttrs (_: db: db.instance == instance) pg.databases);
+    #     dumpInstance = instance: ''
+    #       for db in ${lib.escapeShellArgs (databasesOn instance)}; do
+    #         pg_dump -Fc -h ${pg.instances.${instance}.socket} -p ${toString pg.instances.${instance}.port} \
+    #           "$db" > "$DUMPDIR/$db-$(date +%Y%m%d).dump"
+    #       done
+    #     '';
+    #     units = lib.mapAttrsToList (_: i: i.unit) pg.instances;
+    #   in
+    #   {
+    #     description = "Dump all PostgreSQL databases for backup";
+    #     requires = [ "workload-online.target" ] ++ units;
+    #     after = [ "workload-online.target" ] ++ units;
+    #     before = [ "workload-backup.service" ];
+    #     path = [ config.services.postgresql.finalPackage ];
+    #     serviceConfig = {
+    #       Type = "oneshot";
+    #       User = "postgres";
+    #       ExecStart = pkgs.writeShellScript "pg-dump-all" ''
+    #         set -euo pipefail
+    #         DUMPDIR=/mnt/workload/postgresql-dumps
+    #         mkdir -p "$DUMPDIR"
+    #         ${lib.concatMapStrings dumpInstance (lib.attrNames pg.instances)}
+    #         # Prune dumps older than 7 days.
+    #         find "$DUMPDIR" -name "*.dump" -mtime +7 -delete
+    #       '';
+    #     };
+    #   };
   };
-
-  # ── Restic tracks (optional, off by default) ───────────────────────────────
-  # Uncomment and configure lanbat.backups.* repos in the deployment profile. Merge every
-  # enabled track into one systemd.services / systemd.timers attr each:
-  #
-  # systemd.services = lib.mkMerge [
-  #   (mkResticService {
-  #     name = "host";
-  #     repoPath = cfg.backups.hostRepo;
-  #     passwordFile = config.lanbat.secrets.restic-host-password.path;
-  #     paths = [
-  #       "/etc"
-  #       "/root"
-  #       "/var/lib/nixos"
-  #     ];
-  #   })
-  #   (mkResticService {
-  #     name = "control";
-  #     repoPath = cfg.backups.controlRepo;
-  #     passwordFile = config.lanbat.secrets.restic-control-password.path;
-  #     paths = [ "/mnt/control" ];
-  #     extraRequires = [ "control-online.target" ];
-  #     extraAfter = [ "control-online.target" ];
-  #   })
-  #   (mkResticService {
-  #     name = "workload";
-  #     repoPath = cfg.backups.workloadRepo;
-  #     passwordFile = config.lanbat.secrets.restic-workload-password.path;
-  #     paths = [ "/mnt/workload" ];
-  #     extraRequires = [ "workload-online.target" ];
-  #     extraAfter = [ "workload-online.target" ];
-  #   })
-  # ];
-  # systemd.timers = lib.mkMerge [
-  #   (mkResticTimer "host" "02:00")
-  #   (mkResticTimer "control" "03:00")
-  #   (mkResticTimer "workload" "03:30")
-  # ];
-
-  # ── PostgreSQL dump helper (run before workload backup) ────────────────────
-  # Dumps every database to /mnt/workload/postgresql-dumps/ for consistent backup.
-  # Not enabled. If you revive it, take the databases from
-  # lanbat.postgresql.databases and the connection details from
-  # lanbat.postgresql.instances, as below, rather than naming either: services
-  # add and move databases, and a written-out list silently misses them.
-  #
-  # systemd.services."postgresql-dump" =
-  #   let
-  #     pg = config.lanbat.postgresql;
-  #     # instance name -> names of the databases that live on it
-  #     databasesOn =
-  #       instance:
-  #       lib.attrNames (lib.filterAttrs (_: db: db.instance == instance) pg.databases);
-  #     dumpInstance = instance: ''
-  #       for db in ${lib.escapeShellArgs (databasesOn instance)}; do
-  #         pg_dump -Fc -h ${pg.instances.${instance}.socket} -p ${toString pg.instances.${instance}.port} \
-  #           "$db" > "$DUMPDIR/$db-$(date +%Y%m%d).dump"
-  #       done
-  #     '';
-  #     units = lib.mapAttrsToList (_: i: i.unit) pg.instances;
-  #   in
-  #   {
-  #     description = "Dump all PostgreSQL databases for backup";
-  #     requires = [ "workload-online.target" ] ++ units;
-  #     after = [ "workload-online.target" ] ++ units;
-  #     before = [ "workload-backup.service" ];
-  #     path = [ config.services.postgresql.finalPackage ];
-  #     serviceConfig = {
-  #       Type = "oneshot";
-  #       User = "postgres";
-  #       ExecStart = pkgs.writeShellScript "pg-dump-all" ''
-  #         set -euo pipefail
-  #         DUMPDIR=/mnt/workload/postgresql-dumps
-  #         mkdir -p "$DUMPDIR"
-  #         ${lib.concatMapStrings dumpInstance (lib.attrNames pg.instances)}
-  #         # Prune dumps older than 7 days.
-  #         find "$DUMPDIR" -name "*.dump" -mtime +7 -delete
-  #       '';
-  #     };
-  #   };
 }

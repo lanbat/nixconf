@@ -49,12 +49,31 @@ pkgs.runCommand "backup-server-check" { nativeBuildInputs = [ pkgs.rsync ]; } ''
   done
   grep -q 'missing_required\[@\]} -gt 0' ${../pkgs/scripts/backup-server.sh} \
     || { echo "FAIL: the script does not fail when required state is missing"; exit 1; }
+  grep -q 'ln -sfn "\$DEST" "\$BACKUP_DIR/LATEST"' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: a complete backup does not update LATEST"; exit 1; }
 
   # Jackett's indexer credentials and API key are workload state: copied while
   # the layer is unlocked, not attempted (and not reported missing) while locked.
   sed -n '/^if workload_online; then$/,/^else$/p' ${../pkgs/scripts/backup-server.sh} \
     | grep -qE '^\s*copy_state /var/lib/jackett +jackett\s*$' \
     || { echo "FAIL: /var/lib/jackett is not backed up with the workload state"; exit 1; }
+
+  # Frigate's event database is always-on state; its clips and recordings are
+  # media and stay out of the backup.
+  grep -qE '^copy_state /var/lib/frigate/db +frigate-db$' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: /var/lib/frigate/db is not backed up"; exit 1; }
+  grep -qE '^copy_state /var/lib/frigate +frigate \\$' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: Frigate's config is not backed up"; exit 1; }
+
+  # The rebuildable and removed databases are skipped, and the data is no
+  # longer duplicated by a full pg_dumpall.
+  grep -q 'SKIP_DATABASES=.*bitmagnet' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: bitmagnet is not skipped by default"; exit 1; }
+  grep -q 'pg_dumpall $conn --globals-only' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: pg_dumpall does not dump the globals"; exit 1; }
+  if grep -q 'pg_dumpall $conn --clean' ${../pkgs/scripts/backup-server.sh}; then
+    echo "FAIL: pg_dumpall still dumps the data a second time"; exit 1
+  fi
 
   # No state copy bypasses copy_state.
   if grep -nE '^\s*rsync ' ${../pkgs/scripts/backup-server.sh} | grep -v 'copy_state' | grep -vE '^[0-9]+:\s*rsync -a --delete "\$@"'; then

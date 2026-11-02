@@ -412,10 +412,14 @@ preferences apply from the second start. Categories apply from the first.
 ```bash
 # Check last backup
 ls -lht /srv/storage/b/backups/server/ | head -5
+
+# Run one now
+sudo systemctl start backup-server
 ```
 
-> Note: automated backup via systemd timer is not yet implemented in the config.
-> Run backups manually with rsync/pg_dumpall for now — see `docs/backup.md`.
+The nightly timer (`modules/server/backups.nix`) writes at 03:00 and keeps 7
+daily snapshots. See `docs/backup.md` for what is included, including the
+`lanbat.backups.skipDatabases` exclusions.
 
 ## Rebuilding Immich thumbnails
 
