@@ -11,6 +11,9 @@ let
   dashboards = pkgs.callPackage ../pkgs/grafana-dashboards { };
   kodiTvConfig = pkgs.callPackage ../pkgs/kodi-tv-config { };
   kodiBootstrap = pkgs.callPackage ../pkgs/kodi-bootstrap { };
+  kodiKeyboardLayout = pkgs.callPackage ../pkgs/kodi-keyboard-layout { };
+  kodiVolumeKeys = pkgs.callPackage ../pkgs/kodi-volume-keys { };
+  xkbPhoneticRoot = pkgs.callPackage ../pkgs/xkb-phonetic-root { };
   # The bootstrap adds a video source the seeded sources.xml predates (the
   # documentary series) and leaves the rest of the file alone.
   kodiBootstrapSources =
@@ -19,7 +22,7 @@ let
         nativeBuildInputs = [ kodiBootstrap ];
       }
       ''
-        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos $TMPDIR/media/adult
+        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos
         cat > $TMPDIR/.kodi/userdata/sources.xml <<EOF
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <sources>
@@ -35,13 +38,10 @@ let
         KODI_HOME=$TMPDIR \
           KODI_VIDEO_SOURCES="documentary-series|$TMPDIR/media/documentary-series/|tvshows|metadata.tvshows.themoviedb.org.python|0|0
         music-videos|$TMPDIR/media/music-videos/|musicvideos|metadata.local|1|0" \
-          KODI_FILE_SOURCES="Private|$TMPDIR/media/adult/" \
           kodi-bootstrap sources-xml
         grep -q "<name>Documentary Series</name>" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "$TMPDIR/media/documentary-series/" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "<name>Music Videos</name>" $TMPDIR/.kodi/userdata/sources.xml
-        grep -q "<name>Private</name>" $TMPDIR/.kodi/userdata/sources.xml
-        grep -q "$TMPDIR/media/adult/" $TMPDIR/.kodi/userdata/sources.xml
         ! grep -q "old-name" $TMPDIR/.kodi/userdata/sources.xml
         touch $out
       '';
@@ -61,9 +61,6 @@ let
   kodiAdulthideout = pkgs.callPackage ../pkgs/kodi-addon-adulthideout {
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
     requests = pkgs.kodi-gbm.packages.requests;
-  };
-  kodiPrivateMedia = pkgs.callPackage ../pkgs/kodi-addon-private-media {
-    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
   };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
   xiaomiClockSync = pkgs.callPackage ../pkgs/xiaomi-clock-sync { };
@@ -93,7 +90,9 @@ pkgs.runCommand "pkgs-build-smoke"
       kodiTvPower
       kodiGlobalsearch
       kodiAdulthideout
-      kodiPrivateMedia
+      kodiKeyboardLayout
+      kodiVolumeKeys
+      xkbPhoneticRoot
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -122,6 +121,8 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${caPage}/index.html
     test -d ${dashboards}
     test -f ${kodiTvConfig}/sources.xml
+    test -f ${kodiTvConfig}/keymaps/keyboard-layout.xml
+    grep -q 'SendClick(309)' ${kodiTvConfig}/keymaps/keyboard-layout.xml
     test -f ${kodiTvConfig}/keymaps/power-menu.xml
     grep -q 'RunScript(script.tv-power)' ${kodiTvConfig}/keymaps/power-menu.xml
     test -f ${kodiInvidious}/share/kodi/addons/plugin.video.invidious/addon.xml
@@ -135,10 +136,6 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
     test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/addon.xml
     test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/default.py
-    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
-    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/default.py
-    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/delete.py
-    grep -q 'kodi.context.item' ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite
@@ -146,6 +143,12 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${lvaWakeupChime}/wakeup.flac
     command -v lva-snapcast-duck
     command -v lva-kodi-companion
+    command -v kodi-keyboard-layout
+    command -v kodi-volume-keys
+    test -f ${xkbPhoneticRoot}/symbols/bg_full
+    grep -q 'include "bg_full(phonetic)"' ${xkbPhoneticRoot}/symbols/bg
+    test -d ${xkbPhoneticRoot}/rules
+    test -e ${xkbPhoneticRoot}/symbols/us
     home-assistant-dashboards --help >/dev/null
     voice-id --help >/dev/null
     assistant-router --help >/dev/null

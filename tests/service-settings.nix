@@ -29,13 +29,13 @@
 #   - Jellyfin: IMVDb is off and needs no key by default; settings.imvdb
 #     requires jellyfin-imvdb-env and hands it to jellyfin-bootstrap.
 #   - Kodi (lanbat-tv plugin on the example Pi 5): the YouTube, Twitch,
-#     subtitle, Invidious and AdultHideout addons are off and need no key by
-#     default; settings.youtube, settings.twitch and settings.opensubtitles
-#     require kodi-youtube-env, kodi-twitch-token and kodi-opensubtitles-env
-#     and put their addon into the Kodi package; settings.invidious puts the
-#     addon in Kodi and points it at the deployment's instance over the
-#     internal CA; settings.adulthideout puts AdultHideout in Kodi and needs
-#     no secret.
+#     subtitle and Invidious addons are off and need no key by default;
+#     settings.youtube, settings.twitch and settings.opensubtitles require
+#     kodi-youtube-env, kodi-twitch-token and kodi-opensubtitles-env and put
+#     their addon into the Kodi package; settings.invidious puts the addon in
+#     Kodi and points it at the deployment's instance over the internal CA.
+#     The on-screen keyboard offers English and both Bulgarian layouts, and
+#     Kodi's three-layout limit is enforced.
 #   - Audiobookshelf: the library defaults to drive b's media/audiobooks and
 #     Audible, a profile moves it and picks another provider, and the NFS
 #     dependency follows the drive.
@@ -577,6 +577,20 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.adulthideout = true; } ];
     })).configurations.example-pi-storage.config;
+  # A profile that wants more on-screen keyboard layouts than Kodi keeps.
+  tvBoxFourLayouts =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [
+        {
+          lanbat.services.kodi.settings.keyboardLayouts = [
+            "English QWERTY"
+            "Bulgarian ЯВЕРТЪ"
+            "Bulgarian АБВ"
+            "Russian ЙЦУКЕН"
+          ];
+        }
+      ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -596,35 +610,17 @@ let
     requests = twitchPkgs.requests;
     pythonTwitch = pythonTwitchAddon;
   };
-  # The power menu and Global Search are always installed, before the
-  # settings-switched add-ons (the order tv-box.nix builds them).
-  tvPowerAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-tv-power {
-    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
-  };
-  globalsearchAddon = aarchPkgs.callPackage ../pkgs/kodi-addon-globalsearch {
-    buildKodiAddon = aarchPkgs.kodi-gbm.packages.buildKodiAddon;
-  };
-  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [
-    addons.joystick
-    tvPowerAddon
-    globalsearchAddon
-  ]);
+  kodiBase = aarchPkgs.kodi-gbm.withPackages (addons: [ addons.joystick ]);
   kodiYoutube = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
-    tvPowerAddon
-    globalsearchAddon
     addons.youtube
   ]);
   kodiTwitch = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
-    tvPowerAddon
-    globalsearchAddon
     twitchAddon
   ]);
   kodiSubtitles = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
-    tvPowerAddon
-    globalsearchAddon
     addons.a4ksubtitles
   ]);
   # The Invidious add-on is newer than nixpkgs' pin; the repository builds it.
@@ -638,8 +634,6 @@ let
   };
   kodiInvidious = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
-    tvPowerAddon
-    globalsearchAddon
     invidiousAddon
   ]);
   # AdultHideout is not in nixpkgs either; the repository builds it from the
@@ -651,8 +645,6 @@ let
   };
   kodiAdulthideout = aarchPkgs.kodi-gbm.withPackages (addons: [
     addons.joystick
-    tvPowerAddon
-    globalsearchAddon
     adulthideoutAddon
   ]);
   kodiOf =
@@ -1550,9 +1542,6 @@ let
       lib.elem "tv-kodi.service" scan.wantedBy
       && lib.elem "tv-kodi.service" scan.after
       && lib.hasInfix "music-scan" scan.script
-      # Stopped with Kodi (partOf); a deploy that changes the Kodi package
-      # must not treat the TERM as a failed scan and roll itself back.
-      && lib.elem "SIGTERM" scan.serviceConfig.SuccessExitStatus
     ))
 
     # The library sources come from settings: the repository's layout by
@@ -2045,12 +2034,12 @@ let
       && lib.hasInfix ''"https://photos.home.example.com"'' base.systemd.services.podman-immich-server.preStart
     ))
 
-    (expect "immich: images are pinned to the deployed v3.3.5 digests" (
+    (expect "immich: images are pinned to the deployed v3.2.1 digests" (
       imageOf base "immich-server"
-      == "ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6"
+      == "ghcr.io/immich-app/immich-server:v3.2.1@sha256:87bb1b208434a8503e1a2465edd84f3cf94bd72c66feb7ca474629015b8dbfd6"
       &&
         imageOf base "immich-machine-learning"
-        == "ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56"
+        == "ghcr.io/immich-app/immich-machine-learning:v3.2.1@sha256:49a53dbf5fbea5c785075667056fb010498969b9143005df5434868035bf5654"
     ))
 
     (expect "immich: machine learning cannot exhaust the host" (
@@ -2627,6 +2616,55 @@ let
       && lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-kodi.partOf
       && !(lib.elem "kodi-bootstrap.service" lvaTvBox.systemd.services.tv-games.partOf)
     ))
+
+    # Kodi's on-screen keyboard opens on its first layout, and its layout
+    # button cycles the rest; the phonetic Bulgarian layout ships in Kodi's
+    # system/keyboardlayouts.
+    (expect "tv box: the on-screen keyboard offers English and phonetic Bulgarian" (
+      lvaTvBox.lanbat.services.kodi.settings.keyboardLayouts == [
+        "English QWERTY"
+        "Bulgarian ЯВЕРТЪ"
+      ]
+      && failedAssertions lvaTvBox == [ ]
+    ))
+
+    # The physical keyboard follows the on-screen layout: Kodi's libinput
+    # applies input.libinputkeyboardlayout, which kodi-keyboard-layout sets,
+    # and tv-kodi's xkb root makes "bg" the phonetic layout Kodi cannot name
+    # as a variant. The same TV keyboard's media keys are a separate HID
+    # "Consumer Control" interface that Kodi grabs but does not map; the udev
+    # rule hides it from libinput and kodi-volume-keys reads it into Kodi.
+    (expect "tv box: the keyboard layout follows and its volume keys reach Kodi" (
+      lvaTvBox.systemd.services ? kodi-keyboard-layout
+      &&
+        lvaTvBox.systemd.services.kodi-keyboard-layout.environment.KODI_PORT
+        == toString lvaTvBox.lanbat.services.kodi-events.endpoint.port
+      && lib.hasInfix "xkb-phonetic-root" (
+        toString lvaTvBox.systemd.services.tv-kodi.environment.XKB_CONFIG_ROOT
+      )
+      # Ctrl+Alt+K presses the keyboard dialog's layout button (control 309
+      # of window 10103), which is what switches both keyboards.
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/userdata/keymaps/keyboard-layout.xml" r
+      ) lvaTvBox.systemd.tmpfiles.rules
+      # The volume-key service follows the configured device and Kodi's
+      # event port, and the udev rule makes it root-only and libinput-ignored.
+      &&
+        lvaTvBox.systemd.services.kodi-volume-keys.environment.VOLUME_DEVICE
+        == lvaTvBox.lanbat.services.kodi.settings.volumeKeysDevice
+      &&
+        lvaTvBox.systemd.services.kodi-volume-keys.environment.KODI_PORT
+        == toString lvaTvBox.lanbat.services.kodi-events.endpoint.port
+      && lib.hasInfix "ENV{LIBINPUT_IGNORE_DEVICE}=\"1\"" lvaTvBox.services.udev.extraRules
+      && lib.hasInfix "ATTRS{name}==\"*Consumer Control*\"" lvaTvBox.services.udev.extraRules
+    ))
+
+    # locale.keyboardlayouts is a Kodi list setting with at most three items;
+    # a fourth is dropped (or worse) silently if it reaches guisettings.xml.
+    (expect "tv box: more than three keyboard layouts is refused" (
+      lib.any (lib.hasInfix "at most three layouts") (failedAssertions tvBoxFourLayouts)
+    ))
+
     # chiaki-ng is a third session, and the power menu replaces Kodi's shutdown
     # menu with the box's own items: the three sessions exclude one another,
     # the power key opens script.tv-power, and the media user may reboot but no
@@ -2645,11 +2683,6 @@ let
       ) lvaTvBox.systemd.tmpfiles.rules
       && lib.hasInfix "tv-chiaki.service" lvaTvBox.security.polkit.extraConfig
       && !(lib.hasInfix "power-off" lvaTvBox.security.polkit.extraConfig)
-      # The home Power button opens the menu too: the patched Estuary is
-      # installed as a user add-on over the bundled skin.
-      && lib.any (
-        r: lib.hasPrefix "L+ /home/media/.kodi/addons/skin.estuary" r
-      ) lvaTvBox.systemd.tmpfiles.rules
       # Kodi's System.Exec execs one path (arguments split on commas), so the
       # menu and favourites call one-word wrappers from the profile.
       && lib.all (n: lib.any (p: (p.name or "") == n) lvaTvBox.environment.systemPackages) [
@@ -2668,9 +2701,6 @@ let
       && lib.hasInfix "-tv-games/bin/tv-games" (
         toString lvaTvBox.systemd.services.tv-games.serviceConfig.ExecStart
       )
-      # Quitting a frontend returns the screen to Kodi: the sessions run
-      # through wrappers, and the wrapper starts tv-kodi on a clean exit (the
-      # tv-chiaki wrapper is the ExecStart asserted above).
     ))
 
     # Appended after the TV cases above: the parts take cases by position, so

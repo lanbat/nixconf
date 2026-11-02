@@ -412,14 +412,10 @@ preferences apply from the second start. Categories apply from the first.
 ```bash
 # Check last backup
 ls -lht /srv/storage/b/backups/server/ | head -5
-
-# Run one now
-sudo systemctl start backup-server
 ```
 
-The nightly timer (`modules/server/backups.nix`) writes at 03:00 and keeps 7
-daily snapshots. See `docs/backup.md` for what is included, including the
-`lanbat.backups.skipDatabases` exclusions.
+> Note: automated backup via systemd timer is not yet implemented in the config.
+> Run backups manually with rsync/pg_dumpall for now — see `docs/backup.md`.
 
 ## Rebuilding Immich thumbnails
 
@@ -482,27 +478,12 @@ systemctl restart podman-authentik-server podman-authentik-worker
 ### Upgrading Authentik
 
 Authentik is pinned to a specific version in `services/authentik/default.nix`
-(`authentikVersion`). It only supports sequential upgrades: do not skip a
-release series. From the 2024.12 pin, the supported path is:
+(`authentikVersion`). To upgrade:
 
-```
-2024.12.5 → 2025.2.4 → 2025.4.4 → 2025.6.4 → 2025.8.6
-→ 2025.10.4 → 2025.12.6 → 2026.2.7 → 2026.5.8 → 2026.8.5
-```
-
-Each hop is a separate commit in the upgrade branch. For every hop:
-
-1. Read that release's notes at
-   <https://docs.goauthentik.io/docs/releases>.
-2. Check out the commit, deploy the server
-   (`deploy --skip-checks path:.#homelab-server`), and wait for both
-   `podman-authentik-server` and `podman-authentik-worker` to finish their
-   migrations (`journalctl -u podman-authentik-server -u podman-authentik-worker`).
-3. Sign in to `https://auth.<domain>` and open an application through
-   forward-auth, then move to the next commit.
-
-Back up the Authentik database before the first hop. Do not squash these
-commits when merging: the order is the upgrade.
+1. Check the [Authentik release notes](https://docs.goauthentik.io/docs/releases) —
+   Authentik requires sequential upgrades (do not skip major versions).
+2. Update `authentikVersion`.
+3. Deploy: `deploy --skip-checks path:.#homelab-server`
 
 ### Adding a user
 
@@ -556,9 +537,8 @@ journalctl -u vaultwarden -f
 
 Forgejo keeps its own accounts (SQLite in `/var/lib/forgejo`, on the workload
 layer). The owner admin is pre-created by `forgejo-bootstrap`; everyone else is
-auto-registered on their first Authentik login. Git clients use an HTTPS
-personal access token or an SSH key rather than OIDC: SSH goes through Forgejo's
-own server on port 2222 (the host's admin sshd stays on 22). Manage users from
+auto-registered on their first Authentik login, and git clients use HTTPS
+personal access tokens rather than OIDC. Manage users from
 `https://git.<domain>/admin/users`.
 
 ```bash

@@ -7,14 +7,13 @@
 | Data | Location | Method |
 |---|---|---|
 | Tang private keys | `/var/lib/tang/` | `backup-server.sh` → Pi/b/backups |
-| PostgreSQL databases (always-on and workload instances) | server | `backup-server.sh`: per-database `pg_dump` of each instance's databases, plus `pg_dumpall --globals-only` for roles |
+| PostgreSQL databases (always-on and workload instances) | server | `pg_dumpall` of each instance via `backup-server.sh` |
 | Authentik state | `/var/lib/authentik/` | `backup-server.sh` |
 | Home Assistant config | `/var/lib/hass/` | `backup-server.sh` |
 | Caddy root CA key | `secrets/caddy-ca-root-key.age` (agenix) + `secrets/caddy-ca-root.crt` (git) | git + agenix |
 | Caddy intermediate/leaf state | `/var/lib/caddy/` | `backup-server.sh` (regenerates from root if lost) |
 | agenix secrets | `secrets/*.age` | git repository |
 | Frigate config | Rendered from `lanbat.services.frigate.settings` in your `deploy.nix` | Back up `deploy.nix` and the modules it lists (gitignored) |
-| Frigate event database | `/var/lib/frigate/db/` | `backup-server.sh` (the database only; clips and recordings are media) |
 | Vaultwarden data | `/var/lib/vaultwarden/` | `backup-server.sh` (the database through SQLite's online backup) |
 | Grafana state | always-on PostgreSQL (`grafana`) | `pg_dump` via `backup-server.sh`; dashboards are provisioned from this repo |
 | Invidious state | always-on PostgreSQL (`invidious`) and `/var/lib/invidious/` (hmac key) | `pg_dump` and `backup-server.sh`; losing the hmac key only invalidates sessions |
@@ -67,12 +66,6 @@ workload-layer paths when the matching LUKS layer is locked, so a backup taken
 while locked is incomplete but never silently copies empty stubs as if they were
 real data.
 
-A snapshot is about 1.2 GB: per-database dumps plus service state, including
-Frigate's event database. `bitmagnet`'s torrent index (48 GB raw) and the removed
-`nextcloud` database are left out by default (`lanbat.backups.skipDatabases`),
-and Frigate's clips/recordings are media rather than state. With the 7-day
-rotation the nightly set stays around 9 GB instead of 71 GB.
-
 ### Frigate clips → cloud (real-time)
 
 `frigate-rclone-sync.service` (planned for `services/frigate.nix`)
@@ -109,12 +102,8 @@ Add this as a weekly systemd timer.
 3. After install, restore from Pi backup:
    ```bash
    rsync -a /srv/storage/b/backups/server/LATEST/ /restore/
-   # Restore PostgreSQL roles and then each database:
-   gunzip -c /restore/postgres-always-on/globals.sql.gz | sudo -u postgres psql
-   for db in hass authentik grafana invidious; do
-     gunzip -c "/restore/postgres-always-on/${db}.sql.gz" | sudo -u postgres psql -d "$db"
-   done
-   # Repeat for /restore/postgres-workload/ (immich, romm).
+   # Restore PostgreSQL:
+   sudo -u postgres psql < /restore/postgres/pg_dumpall.sql
    # Restore service state:
    rsync -a /restore/hass/ /var/lib/hass/
    rsync -a /restore/tang/ /var/lib/tang/

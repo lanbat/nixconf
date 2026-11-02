@@ -7,13 +7,12 @@
 # Server-local (always-on):
 #   /var/lib/postgresql/          — PostgreSQL data (shared instance, vectorchord)
 #   /var/lib/immich/model-cache/  — ML model cache (~4 GB on first run)
-#   /var/lib/immich/thumbs/       — generated thumbnails
-#   /var/lib/immich/encoded-video/— re-encoded videos
-#   /var/lib/immich/profile/      — user profile pictures
 #   Redis (services.redis.servers.immich)
 #
 # Pi-backed via NFS (/srv/storage/<drive>):
-#   /srv/storage/<drive>/<uploadPath>/ — originals / uploads (bulk)
+#   /srv/storage/<drive>/<uploadPath>/ — Immich's media root. Immich v3 keeps
+#   originals, thumbnails, encoded video and profile pictures all under
+#   UPLOAD_LOCATION, so they share this one Pi-backed tree.
 #   settings.drive and settings.uploadPath place them; by default a and
 #   photos.
 #
@@ -44,10 +43,10 @@
 }:
 
 let
-  immichVersion = "v3.3.5";
+  immichVersion = "v3.2.1";
   immichDigests = {
-    server = "sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6";
-    machineLearning = "sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56";
+    server = "sha256:87bb1b208434a8503e1a2465edd84f3cf94bd72c66feb7ca474629015b8dbfd6";
+    machineLearning = "sha256:49a53dbf5fbea5c785075667056fb010498969b9143005df5434868035bf5654";
   };
   domain = config.lanbat.deployment.domain;
   bootstrap = pkgs.callPackage ../pkgs/immich-bootstrap { };
@@ -130,9 +129,6 @@ in
         lib.genAttrs
           [
             "immich"
-            "immich/thumbs"
-            "immich/encoded-video"
-            "immich/profile"
             "immich/model-cache"
           ]
           (_: {
@@ -199,9 +195,6 @@ in
         REDIS_PORT = toString config.services.redis.servers.shared.port;
         REDIS_DBINDEX = toString config.lanbat.redis.databases.immich.index;
         UPLOAD_LOCATION = "/usr/src/app/upload";
-        THUMBS_PATH = "/usr/src/app/thumbs";
-        ENCODED_VIDEO_PATH = "/usr/src/app/encoded-video";
-        PROFILE_PATH = "/usr/src/app/profile";
         IMMICH_CONFIG_FILE = immichConfigMount;
         # Node fetch for OIDC discovery does not inherit the host trust store.
         NODE_EXTRA_CA_CERTS = lanbatCaRootMount;
@@ -213,9 +206,6 @@ in
       ];
       volumes = [
         "${uploadDir}:/usr/src/app/upload"
-        "/var/lib/immich/thumbs:/usr/src/app/thumbs"
-        "/var/lib/immich/encoded-video:/usr/src/app/encoded-video"
-        "/var/lib/immich/profile:/usr/src/app/profile"
         "${immichConfigPath}:${immichConfigMount}:ro"
         "/etc/localtime:/etc/localtime:ro"
         "/etc/caddy/ca-root.crt:${lanbatCaRootMount}:ro"

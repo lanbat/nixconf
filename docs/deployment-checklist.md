@@ -542,14 +542,9 @@ Grafana, Immich, and RomM OIDC come up fully automatically.
 
 Grant users access to the **Jellyfin** application in Authentik.  Adult content
 is only available via the hidden Samba `private` share (`@private` group). A
-TV-box profile that wants it on the TV too sets
-`lanbat.services.kodi.settings.privateMedia = true`: Kodi's account joins that
-group and the folder appears in **Videos → Files** as a browse-only source
-(named `privateMediaName`, `Private` by default). It is never scanned, so it
-stays out of the Movies library, library updates and Global Search. The same
-option installs **Private media** under *Add-ons → Programs*, which plays a
-random video from the folder; a file's context menu gains *Delete from disk*,
-and that action refuses anything outside the folder.
+profile that wants it on the TV box too grants the `media` account the `private`
+group and adds `media/adult` as a Kodi source in the box's own module (as
+`deployments/homelab` does); the repository's defaults leave both out.
 
 Music videos get online metadata only through the IMVDb plugin, which needs a
 free API key: register at [imvdb.com/developers/api](https://imvdb.com/developers/api),
@@ -620,19 +615,12 @@ URIs registered, which makes the romm login fail with **Redirect URI Error**.
   secret `FORGEJO_OAUTH_CLIENT_SECRET`, auto-discovery URL
   `https://auth.<domain>/application/o/forgejo/.well-known/openid-configuration`).
 
-With `ACCOUNT_LINKING = auto` and `USERNAME = nickname`, the owner's
+With `ACCOUNT_LINKING = auto` and `USERNAME = preferred_username`, the owner's
 first SSO login links to the pre-created admin; every other Authentik user is
 auto-registered as a normal user. Add people to the **git** group in Authentik
-(the application is bound to it).
-
-Git clients do not use OIDC. Both of these work:
-
-- **HTTPS:** create a personal access token at
-  `https://git.<domain>/user/settings/applications` and use it as the password
-  for `git clone https://git.<domain>/<owner>/<repo>.git`.
-- **SSH:** add a public key under Settings → SSH / GPG Keys, then clone with
-  `git clone ssh://git@git.<domain>:2222/<owner>/<repo>.git`. Forgejo's own SSH
-  server listens on 2222; the host's admin sshd stays on 22.
+(the application is bound to it). Git clients do not use OIDC: create a personal
+access token at `https://git.<domain>/user/settings/applications` and use it as
+the password for `git clone https://git.<domain>/<owner>/<repo>.git`.
 
 If this instance predates Forgejo, do **not** re-run
 `generate-oidc-secrets.sh` (it rotates every client secret). Add just Forgejo's

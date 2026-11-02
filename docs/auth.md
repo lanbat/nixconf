@@ -26,8 +26,7 @@ Authentik runs on the always-on tier as two rootless containers
 
 State lives on the **always-on** PostgreSQL instance (not the workload one) and the
 shared Redis (`lanbat.redis.databases.authentik.index = 0`). The version is pinned
-(`2026.8.5`), so a NixOS update does not silently upgrade the IdP. Authentik
-only supports sequential upgrades; see `docs/operations.md` § Upgrading Authentik.
+(`2024.12.2`), so a NixOS update does not silently upgrade the IdP.
 
 The **embedded outpost** in `authentik-server` is what answers Caddy's forward-auth
 calls at `/outpost.goauthentik.io/auth/caddy` and what serves the OIDC endpoints
@@ -99,7 +98,7 @@ browser ──▶ service (sets its own session from the ID token)
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
 | Vaultwarden | app | yes | **own account system** (Bitwarden) plus OIDC; SSO signs in by matching the email to an existing account (created from the admin panel or its API), gated on the `vaultwarden` group |
-| Forgejo | app | yes | **own account system** plus OIDC; the owner admin is pre-created and links on first SSO login, others auto-register; git CLI uses HTTPS personal access tokens or SSH keys, gated on the `git` group |
+| Forgejo | app | yes | **own account system** plus OIDC; the owner admin is pre-created and links on first SSO login, others auto-register; git CLI uses HTTPS personal access tokens, gated on the `git` group |
 | Invidious | forward-auth | no | only the personal pages are gated; browsing, watching and the API bypass Authentik |
 | Homepage, SearXNG, Redlib, CA page | none | no | deliberately open |
 
@@ -231,10 +230,10 @@ translation pattern differs by service:
   panel first), gated on the `vaultwarden` group, and the `offline_access` scope hands
   Bitwarden clients a refresh token. Forgejo's `forgejo-bootstrap` pre-creates the owner
   (`settings.adminUser`, default `akadmin`) as the admin with a break-glass password from
-  `forgejo-env.age`, and OIDC (`ACCOUNT_LINKING = auto`, `USERNAME = nickname`)
+  `forgejo-env.age`, and OIDC (`ACCOUNT_LINKING = auto`, `USERNAME = preferred_username`)
   links that account on first SSO login and auto-registers everyone else, gated on the
-  `git` group; git CLI clients authenticate with an HTTPS personal access token
-  or an SSH key, never OIDC. For these, layer-1
+  `git` group; git CLI clients authenticate with an HTTPS personal access token, never
+  OIDC. For these, layer-1
   reach and layer-2 identity are deliberately *decoupled*.
 
 So the same question — "what can this user do?" — is answered in authentik (can they

@@ -7,17 +7,15 @@
 # ------
 # - NixOS-native service (no container) with a SQLite database: a small forge
 #   needs nothing more, and its whole state is one directory.
-# - HTTPS clone/pull/push with personal access tokens from the web UI, and SSH
-#   clone/pull/push through Forgejo's own SSH server on port 2222. That server
-#   is separate from the admin sshd on 22, so it changes neither who can log in
-#   to the host nor the deploy path.
+# - HTTP(S) only. SSH clone would need a second SSH daemon on a free port, so
+#   clone/push/pull go over HTTPS with personal access tokens from the web UI.
 # - Login is Authentik over OIDC: the catalogue provisions the OAuth2 provider
 #   and application (client id "forgejo"). Forgejo keeps its own accounts, so
 #   the bootstrap pre-creates the owner's account as the admin with a
-#   break-glass password, and OIDC links to it (ACCOUNT_LINKING = auto, and
-#   USERNAME = nickname, the claim Authentik fills with the username); every
-#   other Authentik user is auto-registered on first sign-in. This is the
-#   Vaultwarden model, except Forgejo links by username rather than by email.
+#   break-glass password, and OIDC links to it (ACCOUNT_LINKING = auto, username
+#   from preferred_username); every other Authentik user is auto-registered on
+#   first sign-in. This is the Vaultwarden model, except Forgejo links by
+#   username rather than by email.
 #
 # Secrets
 # -------
@@ -92,7 +90,6 @@ in
   lanbat.services.forgejo = {
     subdomain = "git";
     inherit port;
-    extraPorts = [ 2222 ]; # Forgejo's built-in SSH server
     auth = "app";
     # Forgejo's OIDC callback. The source name is part of the path, so keep
     # authSource above in step with the auth source the bootstrap adds.
@@ -129,21 +126,13 @@ in
 
     settings = {
       server = {
-        # Localhost HTTP; Caddy is the public entry point.
+        # Localhost only; Caddy is the public entry point.
         HTTP_ADDR = "127.0.0.1";
         HTTP_PORT = port;
         DOMAIN = "git.${domain}";
         ROOT_URL = "https://git.${domain}/";
-
-        # SSH clone/push through Forgejo's built-in server on 2222, separate
-        # from the admin sshd on 22. SSH_DOMAIN and SSH_PORT are what the clone
-        # URLs show: ssh://git@git.<domain>:2222/<owner>/<repo>.git.
-        DISABLE_SSH = false;
-        START_SSH_SERVER = true;
-        SSH_LISTEN_HOST = "0.0.0.0";
-        SSH_LISTEN_PORT = 2222;
-        SSH_PORT = 2222;
-        SSH_DOMAIN = "git.${domain}";
+        # HTTPS clone URLs; no separate SSH daemon.
+        DISABLE_SSH = true;
       };
 
       # Accounts come from OIDC auto-registration, not open signup.
@@ -156,9 +145,7 @@ in
       oauth2_client = {
         ENABLE_AUTO_REGISTRATION = true;
         ACCOUNT_LINKING = "auto";
-        # Forgejo accepts userid, nickname or email here; Authentik's nickname
-        # claim is the username, so it is the one that links to the owner.
-        USERNAME = "nickname";
+        USERNAME = "preferred_username";
         OPENID_CONNECT_SCOPES = "openid email profile";
         UPDATE_AVATAR = true;
         REGISTER_EMAIL_CONFIRM = false;
@@ -166,27 +153,9 @@ in
     };
   };
 
-  # SSH clone/push. Forgejo's built-in server listens on 2222; the admin sshd
-  # stays on 22, so this adds no way into the host itself.
-  networking.firewall.allowedTCPPorts = [ 2222 ];
-
-  # The state directory is a bind mount from the workload layer. On an
-  # incremental switch (workload-online.target already active) the mount can
-  # start late, so order the secret helper and the service after it. Otherwise
-  # the three credential files can land on two different filesystems: the
-  # mount appears between the writes, hiding the first one.
-  systemd.services.forgejo-secrets = {
-    requires = [ "var-lib-forgejo.mount" ];
-    after = [ "var-lib-forgejo.mount" ];
-  };
-
   # The OIDC token exchange calls https://auth.<domain> server-side; trust
   # Caddy's internal CA (global environment.variables do not reach units).
-  systemd.services.forgejo = {
-    requires = [ "var-lib-forgejo.mount" ];
-    after = [ "var-lib-forgejo.mount" ];
-  }
-  // lib.optionalAttrs hasSso {
+  systemd.services.forgejo = lib.mkIf hasSso {
     environment.SSL_CERT_FILE = "/var/lib/caddy-local-ca/ca-certificates.crt";
   };
 
