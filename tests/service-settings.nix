@@ -577,6 +577,20 @@ let
     (lanbatLib.mkProfile "example" (hostsWithModules {
       pi-storage = [ { lanbat.services.kodi.settings.adulthideout = true; } ];
     })).configurations.example-pi-storage.config;
+  # A profile that wants more on-screen keyboard layouts than Kodi keeps.
+  tvBoxFourLayouts =
+    (lanbatLib.mkProfile "example" (hostsWithModules {
+      pi-storage = [
+        {
+          lanbat.services.kodi.settings.keyboardLayouts = [
+            "English QWERTY"
+            "Bulgarian ЯВЕРТЪ"
+            "Bulgarian АБВ"
+            "Russian ЙЦУКЕН"
+          ];
+        }
+      ];
+    })).configurations.example-pi-storage.config;
   # The Kodi package the TV box runs, as the module composes it: nixpkgs'
   # kodi-gbm plus the addons the settings switch on. The TV box is a Pi 5, so
   # the expected packages come from the aarch64 nixpkgs the platform evaluates
@@ -1553,6 +1567,54 @@ let
       # Stopped with Kodi (partOf); a deploy that changes the Kodi package
       # must not treat the TERM as a failed scan and roll itself back.
       && lib.elem "SIGTERM" scan.serviceConfig.SuccessExitStatus
+    ))
+
+    # Kodi's on-screen keyboard opens on its first layout, and its layout
+    # button cycles the rest; the phonetic Bulgarian layout ships in Kodi's
+    # system/keyboardlayouts.
+    (expect "tv box: the on-screen keyboard offers English and phonetic Bulgarian" (
+      lvaTvBox.lanbat.services.kodi.settings.keyboardLayouts == [
+        "English QWERTY"
+        "Bulgarian ЯВЕРТЪ"
+      ]
+      && failedAssertions lvaTvBox == [ ]
+    ))
+
+    # The physical keyboard follows the on-screen layout: Kodi's libinput
+    # applies input.libinputkeyboardlayout, which kodi-keyboard-layout sets,
+    # and tv-kodi's xkb root makes "bg" the phonetic layout Kodi cannot name
+    # as a variant. The same TV keyboard's media keys are a separate HID
+    # "Consumer Control" interface that Kodi grabs but does not map; the udev
+    # rule hides it from libinput and kodi-volume-keys reads it into Kodi.
+    (expect "tv box: the keyboard layout follows and its volume keys reach Kodi" (
+      lvaTvBox.systemd.services ? kodi-keyboard-layout
+      &&
+        lvaTvBox.systemd.services.kodi-keyboard-layout.environment.KODI_PORT
+        == toString lvaTvBox.lanbat.services.kodi-events.endpoint.port
+      && lib.hasInfix "xkb-phonetic-root" (
+        toString lvaTvBox.systemd.services.tv-kodi.environment.XKB_CONFIG_ROOT
+      )
+      # Ctrl+Alt+K presses the keyboard dialog's layout button (control 309
+      # of window 10103), which is what switches both keyboards.
+      && lib.any (
+        r: lib.hasPrefix "L+ /home/media/.kodi/userdata/keymaps/keyboard-layout.xml" r
+      ) lvaTvBox.systemd.tmpfiles.rules
+      # The volume-key service follows the configured device and Kodi's
+      # event port, and the udev rule makes it root-only and libinput-ignored.
+      &&
+        lvaTvBox.systemd.services.kodi-volume-keys.environment.VOLUME_DEVICE
+        == lvaTvBox.lanbat.services.kodi.settings.volumeKeysDevice
+      &&
+        lvaTvBox.systemd.services.kodi-volume-keys.environment.KODI_PORT
+        == toString lvaTvBox.lanbat.services.kodi-events.endpoint.port
+      && lib.hasInfix "ENV{LIBINPUT_IGNORE_DEVICE}=\"1\"" lvaTvBox.services.udev.extraRules
+      && lib.hasInfix "ATTRS{name}==\"*Consumer Control*\"" lvaTvBox.services.udev.extraRules
+    ))
+
+    # locale.keyboardlayouts is a Kodi list setting with at most three items;
+    # a fourth is dropped (or worse) silently if it reaches guisettings.xml.
+    (expect "tv box: more than three keyboard layouts is refused" (
+      lib.any (lib.hasInfix "at most three layouts") (failedAssertions tvBoxFourLayouts)
     ))
 
     # The library sources come from settings: the repository's layout by

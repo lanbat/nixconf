@@ -178,8 +178,9 @@ let
   # state "present": a missing user is created with exactly these attributes
   # (never a password), and an existing user is brought to exactly them — the
   # declared email and groups are the account's whole truth afterwards.
-  # Sorted by username, so the blueprint's order does not depend on how the
-  # option's attrset happened to be ordered.
+  # Emails are marked verified, so services that reject unverified emails over
+  # OIDC (RomM, Vaultwarden) accept them. Sorted by username, so the blueprint's
+  # order does not depend on how the option's attrset happened to be ordered.
   userEntries = map (
     username:
     let
@@ -193,6 +194,10 @@ let
         inherit username;
         name = user.name;
         email = user.email;
+        # Mark the email verified: RomM (and Vaultwarden's SSO) reject an
+        # OIDC login when the `email` scope returns email_verified: false,
+        # and no email-verification flow exists here to set it otherwise.
+        is_email_verified = true;
       }
       // lib.optionalAttrs (user.groups != null && user.groups != [ ]) {
         groups = map (g: find "authentik_core.group" "name" g) user.groups;

@@ -58,21 +58,19 @@ pkgs.runCommand "backup-server-check" { nativeBuildInputs = [ pkgs.rsync ]; } ''
     | grep -qE '^\s*copy_state /var/lib/jackett +jackett\s*$' \
     || { echo "FAIL: /var/lib/jackett is not backed up with the workload state"; exit 1; }
 
-  # Frigate's event database is always-on state; its clips and recordings are
-  # media and stay out of the backup.
-  grep -qE '^copy_state /var/lib/frigate/db +frigate-db$' ${../pkgs/scripts/backup-server.sh} \
-    || { echo "FAIL: /var/lib/frigate/db is not backed up"; exit 1; }
-  grep -qE '^copy_state /var/lib/frigate +frigate \\$' ${../pkgs/scripts/backup-server.sh} \
-    || { echo "FAIL: Frigate's config is not backed up"; exit 1; }
+  # Frigate's config is rendered from the profile and its event database is
+  # deliberately left out of the backup (clips and recordings are media), so
+  # no Frigate path is archived by this script.
+  if grep -qE '^\s*copy_state /var/lib/frigate' ${../pkgs/scripts/backup-server.sh}; then
+    echo "FAIL: Frigate's state is no longer archived"; exit 1
+  fi
 
-  # The rebuildable and removed databases are skipped, and the data is no
-  # longer duplicated by a full pg_dumpall.
-  grep -q 'SKIP_DATABASES=.*bitmagnet' ${../pkgs/scripts/backup-server.sh} \
-    || { echo "FAIL: bitmagnet is not skipped by default"; exit 1; }
-  grep -q 'pg_dumpall $conn --globals-only' ${../pkgs/scripts/backup-server.sh} \
-    || { echo "FAIL: pg_dumpall does not dump the globals"; exit 1; }
-  if grep -q 'pg_dumpall $conn --clean' ${../pkgs/scripts/backup-server.sh}; then
-    echo "FAIL: pg_dumpall still dumps the data a second time"; exit 1
+  # A full pg_dumpall (roles plus every database) replaces the per-database
+  # skip list; nothing is excluded by name any more.
+  grep -q 'pg_dumpall $conn --clean --if-exists' ${../pkgs/scripts/backup-server.sh} \
+    || { echo "FAIL: pg_dumpall does not dump everything with --clean --if-exists"; exit 1; }
+  if grep -q 'SKIP_DATABASES' ${../pkgs/scripts/backup-server.sh}; then
+    echo "FAIL: skipDatabases is gone"; exit 1
   fi
 
   # No state copy bypasses copy_state.

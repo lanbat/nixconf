@@ -8,6 +8,9 @@
     rootDomain = "example.com";
     gatewayIp = "192.0.2.1";
     lanSubnet = "192.0.2.0/24";
+    # Optional — the LAN's IPv6 subnet (a ULA prefix, usually), so services
+    # that also listen on IPv6 can admit it. Null means IPv4 only.
+    # lanSubnet6 = "fd2c:99c9:b482:1::/64";
     nfsIdmapdDomain = "home.lan";
     timezone = "UTC";
     phoneRegion = "GB";

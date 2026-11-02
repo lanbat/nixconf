@@ -199,19 +199,6 @@ let
 
 in
 {
-  options.lanbat.backups.skipDatabases = lib.mkOption {
-    type = lib.types.listOf lib.types.str;
-    default = [
-      "bitmagnet"
-      "nextcloud"
-    ];
-    description = ''
-      Databases to leave out of backup-server's per-database dumps.
-      bitmagnet's torrent index re-crawls from scratch and nextcloud was
-      removed; neither is worth the space.
-    '';
-  };
-
   config = {
     environment.systemPackages = [ pkgs.restic ];
 
@@ -234,9 +221,8 @@ in
         util-linux # runuser, to dump as postgres
       ];
       # The databases each PostgreSQL instance holds, as the profile declares
-      # them (lanbat.postgresql.databases), each dumped on its own. skipDatabases
-      # is carried separately so the script can leave out the rebuildable or
-      # removed ones.
+      # them (lanbat.postgresql.databases), each dumped on its own besides
+      # pg_dumpall.
       environment =
         let
           on =
@@ -250,7 +236,6 @@ in
         {
           BACKUP_DATABASES_ALWAYS_ON = on "always-on";
           BACKUP_DATABASES_WORKLOAD = on "workload";
-          BACKUP_SKIP_DATABASES = lib.concatStringsSep " " cfg.backups.skipDatabases;
         };
       serviceConfig = {
         Type = "oneshot";

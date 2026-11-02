@@ -4,18 +4,14 @@
 # Backup critical server-local state to Pi storage (Drive B, /backups).
 #
 # Backs up:
-#   - PostgreSQL, both instances (per-database dumps of the databases the
-#     profile declares on each, BACKUP_DATABASES_* from the unit, plus the
-#     globals for roles); the workload instance only while unlocked.
-#     Databases named in BACKUP_SKIP_DATABASES are left out: bitmagnet's
-#     torrent index and the removed nextcloud database by default
-#   - /var/lib/frigate/db  (Frigate's event database; clips/recordings are media)
+#   - PostgreSQL, both instances (pg_dumpall + per-database dumps of the
+#     databases the profile declares on each, BACKUP_DATABASES_* from the unit);
+#     the workload instance only while unlocked
 #   - /var/lib/hass  (Home Assistant)
 #   - /var/lib/caddy (Caddy config + CA keys — required)
 #   - /var/lib/tang  (Tang private keys — required; control layer only)
 #   - /var/lib/authentik
 #   - /var/lib/invidious (hmac key; its database comes from the PostgreSQL dump)
-#   - /var/lib/immich/profile
 #   - /var/lib/music-assistant
 #   - /var/lib/qbittorrent
 #   - /var/lib/jackett (indexers with their credentials, and the API key)
@@ -49,10 +45,6 @@ set -euo pipefail
 BACKUP_DIR=/srv/storage/b/backups/server
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 DEST=$BACKUP_DIR/$TIMESTAMP
-# Databases to leave out. The unit overrides this from
-# lanbat.backups.skipDatabases; bitmagnet's index re-crawls and nextcloud was
-# removed, so neither is worth the space.
-SKIP_DATABASES=${BACKUP_SKIP_DATABASES:-"bitmagnet nextcloud"}
 
 control_online() { systemctl is-active --quiet control-online.target; }
 workload_online() { systemctl is-active --quiet workload-online.target; }
@@ -103,15 +95,10 @@ dump_instance() {
   shift 2
   echo "  Dumping PostgreSQL ($label)..."
   install -d "$DEST/postgres-$label"
-  # Roles and privileges only; the data comes from the per-database dumps.
   # shellcheck disable=SC2086
-  runuser -u postgres -- pg_dumpall $conn --globals-only | \
-    gzip > "$DEST/postgres-$label/globals.sql.gz"
+  runuser -u postgres -- pg_dumpall $conn --clean --if-exists | \
+    gzip > "$DEST/postgres-$label/pg_dumpall.sql.gz"
   for db in "$@"; do
-    if [ -n "$SKIP_DATABASES" ] && [[ " $SKIP_DATABASES " == *" $db "* ]]; then
-      echo "  Skipping PostgreSQL database $db (excluded from backups)"
-      continue
-    fi
     # shellcheck disable=SC2086
     runuser -u postgres -- pg_dump $conn --clean --if-exists "$db" | \
       gzip > "$DEST/postgres-$label/${db}.sql.gz"
@@ -133,16 +120,11 @@ fi
 # Service state
 # ---------------------------------------------------------------------------
 echo "  Backing up always-on service state..."
-# Frigate's config is rendered from the profile (lanbat.services.frigate.settings).
 copy_state /var/lib/hass            hass
 copy_required_state /var/lib/caddy  caddy
 copy_state /var/lib/authentik       authentik
 copy_state /var/lib/invidious       invidious
 copy_state /var/lib/music-assistant music-assistant
-copy_state /var/lib/frigate/db      frigate-db
-copy_state /var/lib/frigate         frigate \
-  --exclude 'db/' --exclude 'clips/' --exclude 'recordings/' \
-  --exclude 'model_cache/' --exclude 'models/'
 
 if control_online; then
   echo "  Backing up control-layer state..."
@@ -156,7 +138,6 @@ if workload_online; then
   copy_state /var/lib/qbittorrent           qbittorrent
   copy_state /var/lib/jackett               jackett
   copy_state /var/lib/bitmagnet             bitmagnet
-  copy_state /var/lib/immich/profile        immich-profile
   copy_state /var/lib/audiobookshelf/config audiobookshelf-config
 
   # The vault: attachments, sends and keys by rsync, and the live database

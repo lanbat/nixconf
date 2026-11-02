@@ -8,6 +8,7 @@ let
   inherit (lib) mkOption types;
 
   ipv4 = types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}";
+  ipv6Cidr = types.strMatching "[0-9a-fA-F:]+/([0-9]|[1-9][0-9]|1[0-2][0-9])";
 
   hostSubmodule = types.submodule {
     options = {
@@ -149,6 +150,17 @@ in
         type = types.strMatching "([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}";
         example = "192.168.1.0/24";
         description = "LAN subnet in CIDR notation.";
+      };
+
+      lanSubnet6 = mkOption {
+        type = types.nullOr ipv6Cidr;
+        default = null;
+        example = "fd2c:99c9:b482:1::/64";
+        description = ''
+          IPv6 subnet of the LAN in CIDR notation, when the LAN has one. The
+          generated service policy is IPv4 only, so a service that also listens
+          on IPv6 admits this prefix explicitly; null means IPv4 only.
+        '';
       };
 
       nfsIdmapdDomain = mkOption {
@@ -537,7 +549,9 @@ in
               user with exactly these attributes — never a password, which is
               set in the instance's UI — and brings an existing user to
               exactly them, so the declared name, email and groups are the
-              account's whole truth afterwards.
+              account's whole truth afterwards. The email is marked verified,
+              so services that reject unverified emails over OIDC (RomM,
+              Vaultwarden) accept it.
             '';
           };
         };
