@@ -86,7 +86,7 @@ let
   # Called from HA's own Python package set, which provides its dependencies,
   # as nixpkgs calls home-assistant-custom-components.
   authOidcComponent =
-    pkgs.home-assistant.python.pkgs.callPackage ../pkgs/home-assistant-auth-oidc
+    pkgs.home-assistant.python3Packages.callPackage ../pkgs/home-assistant-auth-oidc
       { };
   oidcSecret = pkgs.callPackage ../pkgs/home-assistant-oidc-secret { };
   bootstrap = pkgs.callPackage ../pkgs/home-assistant-bootstrap { };
@@ -1826,7 +1826,8 @@ in
 
     services.home-assistant = {
       enable = true;
-      openFirewall = false; # Caddy handles exposure.
+      # Caddy handles exposure; HA's frontend port is no longer known at eval
+      # time, so there is no openFirewall option to set.
 
       # PostgreSQL driver for the recorder, and `ical` for the calendar platform
       # that the local to-do and calendar lists sit on: without it local_todo

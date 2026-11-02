@@ -52,8 +52,8 @@ let
 
   # auth_oidc rejects unknown keys and then never sets up, leaving only the
   # password login: validate against the packaged component's own schema.
-  authOidc = pkgs.home-assistant.python.pkgs.callPackage ../pkgs/home-assistant-auth-oidc { };
-  python = pkgs.home-assistant.python.withPackages (ps: [ ps.voluptuous ]);
+  authOidc = pkgs.home-assistant.python3Packages.callPackage ../pkgs/home-assistant-auth-oidc { };
+  python = pkgs.home-assistant.python3Packages.python.withPackages (ps: [ ps.voluptuous ]);
   configJson = pkgs.writeText "auth_oidc.json" (builtins.toJSON { auth_oidc = oidc; });
   validate = pkgs.writeText "validate-auth-oidc.py" ''
     import importlib.util, json, pathlib, sys, types

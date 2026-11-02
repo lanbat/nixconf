@@ -26,7 +26,8 @@ Authentik runs on the always-on tier as two rootless containers
 
 State lives on the **always-on** PostgreSQL instance (not the workload one) and the
 shared Redis (`lanbat.redis.databases.authentik.index = 0`). The version is pinned
-(`2024.12.2`), so a NixOS update does not silently upgrade the IdP.
+(`2026.8.5`), so a NixOS update does not silently upgrade the IdP. Authentik
+only supports sequential upgrades; see `docs/operations.md` § Upgrading Authentik.
 
 The **embedded outpost** in `authentik-server` is what answers Caddy's forward-auth
 calls at `/outpost.goauthentik.io/auth/caddy` and what serves the OIDC endpoints

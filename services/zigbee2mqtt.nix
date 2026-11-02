@@ -36,7 +36,6 @@
   pkgs,
   lib,
   utils,
-  inputs,
   ...
 }:
 
@@ -45,20 +44,6 @@ let
   # dev-zigbee.device for /dev/zigbee.  systemd only creates it because the
   # udev rule below tags the device for systemd.
   serialDevice = "${utils.escapeSystemdPath serialPort}.device";
-
-  # Pinned from nixpkgs-z2m rather than this flake's nixpkgs (2.9.1).  2.9.1's
-  # zigbee-herdsman-converters lists the TS0601_soil_3 definition but not the
-  # manufacturer name our soil sensor reports, so the device lands as an
-  # "Automatically generated definition" exposing only battery and linkquality.
-  # Some Tuya batches report a malformed name -- ours sends
-  # "_TZE2841000000_tgrzpqf4" instead of "_TZE284_tgrzpqf4" -- and Z2M matches
-  # manufacturerName exactly.  Upstream converters carry both spellings; 2.14.1
-  # bundles zigbee-herdsman-converters 26.105.0, which has ours.
-  #
-  # The override lapses by itself once nixpkgs ships 2.14.1 or newer, and is
-  # skipped for a flake that consumes lanbat without the nixpkgs-z2m input.
-  pinned = inputs.nixpkgs-z2m.legacyPackages.${pkgs.stdenv.hostPlatform.system}.zigbee2mqtt;
-  usePinned = inputs ? nixpkgs-z2m && lib.versionOlder pkgs.zigbee2mqtt.version pinned.version;
 in
 {
   lanbat.services.zigbee2mqtt = {
@@ -92,8 +77,6 @@ in
 
   services.zigbee2mqtt = {
     enable = true;
-
-    package = lib.mkIf usePinned pinned;
 
     settings = {
       # Zigbee dongle — created by udev rule below.

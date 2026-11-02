@@ -61,6 +61,7 @@
 {
   config,
   lib,
+  options,
   pkgs,
   ...
 }:
@@ -271,8 +272,17 @@ in
   networking.firewall.extraStopCommands = lib.concatLines stopCommands;
 
   # IPv4-only mDNS — see Discovery above.  Merged into avahi-daemon.conf from
-  # services/samba.nix.
-  services.avahi.ipv6 = false;
+  # services/samba.nix.  NixOS 26.11 moved avahi's options under `settings`,
+  # but nixos-raspberrypi still pins a 26.05 nixpkgs for the Pi 5.
+  services.avahi =
+    if options.services.avahi ? settings then
+      {
+        settings.server.use-ipv6 = false;
+      }
+    else
+      {
+        ipv6 = false;
+      };
 
   # Let snapserver register _snapcast._tcp with avahi-daemon (already enabled
   # for Samba in services/samba.nix).  Upstream fix: nixpkgs#548066.

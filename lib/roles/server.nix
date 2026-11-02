@@ -73,13 +73,13 @@ args@{
 
       # Large container crashes must not fill the host root or monopolise I/O
       # while systemd-coredump compresses multi-gigabyte process images.
-      systemd.coredump.extraConfig = ''
-        Storage=external
-        ProcessSizeMax=1G
-        ExternalSizeMax=1G
-        MaxUse=2G
-        KeepFree=15G
-      '';
+      systemd.coredump.settings.Coredump = {
+        Storage = "external";
+        ProcessSizeMax = "1G";
+        ExternalSizeMax = "1G";
+        MaxUse = "2G";
+        KeepFree = "15G";
+      };
 
       systemd.tmpfiles.rules = [
         "d /var/lib/homelab 0755 root root -"

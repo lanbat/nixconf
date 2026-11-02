@@ -4,10 +4,10 @@
 
 # Music Assistant's BBC Sounds provider needs it, and nixpkgs does not package
 # it yet ("missing auntie-sounds" in the music-assistant package's providers).
-# Pure Python; the wheel is the version the provider pins (MA 2.7.x).
+# Pure Python; the wheel is the version the provider pins (MA 2.10.x).
 python3Packages.buildPythonPackage rec {
   pname = "auntie-sounds";
-  version = "1.1.7";
+  version = "2.0.9";
   format = "wheel";
 
   src = python3Packages.fetchPypi {
@@ -15,18 +15,16 @@ python3Packages.buildPythonPackage rec {
     inherit version format;
     dist = "py3";
     python = "py3";
-    sha256 = "b04fc0e20e3981d3a592131a21ba181dadc005f69c7fcfd17131ed5e5fc83ac1";
+    sha256 = "81ef9e3332ea1032687ba78a9d0f78cf4f3157f5441204b20b43029e4d2d5d57";
   };
 
   dependencies = with python3Packages; [
     aiohttp
     appdirs
-    attrs
     beautifulsoup4
     colorlog
     pytz
     typing-extensions
-    yarl
   ];
 
   # Importing it creates its cache directory under $HOME, which the build

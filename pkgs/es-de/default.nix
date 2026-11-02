@@ -14,13 +14,13 @@
 
 let
   pname = "es-de";
-  version = "3.4.1";
+  version = "3.5.0";
 
-  # "ES-DE_aarch64.AppImage" of https://gitlab.com/es-de/emulationstation-de/-/releases/v3.4.1
+  # "ES-DE_aarch64.AppImage" of https://gitlab.com/es-de/emulationstation-de/-/releases/v3.5.0
   src = fetchurl {
-    url = "https://gitlab.com/es-de/emulationstation-de/-/package_files/326321114/download";
+    url = "https://gitlab.com/es-de/emulationstation-de/-/package_files/357718204/download";
     name = "ES-DE_aarch64.AppImage";
-    hash = "sha256-uE6rq+bWOIIjz4sWWLsje8ASU2KsqucOHs5VOXwetBQ=";
+    hash = "sha256-ttNGV4QtuJYo1bxC7UZbYFEItFyx0WsVMy1sn2ATaks=";
   };
 
   extracted = appimageTools.extract { inherit pname version src; };

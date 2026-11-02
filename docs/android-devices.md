@@ -282,8 +282,8 @@ androidDevices.bedroom = {
 ```
 
 The pinned asset glob (`argosy-v*.[0-9].apk`) matches Argosy's universal release,
-`argosy-v<version>.apk`, and not the per-ABI `argosy-v2.18.0-arm32.apk` or
-`argosy-v2.18.0-arm64.apk`. `apk_metadata` reads every ABI the universal APK contains
+`argosy-v<version>.apk`, and not the per-ABI `argosy-v2.27.3-arm32.apk` or
+`argosy-v2.27.3-arm64.apk`. `apk_metadata` reads every ABI the universal APK contains
 (`arm64-v8a` and `armeabi-v7a` among them), so one lockfile entry serves every box. It
 has to be one: `update.resolve_github` keys its result by repo, `write_lockfile` builds
 `{ key: entry }` and the module looks up `lock.${g.repo}`, so a second `github` entry for

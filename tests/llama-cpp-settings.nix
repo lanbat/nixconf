@@ -45,7 +45,7 @@ let
   failedAssertions = config: map (a: a.message) (lib.filter (a: !a.assertion) config.assertions);
 
   rejects =
-    config: !(builtins.tryEval (builtins.deepSeq config.services.llama-cpp.extraFlags true)).success;
+    config: !(builtins.tryEval (builtins.deepSeq config.services.llama-cpp.settings true)).success;
 
   local = model: {
     baseUrl = "http://127.0.0.1:8091/v1";
@@ -73,8 +73,8 @@ let
   };
   none = evalLlm { haLlm = null; };
 
-  # ExecStart quotes every argument: "--alias" "qwen3-1.7b".
-  flag = name: value: "\"${name}\" \"${value}\"";
+  # ExecStart joins every argument with a space: --alias qwen3-1.7b.
+  flag = name: value: "${name} ${value}";
 
   execStart = config: config.systemd.services.llama-cpp.serviceConfig.ExecStart;
   limits = config: config.systemd.services.llama-cpp.serviceConfig;
@@ -82,8 +82,8 @@ let
   checks = {
     "a loopback haLlm runs the service" = small.services.llama-cpp.enable;
     "it listens on the loopback only" =
-      small.services.llama-cpp.host == "127.0.0.1"
-      && small.services.llama-cpp.port == 8091
+      small.services.llama-cpp.settings.host == "127.0.0.1"
+      && small.services.llama-cpp.settings.port == 8091
       && !small.services.llama-cpp.openFirewall;
     "it has no vhost" = small.lanbat.services.llama-cpp.subdomain == null;
     "an outside API does not" =
@@ -102,7 +102,7 @@ let
       lib.hasInfix (flag "--parallel" "1") (execStart small)
       && lib.hasInfix "--cache-reuse" (execStart small);
     "thinking is off" = lib.hasInfix "enable_thinking" (execStart small);
-    "the template carries the tools" = lib.hasInfix "\"--jinja\"" (execStart small);
+    "the template carries the tools" = lib.hasInfix "--jinja" (execStart small);
 
     "the unit is capped" =
       (limits small).CPUQuota == "400%"

@@ -8,16 +8,16 @@
 buildHomeAssistantComponent rec {
   owner = "jekalmin";
   domain = "extended_openai_conversation";
-  version = "2.0.2";
+  version = "2.0.3";
 
   src = fetchFromGitHub {
     owner = "jekalmin";
     repo = "extended_openai_conversation";
     tag = version;
-    hash = "sha256-ewtpS/wxOZkCQD1qIip/gIQ3jbyi5wp0b2DypuyISV8=";
+    hash = "sha256-jGOL7CmdJzZ/5lW+9aMz5MkiHK8X/9wFYA6tacK1laI=";
   };
 
-  dependencies = [ home-assistant.python.pkgs.openai ];
+  dependencies = [ home-assistant.python3Packages.openai ];
 
   # The manifest pins openai~=2.21.0; Home Assistant ships a newer 2.x.
   ignoreVersionRequirement = [ "openai" ];

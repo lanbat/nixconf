@@ -71,25 +71,7 @@ let
 
   cfg = config.lanbat.services.jellyfin.settings;
 
-  # Jellyfin 10.11.7 rejects every subtitle it downloads with "Invalid subtitle
-  # format: srt": it checks ".srt" against a list of formats kept without the
-  # dot. The Open Subtitles plugin still counts each attempt against the
-  # account's daily allowance, so the "Download missing subtitles" task uses it
-  # all up and saves nothing. Fixed upstream in 10.11.8 (jellyfin/jellyfin#16539);
-  # the patch lapses by itself once nixpkgs ships that.
-  jellyfin =
-    if lib.versionOlder pkgs.jellyfin.version "10.11.8" then
-      pkgs.jellyfin.overrideAttrs (old: {
-        patches = (old.patches or [ ]) ++ [
-          (pkgs.fetchpatch {
-            name = "jellyfin-fix-subtitle-saving.patch";
-            url = "https://github.com/jellyfin/jellyfin/commit/f51c63e244436944d5269085a1bed1e56db7a78e.diff";
-            hash = "sha256-03twZ67OAM1lHyUldRHh/efGyruHvD6kUxOvdydV6uo=";
-          })
-        ];
-      })
-    else
-      pkgs.jellyfin;
+  jellyfin = pkgs.jellyfin;
 
   jellyfinSettings = {
     options.imvdb = lib.mkOption {

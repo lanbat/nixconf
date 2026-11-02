@@ -482,12 +482,27 @@ systemctl restart podman-authentik-server podman-authentik-worker
 ### Upgrading Authentik
 
 Authentik is pinned to a specific version in `services/authentik/default.nix`
-(`authentikVersion`). To upgrade:
+(`authentikVersion`). It only supports sequential upgrades: do not skip a
+release series. From the 2024.12 pin, the supported path is:
 
-1. Check the [Authentik release notes](https://docs.goauthentik.io/docs/releases) —
-   Authentik requires sequential upgrades (do not skip major versions).
-2. Update `authentikVersion`.
-3. Deploy: `deploy --skip-checks path:.#homelab-server`
+```
+2024.12.5 → 2025.2.4 → 2025.4.4 → 2025.6.4 → 2025.8.6
+→ 2025.10.4 → 2025.12.6 → 2026.2.7 → 2026.5.8 → 2026.8.5
+```
+
+Each hop is a separate commit in the upgrade branch. For every hop:
+
+1. Read that release's notes at
+   <https://docs.goauthentik.io/docs/releases>.
+2. Check out the commit, deploy the server
+   (`deploy --skip-checks path:.#homelab-server`), and wait for both
+   `podman-authentik-server` and `podman-authentik-worker` to finish their
+   migrations (`journalctl -u podman-authentik-server -u podman-authentik-worker`).
+3. Sign in to `https://auth.<domain>` and open an application through
+   forward-auth, then move to the next commit.
+
+Back up the Authentik database before the first hop. Do not squash these
+commits when merging: the order is the upgrade.
 
 ### Adding a user
 

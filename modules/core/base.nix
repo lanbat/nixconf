@@ -4,6 +4,7 @@
 # Nix daemon options, basic packages, and a few quality-of-life tweaks.
 {
   config,
+  options,
   pkgs,
   lib,
   ...
@@ -92,8 +93,21 @@
   # ---------------------------------------------------------------------------
   # Basic audit trail
   # ---------------------------------------------------------------------------
-  services.journald.extraConfig = ''
-    SystemMaxUse=2G
-    MaxRetentionSec=90day
-  '';
+  # NixOS 26.11 moved journald's options under settings.Journal, but
+  # nixos-raspberrypi still pins a 26.05 nixpkgs for the Pi 5.
+  services.journald =
+    if options.services.journald ? settings then
+      {
+        settings.Journal = {
+          SystemMaxUse = "2G";
+          MaxRetentionSec = "90day";
+        };
+      }
+    else
+      {
+        extraConfig = ''
+          SystemMaxUse=2G
+          MaxRetentionSec=90day
+        '';
+      };
 }
