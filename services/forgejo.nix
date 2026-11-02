@@ -131,8 +131,16 @@ in
         HTTP_PORT = port;
         DOMAIN = "git.${domain}";
         ROOT_URL = "https://git.${domain}/";
-        # HTTPS clone URLs; no separate SSH daemon.
-        DISABLE_SSH = true;
+        # SSH clone/push as the `forgejo` user through the host's sshd on 22.
+        # The nixpkgs module adds the `Match User forgejo` block and rewrites
+        # the forced command in ~forgejo/.ssh/authorized_keys on every start
+        # (`forgejo admin regenerate keys`). START_SSH_SERVER stays false so the
+        # module keeps using the system sshd. The clone URL is
+        # ssh://forgejo@git.<domain>/<owner>/<repo>.git.
+        DISABLE_SSH = false;
+        START_SSH_SERVER = false;
+        SSH_PORT = 22;
+        SSH_DOMAIN = "git.${domain}";
       };
 
       # Accounts come from OIDC auto-registration, not open signup.
