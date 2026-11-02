@@ -54,7 +54,7 @@ api_auth() {
   local token
   token="$(curl -fsS -X POST "${JELLYFIN_URL}/Users/AuthenticateByName" \
     -H "Content-Type: application/json" \
-    -H "X-Emby-Authorization: ${EMBY_CLIENT}" \
+    -H "Authorization: ${EMBY_CLIENT}" \
     -d "$(jq -n \
       --arg u "$OWNER_USERNAME" \
       --arg p "$OWNER_PASSWORD" \
@@ -64,7 +64,7 @@ api_auth() {
 }
 
 api_call() {
-  curl -fsS "$@" -H "X-Emby-Authorization: ${AUTH_HEADER}"
+  curl -fsS "$@" -H "Authorization: ${AUTH_HEADER}"
 }
 
 ensure_api_key() {
@@ -319,15 +319,11 @@ install_plugin() {
 }
 
 setup_plugin_repositories() {
-  local version sso_repo sso_name
-  version="$(curl -fsS "${JELLYFIN_URL}/System/Info/Public" | jq -r .Version)"
-  if [[ "$version" == 12.* ]]; then
-    sso_repo="https://raw.githubusercontent.com/Flowfin/jellyfin-plugin-sso/manifest-beta/manifest.json"
-    sso_name="Flowfin SSO"
-  else
-    sso_repo="https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json"
-    sso_name="SSO Auth"
-  fi
+  # The 9p4 "SSO Authentication" plugin (ABI 10.11) still loads on Jellyfin
+  # 12.x; the Flowfin fork this used to point at for 12.x no longer exists, so
+  # use the 9p4 manifest for every version.
+  local sso_repo="https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json"
+  local sso_name="SSO Auth"
 
   api_call -X POST "${JELLYFIN_URL}/Repositories" \
     -H 'Content-Type: application/json' \
@@ -378,13 +374,7 @@ setup_plugins() {
     restarted=true
   fi
 
-  local version
-  version="$(curl -fsS "${JELLYFIN_URL}/System/Info/Public" | jq -r .Version)"
-  if [[ "$version" == 12.* ]]; then
-    install_plugin "Community SSO for Jellyfin" "505ce9d1-d916-42fa-86ca-673ef241d7df" && restarted=true
-  else
-    install_plugin "SSO Authentication" "505ce9d1-d916-42fa-86ca-673ef241d7df" && restarted=true
-  fi
+  install_plugin "SSO Authentication" "505ce9d1-d916-42fa-86ca-673ef241d7df" && restarted=true
 
   if [[ "$restarted" == true ]]; then
     log "restarting Jellyfin to load new plugins"
@@ -537,9 +527,15 @@ refresh_new_provider_libraries() {
   done
 }
 
+# The SSO plugin's endpoints take the API key in the Authorization header
+# (`MediaBrowser Token="..."`); Jellyfin 12.x rejects the old `?api_key=` form.
+sso_api() {
+  curl -fsS -H "Authorization: MediaBrowser Token=\"${API_KEY}\"" "$@"
+}
+
 sso_configured() {
   ensure_api_key
-  curl -fsS "${JELLYFIN_URL}/sso/OID/Get?api_key=${API_KEY}" \
+  sso_api "${JELLYFIN_URL}/sso/OID/Get" \
     | jq -e '.authentik.Enabled == true' >/dev/null
 }
 
@@ -577,7 +573,7 @@ setup_sso() {
 
   ensure_api_key
   log "configuring Authentik OIDC provider"
-  curl -fsS -X POST "${JELLYFIN_URL}/sso/OID/Add/authentik?api_key=${API_KEY}" \
+  sso_api -X POST "${JELLYFIN_URL}/sso/OID/Add/authentik" \
     -H 'Content-Type: application/json' \
     -d "$(jq -n \
       --arg endpoint "https://auth.${AUTH_DOMAIN}/application/o/jellyfin/" \
