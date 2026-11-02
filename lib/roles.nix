@@ -60,6 +60,7 @@ let
         (bundle "clevis-unlock" (root + "/modules/storage/clevis-unlock.nix"))
         (bundle "nfs-exports" (root + "/modules/storage/nfs-exports.nix"))
         (bundle "storage" (root + "/modules/storage/storage.nix"))
+        (bundle "jellyfin-watch" (root + "/modules/storage/jellyfin-watch.nix"))
         (bundle "user-quotas" (root + "/modules/storage/user-quotas.nix"))
         (bundle "snapclient" (root + "/modules/pi/snapclient.nix"))
         (bundle "telegraf" (root + "/modules/pi/telegraf.nix"))
