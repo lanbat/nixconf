@@ -924,6 +924,12 @@ in
           Type = "oneshot";
           # Reads the media user's music database.
           User = "root";
+          # This unit is partOf tv-kodi, so a Kodi restart (a deploy that
+          # changes the Kodi package) stops the scan with SIGTERM. A oneshot
+          # killed that way counts as failed, which makes
+          # switch-to-configuration return 4 and deploy-rs roll the generation
+          # back; an expected stop is not a failure.
+          SuccessExitStatus = [ "SIGTERM" ];
         };
         path = [ kodiBootstrap ];
         environment = {
