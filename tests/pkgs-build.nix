@@ -19,7 +19,7 @@ let
         nativeBuildInputs = [ kodiBootstrap ];
       }
       ''
-        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos
+        mkdir -p $TMPDIR/.kodi/userdata $TMPDIR/media/documentary-series $TMPDIR/media/music-videos $TMPDIR/media/adult
         cat > $TMPDIR/.kodi/userdata/sources.xml <<EOF
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
         <sources>
@@ -35,10 +35,13 @@ let
         KODI_HOME=$TMPDIR \
           KODI_VIDEO_SOURCES="documentary-series|$TMPDIR/media/documentary-series/|tvshows|metadata.tvshows.themoviedb.org.python|0|0
         music-videos|$TMPDIR/media/music-videos/|musicvideos|metadata.local|1|0" \
+          KODI_FILE_SOURCES="Private|$TMPDIR/media/adult/" \
           kodi-bootstrap sources-xml
         grep -q "<name>Documentary Series</name>" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "$TMPDIR/media/documentary-series/" $TMPDIR/.kodi/userdata/sources.xml
         grep -q "<name>Music Videos</name>" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "<name>Private</name>" $TMPDIR/.kodi/userdata/sources.xml
+        grep -q "$TMPDIR/media/adult/" $TMPDIR/.kodi/userdata/sources.xml
         ! grep -q "old-name" $TMPDIR/.kodi/userdata/sources.xml
         touch $out
       '';
@@ -58,6 +61,9 @@ let
   kodiAdulthideout = pkgs.callPackage ../pkgs/kodi-addon-adulthideout {
     buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
     requests = pkgs.kodi-gbm.packages.requests;
+  };
+  kodiPrivateMedia = pkgs.callPackage ../pkgs/kodi-addon-private-media {
+    buildKodiAddon = pkgs.kodi-gbm.packages.buildKodiAddon;
   };
   androidProvision = pkgs.callPackage ../pkgs/android-provision { };
   xiaomiClockSync = pkgs.callPackage ../pkgs/xiaomi-clock-sync { };
@@ -87,6 +93,7 @@ pkgs.runCommand "pkgs-build-smoke"
       kodiTvPower
       kodiGlobalsearch
       kodiAdulthideout
+      kodiPrivateMedia
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -128,6 +135,10 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${kodiGlobalsearch}/share/kodi/addons/script.globalsearch/addon.xml
     test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/addon.xml
     test -f ${kodiAdulthideout}/share/kodi/addons/plugin.video.adulthideout/default.py
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/default.py
+    test -f ${kodiPrivateMedia}/share/kodi/addons/script.private-media/delete.py
+    grep -q 'kodi.context.item' ${kodiPrivateMedia}/share/kodi/addons/script.private-media/addon.xml
     command -v linux-voice-assistant
     test -f ${linuxVoiceAssistant}/bin/linux-voice-assistant
     test -f ${lvaHeyNabu}/hey_nabu.tflite
