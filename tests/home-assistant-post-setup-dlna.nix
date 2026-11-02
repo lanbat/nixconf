@@ -81,8 +81,8 @@ pkgs.runCommand "home-assistant-post-setup-dlna-check"
     entry="$(jq -r '.data.entries[] | select(.domain == "dlna_dmr") | .entry_id' "$CONFIG_ENTRIES")"
     echo '{"version":1,"minor_version":1,"key":"core.area_registry","data":{"areas":[{"id":"kitchen_id","name":"Kitchen","aliases":[],"floor_id":null,"icon":null,"labels":[],"picture":null,"humidity_entity_id":null,"temperature_entity_id":null,"created_at":"x","modified_at":"x"}]}}' > "$AREA_REGISTRY"
     jq -n --arg e "$entry" '{"version":1,"minor_version":1,"key":"core.device_registry","data":{"devices":[
-      {"id":"dlna_dev","name":"Echo & Show 8","config_entries":[$e],"area_id":null},
-      {"id":"other_dev","name":"A lamp","config_entries":["zzz"],"area_id":null}],"deleted_devices":[]}}' > "$DEVICE_REGISTRY"
+      {"id":"dlna_dev","name":"Echo & Show 8","config_entry_id":$e,"area_id":null},
+      {"id":"other_dev","name":"A lamp","config_entry_id":"zzz","area_id":null}],"deleted_devices":[]}}' > "$DEVICE_REGISTRY"
     got="$(satellite_areas_wanted)"
     [[ "$(jq -r '.data.devices[] | select(.id == "dlna_dev") | .area_id' <<< "$got")" == kitchen_id ]] \
       || { echo "the DLNA player was not put in the Kitchen" >&2; jq '.data.devices' <<< "$got" >&2; exit 1; }

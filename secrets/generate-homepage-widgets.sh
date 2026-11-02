@@ -77,19 +77,19 @@ curl -fsS "${JELLYFIN_URL}/System/Info/Public" | jq -e '.StartupWizardCompleted 
 EMBY_CLIENT='MediaBrowser Client="lanbat-homepage", Device="server", DeviceId="lanbat-homepage", Version="10.11.7"'
 TOKEN="$(curl -fsS -X POST "${JELLYFIN_URL}/Users/AuthenticateByName" \
   -H "Content-Type: application/json" \
-  -H "X-Emby-Authorization: ${EMBY_CLIENT}" \
+  -H "Authorization: ${EMBY_CLIENT}" \
   -d "$(jq -n --arg u "$OWNER_USERNAME" --arg p "$OWNER_PASSWORD" '{Username: $u, Pw: $p}')" \
   | jq -r .AccessToken)"
 AUTH_HEADER="${EMBY_CLIENT}, Token=\"${TOKEN}\""
-EXISTING="$(curl -fsS "${JELLYFIN_URL}/Auth/Keys" -H "X-Emby-Authorization: ${AUTH_HEADER}" \
+EXISTING="$(curl -fsS "${JELLYFIN_URL}/Auth/Keys" -H "Authorization: ${AUTH_HEADER}" \
   | jq -r --arg app "homepage" '[.Items[] | select(.AppName == $app) | .AccessToken] | last // empty')"
 if [[ -n "$EXISTING" ]]; then
   printf '%s' "$EXISTING"
   exit 0
 fi
 curl -fsS -X POST "${JELLYFIN_URL}/Auth/Keys?app=homepage" \
-  -H "X-Emby-Authorization: ${AUTH_HEADER}" -o /dev/null
-curl -fsS "${JELLYFIN_URL}/Auth/Keys" -H "X-Emby-Authorization: ${AUTH_HEADER}" \
+  -H "Authorization: ${AUTH_HEADER}" -o /dev/null
+curl -fsS "${JELLYFIN_URL}/Auth/Keys" -H "Authorization: ${AUTH_HEADER}" \
   | jq -r --arg app "homepage" '[.Items[] | select(.AppName == $app) | .AccessToken] | last'
 EOF
 )" || true
