@@ -8,9 +8,10 @@
 # - NixOS-native service (no container) with a SQLite database: a small forge
 #   needs nothing more, and its whole state is one directory.
 # - HTTPS clone/pull/push with personal access tokens from the web UI, and SSH
-#   clone/pull/push through Forgejo's own SSH server on port 2222. That server
-#   is separate from the admin sshd on 22, so it changes neither who can log in
-#   to the host nor the deploy path.
+#   clone/pull/push as the `forgejo` user through the host's sshd on 22. The
+#   nixpkgs module adds the sshd Match block and rewrites
+#   ~forgejo/.ssh/authorized_keys with the `forgejo serv` forced command, so the
+#   admin login path is unchanged.
 # - Login is Authentik over OIDC: the catalogue provisions the OAuth2 provider
 #   and application (client id "forgejo"). Forgejo keeps its own accounts, so
 #   the bootstrap pre-creates the owner's account as the admin with a
@@ -92,7 +93,6 @@ in
   lanbat.services.forgejo = {
     subdomain = "git";
     inherit port;
-    extraPorts = [ 2222 ]; # Forgejo's built-in SSH server
     auth = "app";
     # Forgejo's OIDC callback. The source name is part of the path, so keep
     # authSource above in step with the auth source the bootstrap adds.
@@ -135,14 +135,15 @@ in
         DOMAIN = "git.${domain}";
         ROOT_URL = "https://git.${domain}/";
 
-        # SSH clone/push through Forgejo's built-in server on 2222, separate
-        # from the admin sshd on 22. SSH_DOMAIN and SSH_PORT are what the clone
-        # URLs show: ssh://git@git.<domain>:2222/<owner>/<repo>.git.
+        # SSH clone/push as the `forgejo` user through the host's sshd on 22.
+        # The nixpkgs module adds the `Match User forgejo` block and rewrites
+        # the forced command in ~forgejo/.ssh/authorized_keys on every start
+        # (`forgejo admin regenerate keys`). START_SSH_SERVER stays false so the
+        # module keeps using the system sshd. The clone URL is
+        # ssh://forgejo@git.<domain>/<owner>/<repo>.git.
         DISABLE_SSH = false;
-        START_SSH_SERVER = true;
-        SSH_LISTEN_HOST = "0.0.0.0";
-        SSH_LISTEN_PORT = 2222;
-        SSH_PORT = 2222;
+        START_SSH_SERVER = false;
+        SSH_PORT = 22;
         SSH_DOMAIN = "git.${domain}";
       };
 
@@ -166,9 +167,8 @@ in
     };
   };
 
-  # SSH clone/push. Forgejo's built-in server listens on 2222; the admin sshd
-  # stays on 22, so this adds no way into the host itself.
-  networking.firewall.allowedTCPPorts = [ 2222 ];
+  # SSH clone/push goes through the host's sshd on 22 (the module adds a
+  # `Match User forgejo` block); no extra port or firewall rule is needed.
 
   # The state directory is a bind mount from the workload layer. On an
   # incremental switch (workload-online.target already active) the mount can
