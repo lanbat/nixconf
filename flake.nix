@@ -215,6 +215,9 @@
         home-assistant-post-setup-dlna = import ./tests/home-assistant-post-setup-dlna.nix {
           inherit pkgs;
         };
+        home-assistant-post-setup-entity-areas = import ./tests/home-assistant-post-setup-entity-areas.nix {
+          inherit pkgs;
+        };
         stackchan-bridge = import ./tests/stackchan-bridge.nix { inherit pkgs; };
         room-presence = import ./tests/room-presence.nix { inherit pkgs; };
         satellite-camera = import ./tests/satellite-camera.nix { inherit pkgs; };

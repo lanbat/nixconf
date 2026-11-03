@@ -1363,6 +1363,43 @@ ensure_device_areas() {
   rm -f "$tmp"
 }
 
+# ── Entities without a name represent their device ───────────────────────
+# Home Assistant refuses an entity that has no name of its own (so it
+# "represents its device") yet carries its own area: the area describes where
+# the device is, so it must sit on the device, not the entity. An entity left
+# like this raises a repair issue that stops being tolerated in 2027.2.0.
+# This clears such an entity's own area when its device already has one, so
+# the room assignment is preserved on the device (where ensure_satellite_areas
+# and ensure_device_areas put it) and the warning cannot come back.
+entity_areas_cleared() {
+  jq --slurpfile devs "$DEVICE_REGISTRY" '
+    ([$devs[0].data.devices[] | {key: .id, value: .area_id}] | from_entries) as $dev_area
+    | .data.entities |= map(
+        if (.area_id != null and .device_id != null
+            and ($dev_area[.device_id] // null) != null
+            and (.name == null or .name == "")
+            and (.original_name == null or .original_name == ""))
+        then .area_id = null
+        else . end)
+  ' "$ENTITY_REGISTRY"
+}
+
+entity_areas_needed() {
+  [[ -f "$DEVICE_REGISTRY" && -f "$ENTITY_REGISTRY" ]] || return 1
+  [[ "$(entity_areas_cleared | jq -S '.data.entities')" \
+     != "$(jq -S '.data.entities' "$ENTITY_REGISTRY")" ]]
+}
+
+ensure_entity_areas_cleared() {
+  entity_areas_needed || return 0
+  local tmp
+  log "clearing areas from entities that represent their device"
+  tmp="$(mktemp)"
+  entity_areas_cleared > "$tmp"
+  install -o hass -g hass -m 0600 "$tmp" "$ENTITY_REGISTRY"
+  rm "$tmp"
+}
+
 # ── Generated dashboards (pkgs/home-assistant-dashboards) ─────────────────
 # The Overview (storage key "lovelace.lovelace", listed as "lovelace") and the
 # lanbat-* dashboards are
@@ -1478,6 +1515,7 @@ if xiaomi_ble_needed; then needs_work=true; fi
 if remote_calendar_needed; then needs_work=true; fi
 if broadlink_needed; then needs_work=true; fi
 if device_areas_needed; then needs_work=true; fi
+if entity_areas_needed; then needs_work=true; fi
 if dashboards_needed; then needs_work=true; fi
 
 if [[ "$needs_work" != true ]]; then
@@ -1532,6 +1570,7 @@ ensure_remote_calendar
 ensure_broadlink
 ensure_areas
 ensure_device_areas
+ensure_entity_areas_cleared
 ensure_dashboards
 
 systemctl start home-assistant.service
