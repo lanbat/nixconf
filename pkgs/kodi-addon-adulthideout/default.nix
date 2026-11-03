@@ -13,11 +13,13 @@
 buildKodiAddon rec {
   pname = "adulthideout";
   namespace = "plugin.video.adulthideout";
-  version = "1.0.25";
+  # The newest zip upstream keeps (older ones are deleted, which is why the
+  # pinned version must move forward with it: 1.0.25 and 1.0.27 both 404).
+  version = "1.0.26";
 
   src = fetchzip {
     url = "https://github.com/Vashiel/repository.adulthideout/raw/master/zips/${namespace}/${namespace}-${version}.zip";
-    hash = "sha256-mj1m93W549mk5sJ6X3FB141vRQDY8lIKtwoHh5GdN0U=";
+    hash = "sha256-MmusRvZ4956eQS3NehWmxKO1JAXvywiJRexPY+nUkbw=";
   };
 
   propagatedBuildInputs = [ requests ];
