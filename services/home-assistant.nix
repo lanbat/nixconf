@@ -90,8 +90,7 @@ let
       { };
   # broadlink-async: the async python-broadlink fork HA's Broadlink integration
   # needs; nixpkgs ships only the sync `broadlink`, so this fills the gap.
-  broadlinkAsync =
-    pkgs.home-assistant.python3Packages.callPackage ../pkgs/broadlink-async { };
+  broadlinkAsync = pkgs.home-assistant.python3Packages.callPackage ../pkgs/broadlink-async { };
   oidcSecret = pkgs.callPackage ../pkgs/home-assistant-oidc-secret { };
   bootstrap = pkgs.callPackage ../pkgs/home-assistant-bootstrap { };
   postSetup = pkgs.callPackage ../pkgs/home-assistant-post-setup { };
