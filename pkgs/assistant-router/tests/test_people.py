@@ -322,7 +322,7 @@ def test_presence_puts_the_sources_together():
     p.observe_home(["maria", "ivo"], now=100.0)
     found = p.presence("Kitchen", 101.0)
     assert found["kiril"] == (round(1 - 0.02 * 0.2, 3), ["card", "voice"])  # either would do
-    assert found["maria"] == (round(1 - 0.2 * 0.8, 3), ["home", "wifi"])
+    assert found["maria"] == (round(1 - 0.4 * 0.8, 3), ["home", "wifi"])
     assert found["ivo"] == (0.2, ["home"])
     assert set(p.here("Kitchen", 101.0)) == {"kiril", "maria"}  # home alone isn't here
 
@@ -333,7 +333,7 @@ def test_where_is_the_room_they_most_likely_are_in():
     p.note_voice("Bedroom 1", scores(kiril=0.9), now=100.0)
     assert p.where("kiril", 101.0) == ("Bedroom 1", 0.9, ["voice"])
     p.observe_phone("Kitchen", "kiril", -60, 400.0, via="ble")  # the voice is old now
-    assert p.where("kiril", 401.0) == ("Kitchen", 0.8, ["bluetooth"])
+    assert p.where("kiril", 401.0) == ("Kitchen", 0.6, ["bluetooth"])
     p.observe_home(["maria"], now=401.0)
     assert p.where("maria", 402.0) == ("home", 0.2, ["home"])
     assert p.where("ivo", 402.0) == ("away", 0.0, [])

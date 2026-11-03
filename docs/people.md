@@ -168,7 +168,9 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   ```nix
   people.alex = { name = "Alex"; bleBeacon = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"; };
   ```
-  It is not secret: a beacon only says "this is Alex's phone" to whoever listens.
+  It is not secret: a beacon only says "this is Alex's phone" to whoever listens. It may stop
+  advertising while the screen is off (GrapheneOS and battery modes do): that is one reason a
+  beacon is a weak hint — it places someone, but a face or a voice always outranks it.
 - **Any phone, no app: its IRK.** The Identity Resolving Key lets a sensor recognise
   the phone's rotating addresses. A phone paired once with any host hands it over. The
   router keeps the keys per person (`/var/lib/assistant-router/irks.json`, readable by it
@@ -595,9 +597,10 @@ and an extra one stands for someone not enrolled.
 **Who is in a room** puts the same evidence together per person, rather than per
 sentence. Each source is a chance that they are there: a tap or card 98 %, a face on a
 camera, the robot's look or their voice its own confidence, their phone placed in the room
-80 %, their phone on the home network 20 % (for the whole house). The chances combine as
-independent ones (two sources that each say 80 % make 96 %). Someone counts as in the
-room from 50 %, and only with something more than the home network. The room a person is
+60 % (a weak hint: the phone's beacon is silent whenever its screen is off, and a face or a
+voice outranks it), their phone on the home network 20 % (for the whole house). The chances
+combine as independent ones (two sources that each say 80 % make 96 %). Someone counts as in
+the room from 50 %, and only with something more than the home network. The room a person is
 most likely in is where they are; with nothing but the home network they are "home", and
 with nothing at all "away".
 

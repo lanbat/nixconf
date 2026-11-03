@@ -85,7 +85,10 @@ LEARN_AIMED = 0.8       # an aimed face this sure teaches the voice
 # independent chances (noisy-OR). A face, the robot's look and a voice count
 # as their own confidence.
 PRESENT_CARD = 0.98     # a tap of their card or phone on the room's robot
-PRESENT_PHONE = 0.8     # their phone placed in the room
+PRESENT_PHONE = 0.6     # their phone placed in the room: a weak hint. A beacon
+# is silent whenever the phone's screen is off (GrapheneOS and battery modes
+# stop the Companion app's BLE transmitter), so a face or a voice outranks it,
+# and it alone no longer makes a greeting. It still places someone in a room.
 PRESENT_HOME = 0.2      # their phone on the home network: somewhere in the house
 HERE_MIN = 0.5          # this sure, they count as in the room
 

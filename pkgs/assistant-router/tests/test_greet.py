@@ -98,7 +98,10 @@ async def test_only_someone_it_is_sure_of_by_one_source():
     people.observe("Bedroom 1", "seen", "kiril", 0.7, clock[0])  # a doubtful match
     await greeter.tick()
     assert greets(sock) == []
-    people.observe_phone("Bedroom 1", "maria", -50, clock[0], via="ble")  # her phone in the room
+    people.observe_phone("Bedroom 1", "maria", -50, clock[0], via="ble")  # a beacon alone: a weak hint
+    await greeter.tick()
+    assert greets(sock) == []
+    people.observe("Bedroom 1", "aimed", "maria", 0.9, clock[0])  # a sure face, on its own
     await greeter.tick()
     assert greets(sock) == [{"name": "Maria"}]
 
@@ -110,7 +113,7 @@ def test_first_names():
 async def test_arriving_out_of_its_sight_it_looks_round_for_them():
     bodies, people, greeter, sock, clock = setup()
     clock[0] += ARRIVAL_S
-    people.observe("Bedroom 1", "phone", "kiril", 0.9, clock[0])  # their phone, no face in view
+    people.note_voice("Bedroom 1", {"kiril": 0.9}, clock[0])  # his voice, no face in view
     await greeter.tick()
     acts = [m["act"] for m in sock.sent if "act" in m]
     assert {"scan": True} in acts and greets(sock) == [{"name": "Kiril"}]
@@ -118,7 +121,7 @@ async def test_arriving_out_of_its_sight_it_looks_round_for_them():
     bodies2, people2, greeter2, sock2, clock2 = setup()
     clock2[0] += ARRIVAL_S
     bodies2.update("Bedroom 1", {"present": True}, clock2[0])
-    people2.observe("Bedroom 1", "phone", "maria", 0.9, clock2[0])
+    people2.note_voice("Bedroom 1", {"maria": 0.9}, clock2[0])
     await greeter2.tick()
     assert {"scan": True} not in [m["act"] for m in sock2.sent if "act" in m]
 

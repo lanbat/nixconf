@@ -1,8 +1,9 @@
 """The robots greet the people they recognise (docs/stackchan.md).
 
 Every few seconds, for each room with a robot: whoever People.here() places
-there at GREET_MIN or more is recognised, by any source on its own (a tap or
-a card, the robot's look, a clear voice, their phone in the room). Each is
+there at GREET_MIN or more is recognised, by a strong source on its own (a tap
+or a card, the robot's look, a clear voice). A phone beacon alone no longer
+greets: it is a weak hint, silent whenever the phone's screen is off. Each is
 greeted once as they arrive: someone already there at the last look isn't
 arriving, and nobody is greeted in the same room twice in GREET_AGAIN_S.
 Someone who has just spoken to the room's satellite is counted as greeted:
