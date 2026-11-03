@@ -44,8 +44,11 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 PROTOCOL = 1
 APPLE = 0x004C
-REPORT_SECONDS = 2
+REPORT_SECONDS = 1
 WINDOW_SECONDS = 20
+FRESH_SECONDS = 6  # report a person only while an ad came this recently; the
+# median below still uses the whole window, so a gap longer than this stops the
+# report at once and the router forgets the room quickly (docs/people.md).
 BONDS = "/var/lib/bluetooth/*/*/info"
 BONDS_SECONDS = 60  # how often the bonds are read again (a phone may pair)
 
@@ -104,10 +107,13 @@ def parse_irks(text: str) -> dict[str, list[bytes]]:
 
 
 class Tracker:
-    """Signal strengths per person over the last window, reported as a median."""
+    """Signal strengths per person over the last window, reported as a median.
+    A person is reported only while an ad arrived within `fresh_s`: the old
+    room must stop claiming them as soon as the phone is no longer heard."""
 
-    def __init__(self, window_s: float = WINDOW_SECONDS) -> None:
+    def __init__(self, window_s: float = WINDOW_SECONDS, fresh_s: float = FRESH_SECONDS) -> None:
         self.window_s = window_s
+        self.fresh_s = fresh_s
         self._seen: dict[str, list[tuple[float, int]]] = {}
 
     def observe(self, person: str, rssi: int, now: float) -> None:
@@ -118,7 +124,7 @@ class Tracker:
         for person in sorted(self._seen):
             recent = [(t, r) for t, r in self._seen[person] if now - t <= self.window_s]
             self._seen[person] = recent
-            if recent:
+            if recent and now - recent[-1][0] <= self.fresh_s:
                 out.append({"person": person, "rssi": int(statistics.median(r for _, r in recent))})
         self._seen = {p: v for p, v in self._seen.items() if v}
         return out

@@ -142,12 +142,18 @@ plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
-host whose satellite has a room (a Pi, or the server), and every 2 s tells the router whose phones it heard in the
-last 20 seconds, with their signal strength. The router counts a phone as *nearby* for 25
-seconds; a phone never names the speaker. A phone heard by sensors in several rooms (a
-wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
-room within 6 dB of that, a doorway say. Bluetooth and Wi-Fi strengths are on different
-scales, so each is compared only with its own kind. Enable it next to the voice plugin:
+host whose satellite has a room (a Pi, or the server), and every second tells the router
+whose phones it has heard recently, with the median of the last 20 seconds of their
+signal strength. A sensor stops reporting a phone within a few seconds of it going out
+of earshot, so a room that no longer hears it lets it go at once. The router counts a
+phone as *nearby* for 25 seconds; a phone never names the speaker. For placing someone
+in a room only the last 10 seconds of sightings count, so walking into a louder room
+moves them within a few seconds; a phone heard by sensors in several rooms (a wall is no
+barrier to Bluetooth) counts only in the room where it is loudest, or in each room
+within 6 dB of that, a doorway say, and a room must stay louder for 3 seconds before the
+"Where is" sensor moves, so one noisy sample doesn't yank them between rooms. Bluetooth
+and Wi-Fi strengths are on different scales, so each is compared only with its own kind.
+Enable it next to the voice plugin:
 
 ```nix
 plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.room-presence ];
@@ -206,7 +212,7 @@ it never names anyone by itself, and a phone that is away rules nobody out. It d
 say anything about rooms ("nearby" is still Bluetooth, faces and the robot).
 
 A host that extends the home Wi-Fi (`lanbat.wifi.accessPoint`, [wifi.md](wifi.md)) does
-say which room: its room sensor reads the access point's clients every 15 s and reports
+say which room: its room sensor reads the access point's clients every second and reports
 the phones among them, by the same addresses (the profile's `wifiMacs` and those learned
 from taps), with the signal it measures. The router compares Wi-Fi signals only with
 other Wi-Fi sensors, as Bluetooth with Bluetooth, and the strongest room wins.
@@ -566,12 +572,13 @@ and an extra one stands for someone not enrolled.
 
 - **A tap** of their card or phone on the room's robot (last 2 minutes) names them unless
   the voice clearly disagrees.
-- **Presence** raises a candidate's weight: their phone in the room (last 25 seconds),
-  their face on a room camera (last 10 s), their voice clearly heard in the room (a match
-  of 0.7 or more, well ahead of anyone else's, in the last 5 minutes), having been the
-  speaker earlier in this conversation, and, less, their phone on the home network (last
-  3 minutes). Absence lowers it but never rules anyone out, so a phone left in another
-  room doesn't overrule a clear voice.
+- **Presence** raises a candidate's weight: their phone in the room (last 10
+  seconds), their face on a room camera (last 10 s), their voice clearly heard
+  in the room (a match of 0.7 or more, well ahead of anyone else's, in the last
+  5 minutes), having been the speaker earlier in this conversation, and, less,
+  their phone on the home network (last 3 minutes). Absence lowers it but never
+  rules anyone out, so a phone left in another room doesn't overrule a clear
+  voice.
 - **Evidence** multiplies in: the voice scores of this sentence, and above all the face
   the robot saw after turning to the voice.
 - **The speaker** is named only when one candidate clearly leads (80 % and three times

@@ -5,9 +5,12 @@ are the profile's people (lanbat.deployment.people, and those enrolled since);
 anything else is dropped, so no free text from a satellite or a robot reaches
 a prompt. The sources:
 
-- "phone": a person's phone heard in the room (pkgs/room-presence), last 25 s;
-  heard by sensors in several rooms (through walls), it counts only where it
-  is loudest, or in each room within ROOM_MARGIN_DB of that;
+- "phone": a person's phone heard in the room (pkgs/room-presence), last 25 s
+  as evidence; placing someone in a room goes by the last PHONE_FRESH_S
+  (10 s) of sightings, so the old room lets go quickly when the phone is
+  heard elsewhere; heard by sensors in several rooms (through walls), it
+  counts only where it is loudest, or in each room within ROOM_MARGIN_DB of
+  that;
 - "face": a face recognised in the room (cameras via Frigate), last 10 s;
 - "aimed": the face the room's robot saw after turning to the voice, last 10 s;
 - "seen": a face that came into the room's robot's view (it shows the router
@@ -59,8 +62,13 @@ HOME = 2.0              # × prior: their phone is on the home network
 CARD = 100.0            # × prior: they just tapped their card, or their phone, on the robot
 HOME_WINDOW = 180.0     # the house sensor repeats its set every minute
 ROOM_MARGIN_DB = 6      # a phone this much quieter than in its loudest room isn't there
+# Placing someone in a room goes by the last PHONE_FRESH_S of phone sightings,
+# not the whole 25 s evidence window: as soon as a room's sensor stops hearing
+# the phone, that room stops claiming them, so a walk into a louder room moves
+# the "Where is" sensor at once (docs/people.md).
+PHONE_FRESH_S = 10.0
 SWITCH_DB = 4           # ...and another room must be this much louder to take them over
-SWITCH_HOLD_S = 6.0     # ...for this long: one noisy sample must not move the music
+SWITCH_HOLD_S = 3.0     # ...for this long: one noisy sample must not move the music
 FACE = 6.0              # × prior: their face is in the room
 VOICE_PRESENT = FACE    # × prior: their voice was clearly heard in the room (last 5 min)
 CONTINUITY = 5.0        # × prior: they were the speaker earlier in this conversation
@@ -167,15 +175,15 @@ class People:
         self._signal.setdefault(person, {})[(str(via), _key(room))] = (rssi, now)
 
     def _placed(self, room: str, now: float, only: str | None = None) -> set[str]:
-        """Whose phones are in `room`: heard there recently, and not much
-        quieter there than in their loudest room (by `only` one kind of
+        """Whose phones are in `room`: heard there within PHONE_FRESH_S, and not
+        much quieter there than in their loudest room (by `only` one kind of
         sensor, "ble" or "wifi", when given)."""
         here = _key(room)
         out = set()
         for person, heard in self._signal.items():
             for via in {v for v, _ in heard if only is None or v == only}:
                 recent = {r: s for (v, r), (s, at) in heard.items()
-                          if v == via and now - at <= WINDOW["phone"]}
+                          if v == via and now - at <= PHONE_FRESH_S}
                 if here in recent and recent[here] >= max(recent.values()) - ROOM_MARGIN_DB:
                     out.add(person)
         return out
@@ -325,7 +333,7 @@ class People:
         here = _key(room)
         best: int | None = None
         for (via, r), (rssi, at) in self._signal.get(person, {}).items():
-            if via == "ble" and r == here and now - at <= WINDOW["phone"]:
+            if via == "ble" and r == here and now - at <= PHONE_FRESH_S:
                 if best is None or rssi > best:
                     best = rssi
         return best

@@ -187,6 +187,7 @@ def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
     p.observe_phone("Bedroom 1", "kiril", -64, now=20.0)
     assert "Kiril" in p.line("Bedroom 1", now=24.0)
     # Gone quiet in the kitchen: the bedroom alone has it.
+    p.observe_phone("Bedroom 1", "kiril", -64, now=30.0)
     assert "Kiril" in p.line("Bedroom 1", now=35.0)
     assert p.line("Kitchen", now=35.0) is None
 
@@ -208,7 +209,7 @@ def test_a_noisy_neighbour_does_not_move_them_between_rooms():
     assert p.where("kiril", now=7.0)[0] == "Office"
     p.observe_phone("Bedroom 1", "kiril", -64, now=12.0)
     p.observe_phone("Office", "kiril", -70, now=12.0)
-    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"  # six seconds of leading
+    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"  # past the switch hold
 
 
 def test_a_face_in_the_other_room_moves_them_at_once():
@@ -228,6 +229,20 @@ def test_going_quiet_in_the_old_room_moves_them_at_once():
     # The office stops hearing it; the bedroom still does.
     p.observe_phone("Bedroom 1", "kiril", -64, now=30.0)
     assert p.where("kiril", now=31.0)[0] == "Bedroom 1"
+
+
+def test_the_old_room_lets_go_within_the_freshness_window():
+    # Placing someone in a room goes by the last PHONE_FRESH_S of sightings,
+    # not the whole 25 s evidence window: once the old room's sensor stops
+    # hearing the phone, the next report from the new room moves them at once,
+    # with no switch hold.
+    p = People(NAMES)
+    p.observe_phone("Office", "kiril", -70, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=2.0)  # close through-wall lead: hold
+    assert p.where("kiril", now=3.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=12.0)  # the office has been quiet since
+    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"
 
 
 def test_bluetooth_and_wifi_strengths_are_not_compared():
