@@ -1215,6 +1215,38 @@ ensure_remote_calendar() {
     "$(url="$GCAL_URL" jq -n '{calendar_name: "House", url: env.url, verify_ssl: true}')"
 }
 
+# Broadlink devices (deployment.broadlinkDevices), as "<title>\t<host>\t<mac>\t<devtype>"
+# lines.  mac is the lowercase hex with no colons, which is also the entry's
+# unique_id; Home Assistant probes the host for the rest.
+broadlink_devices() {
+  [[ -n "$BROADLINK_DEVICES" && "$BROADLINK_DEVICES" != "[]" ]] || return 0
+  jq -r '.[] | [.title, .host, .mac, (.type|tostring)] | @tsv' <<< "$BROADLINK_DEVICES"
+}
+
+broadlink_needed() {
+  local title host mac devtype
+  while IFS=$'\t' read -r title host mac devtype; do
+    [[ -n "$mac" ]] || continue
+    has_entry_uid broadlink "$mac" || return 0
+  done < <(broadlink_devices)
+  return 1
+}
+
+ensure_broadlink() {
+  local title host mac devtype
+  while IFS=$'\t' read -r title host mac devtype; do
+    [[ -n "$mac" ]] || continue
+    if has_entry_uid broadlink "$mac"; then
+      continue
+    fi
+    log "adding broadlink device ${title} (${host})"
+    add_entry broadlink "$title" \
+      "$(host="$host" mac="$mac" devtype="$devtype" jq -n \
+        '{host: env.host, mac: env.mac, type: (env.devtype | tonumber), timeout: 5}')" \
+      1 "[]" "$mac" "user"
+  done < <(broadlink_devices)
+}
+
 ensure_areas() {
   if state_done areas || [[ ! -f "$AREA_REGISTRY" ]]; then
     [[ -f "$AREA_REGISTRY" ]] && mark_done areas
@@ -1444,6 +1476,7 @@ if voice_token_needed; then needs_work=true; fi
 if bluetooth_needed; then needs_work=true; fi
 if xiaomi_ble_needed; then needs_work=true; fi
 if remote_calendar_needed; then needs_work=true; fi
+if broadlink_needed; then needs_work=true; fi
 if device_areas_needed; then needs_work=true; fi
 if dashboards_needed; then needs_work=true; fi
 
@@ -1496,6 +1529,7 @@ ensure_voice_token
 ensure_bluetooth
 ensure_xiaomi_ble
 ensure_remote_calendar
+ensure_broadlink
 ensure_areas
 ensure_device_areas
 ensure_dashboards

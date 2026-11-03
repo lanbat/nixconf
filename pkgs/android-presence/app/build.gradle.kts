@@ -5,6 +5,9 @@ plugins {
 android {
     namespace = "com.lanbat.presence"
     compileSdk = 34
+    // nixpkgs' androidenv ships only build-tools 37.0.0; AGP 8.5.2's default
+    // is 34.0.0, so pin the version Nix can provide (see default.nix).
+    buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "com.lanbat.presence"

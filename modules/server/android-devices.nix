@@ -69,6 +69,12 @@ let
 
   provisioner = pkgs.callPackage ../../pkgs/android-provision { };
 
+  # The android-presence app, built in Nix (pkgs/android-presence): a room
+  # sensor APK the provisioner installs beside the lockfile-pinned apps.  The
+  # derivation is only forced when a device declares `presence`, so hosts with
+  # no such box never build the (heavy) Android SDK.
+  presenceApk = pkgs.callPackage ../../pkgs/android-presence { };
+
   lock = lib.importJSON ../../pkgs/android-provision/apks.lock.json;
 
   # One fetchurl per locked APK variant actually needed by a device.
@@ -121,7 +127,18 @@ let
           allowDowngrade
           ;
         homeActivity = device.homeActivity;
-        apks = apkEntries device;
+        apks =
+          apkEntries device
+          ++ lib.optionals (device.presence != null && device.room != null) [
+            {
+              packageId = "com.lanbat.presence";
+              versionCode = 1;
+              versionName = "1.0";
+              minSdk = 26;
+              source = "nix";
+              path = "${presenceApk}/android-presence.apk";
+            }
+          ];
         caCerts = map (cert: {
           name = baseNameOf (toString cert);
           sha256 = builtins.hashFile "sha256" cert;
@@ -144,17 +161,16 @@ let
         presence =
           if device.presence == null || device.room == null then
             null
-          else {
-            room = device.room;
-            inherit (device.presence) routerUrl reportSeconds windowSeconds;
-            beacons = lib.mapAttrs' (
-              key: person: lib.nameValuePair (lib.toLower person.bleBeacon) key
-            ) (
-              lib.filterAttrs (_: person: (person.bleBeacon or null) != null) (
-                config.lanbat.deployment.people or { }
-              )
-            );
-          };
+          else
+            {
+              room = device.room;
+              inherit (device.presence) routerUrl reportSeconds windowSeconds;
+              beacons = lib.mapAttrs' (key: person: lib.nameValuePair (lib.toLower person.bleBeacon) key) (
+                lib.filterAttrs (_: person: (person.bleBeacon or null) != null) (
+                  config.lanbat.deployment.people or { }
+                )
+              );
+            };
       }
     );
 
@@ -404,6 +420,11 @@ in
   };
 
   config = lib.mkIf (devices != { }) {
+
+    # Building the android-presence APK needs the Android SDK, whose license
+    # Nix accepts only explicitly.  The host already allows unfree
+    # (lib/mkHost.nix); this accepts the SDK's own Google license.
+    nixpkgs.config.android_sdk.accept_license = true;
 
     assertions =
       let

@@ -5,8 +5,8 @@ assistant router, the same job `pkgs/room-presence` does on a Pi: it scans for
 the household's phone beacons and reports their median RSSI to the router, so
 `follow-me` can place a person in that room and play to the room's player.
 
-It is not part of the NixOS build. Like the other provisioned apps it is built
-as an APK and installed over ADB by `pkgs/android-provision`; the provisioner
+It is built by Nix as an APK (`default.nix`) and installed over ADB by
+`pkgs/android-provision` when a device declares `presence`; the provisioner
 also pushes this deployment's configuration.
 
 ## What it does
@@ -92,8 +92,20 @@ java -cp /tmp/ap-build com.lanbat.presence.CoreTest
 
 ## Building the APK
 
-Needs an Android SDK (compileSdk 34) and Gradle 8.7+ on `PATH` (or add a
-wrapper):
+`default.nix` builds it in Nix (`pkgs.callPackage ./default.nix { }` →
+`$out/android-presence.apk`) without Gradle, since Gradle's on-disk cache is
+not reproducible.  It assembles the APK by hand from the Android SDK's own
+tools — `aapt2` (manifest + resources), `javac`, `d8`, `zipalign`, `apksigner`
+— with OkHttp fetched from Maven Central and a fixed debug keystore, so the
+build is sandboxed and reproducible and needs no network.  It accepts the
+Android SDK license (`nixpkgs.config.android_sdk.accept_license = true`, set
+by the android-devices module) and is heavy (the SDK is ~1 GB), so it is
+deliberately not part of the default checks.
+
+To build it by hand with Gradle instead, an Android SDK (compileSdk 34,
+build-tools 37.0.0 — the version nixpkgs' `androidenv` ships, hence the
+explicit `buildToolsVersion` in `app/build.gradle.kts`) and Gradle 8.7+ on
+`PATH`:
 
 ```bash
 cd pkgs/android-presence
@@ -101,10 +113,8 @@ gradle :app:assembleDebug       # app/build/outputs/apk/debug/app-debug.apk
 gradle :app:testDebugUnitTest   # the JUnit tests in app/src/test
 ```
 
-A debug APK installs and runs as-is. A release build needs a signing config;
-sign it with the deployment keystore in CI, publish the APK as a GitHub release
-asset, and pin it in `pkgs/android-provision/apks.lock.json` via a `github`
-source, like the suite's other apps. A debug-signed install must be removed
+The Nix build produces a debug-signed APK, which installs and runs as-is.  A
+release build needs a signing config; a debug-signed install must be removed
 (`adb uninstall com.lanbat.presence`) before a differently signed release can
 replace it.
 

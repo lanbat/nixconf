@@ -90,7 +90,9 @@ let
   # speak the room-sensor protocol from outside the NixOS host table, so the
   # generated policy and this service's IP allowlist would not know them.
   presenceBoxes = lib.mapAttrsToList (_: d: d.host) (
-    lib.filterAttrs (_: d: (d.presence or null) != null) (config.lanbat.deployment.androidDevices or { })
+    lib.filterAttrs (_: d: (d.presence or null) != null) (
+      config.lanbat.deployment.androidDevices or { }
+    )
   );
   bodyAddresses = lib.unique (
     presenceBoxes

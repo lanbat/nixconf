@@ -148,6 +148,19 @@ let
   # A satellite with a room hands its replies to the voice_reply script.
   voiceRooms = config.lanbat.deployment.voiceRooms != { };
   xiaomiBle = config.lanbat.deployment.haXiaomiBle;
+  # Broadlink devices (IR/RF blasters, plugs), added to Home Assistant by IP.
+  # The integration's config entry needs the stable mac (hex, no colons) and
+  # devtype beside the host, so home-assistant-post-setup writes a complete
+  # entry rather than probing.
+  broadlinkDevices = config.lanbat.deployment.broadlinkDevices;
+  broadlinkJson = builtins.toJSON (
+    lib.mapAttrsToList (_: d: {
+      title = d.name;
+      host = d.host;
+      mac = lib.toLower (lib.replaceStrings [ ":" ] [ "" ] d.mac);
+      type = d.devtype;
+    }) broadlinkDevices
+  );
   # The house's Google Calendar, from the iCal feed URL in ha-gcal-url.age.
   haCalendar = config.lanbat.deployment.haCalendar;
   # The storage Pi's satellite, reached the way policy on the Pi admits Home
@@ -1775,6 +1788,9 @@ in
         ''}
         ${lib.optionalString haCalendar ''
           export GCAL_URL="$(cat ${config.lanbat.secrets.ha-gcal-url.path})"
+        ''}
+        ${lib.optionalString (broadlinkDevices != { }) ''
+          export BROADLINK_DEVICES=${lib.escapeShellArg broadlinkJson}
         ''}
         # Rooms for devices, and the dashboards generated from the registries.
         export DEVICE_AREAS=${lib.escapeShellArg (builtins.toJSON cfg.deviceAreas)}
