@@ -5,7 +5,7 @@ import tempfile
 import pytest
 
 from techo5_bridge import __main__ as main_mod
-from techo5_bridge.__main__ import Echo, fetch_items_from_ha, run
+from techo5_bridge.__main__ import Echo, fetch_items_from_ha, presence_entities, run
 
 
 ECHO_METHODS = (
@@ -33,6 +33,20 @@ def test_fetch_items_from_ha_is_a_module_function_not_inside_echo():
     assert asyncio.iscoroutinefunction(fetch_items_from_ha)
     assert fetch_items_from_ha.__module__ == main_mod.__name__
     assert "fetch_items_from_ha" not in Echo.__dict__
+
+
+def test_presence_entities_splits_present_and_missing():
+    # TECHO5 registers presence and person only while its camera is available:
+    # the bridge warns about the missing ones, so a camera that cannot work is
+    # said, not silent (docs/techo5.md, "What the logs say").
+    assert presence_entities({"presence", "person", "screen", "bluetooth_proxy"}) == (
+        ["person", "presence"],
+        ["person_detection", "presence_detection"],
+    )
+    assert presence_entities(set()) == (
+        [],
+        ["person", "person_detection", "presence", "presence_detection"],
+    )
 
 
 def test_run_builds_device_router_and_tick_tasks(monkeypatch):

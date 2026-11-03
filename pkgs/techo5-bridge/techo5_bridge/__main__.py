@@ -28,6 +28,18 @@ from .lists import Ha
 LOG = logging.getLogger("techo5-bridge")
 IMAGE_TIMEOUT_S = 8.0
 
+# The entities presence and faces come from. TECHO5 registers `presence` and
+# `person` only while its camera is available, so their absence is the tell
+# that who-is-in-front cannot work (docs/techo5.md, "What the logs say").
+PRESENCE_ENTITY_IDS = ("presence", "person", "presence_detection", "person_detection")
+
+
+def presence_entities(ids) -> tuple[list[str], list[str]]:
+    """(present, missing) of the presence-related entity IDs among `ids`."""
+    present = sorted(e for e in PRESENCE_ENTITY_IDS if e in ids)
+    missing = sorted(e for e in PRESENCE_ENTITY_IDS if e not in ids)
+    return present, missing
+
 
 class Echo:
     """One device: its ESPHome connection and its router socket."""
@@ -188,8 +200,17 @@ class Echo:
                 unsubscribe = None
                 if "bluetooth_proxy" in self.entities:
                     unsubscribe = client.subscribe_bluetooth_le_raw_advertisements(self._on_adverts)
+                present, missing = presence_entities(self.entities)
                 LOG.info(json.dumps({"device": self.name, "connected": self.address,
-                                     "entities": len(infos), "actions": len(services)}))
+                                     "entities": len(infos), "actions": len(services),
+                                     "presence_entities": present}))
+                if missing:
+                    LOG.warning(json.dumps({
+                        "device": self.name,
+                        "missing_entities": missing,
+                        "why": "who is in front of it cannot work: the camera is unavailable "
+                               "(off, muted, its cover shut, or a TECHO5 without camera support)",
+                    }))
                 delay = 2
                 await self.carry(self.brain.connected(time.monotonic()))
                 await stopped.wait()
