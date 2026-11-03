@@ -88,6 +88,10 @@ let
   authOidcComponent =
     pkgs.home-assistant.python3Packages.callPackage ../pkgs/home-assistant-auth-oidc
       { };
+  # broadlink-async: the async python-broadlink fork HA's Broadlink integration
+  # needs; nixpkgs ships only the sync `broadlink`, so this fills the gap.
+  broadlinkAsync =
+    pkgs.home-assistant.python3Packages.callPackage ../pkgs/broadlink-async { };
   oidcSecret = pkgs.callPackage ../pkgs/home-assistant-oidc-secret { };
   bootstrap = pkgs.callPackage ../pkgs/home-assistant-bootstrap { };
   postSetup = pkgs.callPackage ../pkgs/home-assistant-post-setup { };
@@ -1852,6 +1856,7 @@ in
       extraPackages = ps: [
         ps.psycopg2
         ps.ical
+        broadlinkAsync
       ];
 
       # Install extra Python components declaratively.
