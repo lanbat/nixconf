@@ -421,11 +421,6 @@ in
 
   config = lib.mkIf (devices != { }) {
 
-    # Building the android-presence APK needs the Android SDK, whose license
-    # Nix accepts only explicitly.  The host already allows unfree
-    # (lib/mkHost.nix); this accepts the SDK's own Google license.
-    nixpkgs.config.android_sdk.accept_license = true;
-
     assertions =
       let
         # Group device names by "host:port" so a collision names every
