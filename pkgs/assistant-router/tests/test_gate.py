@@ -58,6 +58,17 @@ def test_continuations_of_someone_elses_sentence_rejected(text):
     assert gate(text, "") == "reject"
 
 
+@pytest.mark.parametrize("text", ["So, find the matrix.", "And turn off the office light.", "so turn on the lamp",
+                                  "But play the next song", "Then pause the video", "Then search for the news"])
+def test_a_lead_in_does_not_hide_a_request(text):
+    assert gate(text, "") != "reject"
+
+
+@pytest.mark.parametrize("text", ["And then the lights went out", "so it goes", "But that was the point"])
+def test_a_lead_in_without_a_request_is_rejected(text):
+    assert gate(text, "") == "reject"
+
+
 @pytest.mark.parametrize("text", ["Okay, it's on done.", "I can't play that. Let me know if you need anything else."])
 def test_assistant_phrasing_rejected_without_memory(text):
     # Another satellite's reply has no entry in this satellite's memory.
