@@ -1918,16 +1918,13 @@ in
       ];
 
       config = {
-        # Trust Caddy as reverse proxy.
-        http = {
-          use_x_forwarded_for = true;
-          trusted_proxies = [
-            "127.0.0.1"
-            "::1"
-          ];
-          ip_ban_enabled = true;
-          login_attempts_threshold = 5;
-        };
+        # The HTTP server is configured from the UI (Settings > System >
+        # Network), not YAML: Home Assistant migrated the http: block to
+        # .storage/http in 2026.8 and ignores any YAML http: block now.
+        #
+        # The reverse-proxy trust (use_x_forwarded_for, trusted_proxies) and
+        # the IP-ban settings (ip_ban_enabled, login_attempts_threshold) live
+        # there; a fresh instance's are set in the UI on first run.
 
         # The companion apps register their phone through this integration and
         # refuse to continue without it ("The mobile app integration is required
