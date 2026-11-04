@@ -67,10 +67,10 @@ let
     "valid settings pass assertions" = failedAssertions valid == [ ];
     "no categories by default" =
       (evalQbittorrent { }).lanbat.services.qbittorrent.settings.categories == { };
-    "the web UI listens on loopback only" = prefs.Preferences."WebUI\\Address" == "127.0.0.1";
+    "the web UI listens on loopback only" = prefs.WebUI.Address == "127.0.0.1";
     "the web UI answers the server's address without a login" =
-      lib.hasInfix "192.0.2.10/32" prefs.Preferences."WebUI\\AuthSubnetWhitelist"
-      && prefs.Preferences."WebUI\\AuthSubnetWhitelistEnabled";
+      lib.hasInfix "192.0.2.10/32" prefs.WebUI."AuthSubnetWhitelist"
+      && prefs.WebUI.AuthSubnetWhitelistEnabled;
     "the profile's keys sit beside the module's" =
       prefs.BitTorrent."Session\\MaxActiveDownloads" == 8
       && prefs.BitTorrent."Session\\DefaultSavePath" == "/media/b/misc/";
@@ -80,10 +80,10 @@ let
       }).lanbat.services.qbittorrent.settings.preferences.BitTorrent."Session\\DefaultSavePath"
       == "/media/a/misc/";
     "a profile cannot open the web UI" = rejects (evalQbittorrent {
-      preferences.Preferences."WebUI\\Address" = "0.0.0.0";
+      preferences.WebUI.Address = "0.0.0.0";
     });
     "a profile cannot turn the login back on" = rejects (evalQbittorrent {
-      preferences.Preferences."WebUI\\AuthSubnetWhitelistEnabled" = false;
+      preferences.WebUI.AuthSubnetWhitelistEnabled = false;
     });
     "a subcategory without its parent fails" = lib.any (lib.hasInfix "needs its parent") (
       failedAssertions (evalQbittorrent {
@@ -137,7 +137,11 @@ else
 
       [Preferences]
       WebUI\Address=0.0.0.0
-      WebUI\AuthSubnetWhitelistEnabled=false
+
+      [WebUI]
+      Address=0.0.0.0
+      AuthSubnetWhitelistEnabled=false
+      Password_PBKDF2="@ByteArray(AAAA:BBBB)"
       EOF
       ./run.sh
 
@@ -148,13 +152,15 @@ else
       want '[BitTorrent]'
       want 'Session\MaxActiveDownloads=8'
       want 'Session\QueueingSystemEnabled=true'
-      want 'WebUI\Address=127.0.0.1'
-      want 'WebUI\AuthSubnetWhitelistEnabled=true'
+      want '[WebUI]'
+      want 'Address=127.0.0.1'
+      want 'AuthSubnetWhitelistEnabled=true'
       want 'Session\DefaultSavePath=/media/b/misc/'
       want '[Meta]'
       want 'MigrationVersion=8'
       unwanted 'MaxActiveDownloads=99'
       unwanted 'SomethingFromTheUi'
+      unwanted '@ByteArray'
       unwanted '0.0.0.0'
       test "$(grep -c '^\[Meta\]' "$conf")" = 1
 

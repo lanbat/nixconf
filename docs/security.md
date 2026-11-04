@@ -192,7 +192,9 @@ the pinned root need no further change.
 
 Every service has a local admin account that does not go through Authentik:
 - Home Assistant: local admin configured at first setup.
-- qBittorrent: local web UI password (set at first run, stored in `/var/lib/qbittorrent`).
+- qBittorrent: local web UI password (declared in the deployment profile as a
+  PBKDF2 hash under `preferences.WebUI.Password_PBKDF2`; the password itself
+  lives in a password manager).
 - Authentik: initial admin set at `/if/flow/initial-setup/`.
 
 These accounts should be strong passwords stored in a password manager, not in this repo.
