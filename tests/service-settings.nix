@@ -2171,6 +2171,12 @@ let
       && (envOf base "romm").REDIS_DB == "2"
     ))
 
+    (expect "authentik: the worker gets its own HTTP and metrics ports on the shared host network" (
+      (envOf base "authentik-worker").AUTHENTIK_LISTEN__HTTP == "[::]:9001"
+      && (envOf base "authentik-worker").AUTHENTIK_LISTEN__METRICS == "[::]:9301"
+      && !((envOf base "authentik-server") ? AUTHENTIK_LISTEN__HTTP)
+    ))
+
     (expect "redis: two consumers claiming one index are rejected" (
       lib.any (lib.hasInfix "index 1 is claimed by immich and other") (failedAssertions redisClash)
     ))
