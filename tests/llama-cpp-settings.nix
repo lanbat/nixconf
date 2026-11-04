@@ -101,7 +101,12 @@ let
     "one cached slot" =
       lib.hasInfix (flag "--parallel" "1") (execStart small)
       && lib.hasInfix "--cache-reuse" (execStart small);
-    "thinking is off" = lib.hasInfix "enable_thinking" (execStart small);
+    # The JSON must keep its quotes through systemd's ExecStart parser, which
+    # strips unescaped quotes: without the backslashes it becomes the invalid
+    # {enable_thinking:false} and llama-server exits 1.
+    "thinking is off" = lib.hasInfix (flag "--chat-template-kwargs" ''{\"enable_thinking\":false}'') (
+      execStart small
+    );
     "the template carries the tools" = lib.hasInfix "--jinja" (execStart small);
 
     "the unit is capped" =
