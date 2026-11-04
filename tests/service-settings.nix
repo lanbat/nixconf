@@ -1779,6 +1779,9 @@ let
       && litellm.router_settings.num_retries == 0
       && litellm.router_settings.allowed_fails == 0
       && litellm.router_settings.cooldown_time == 600
+      # No master key (loopback only): LiteLLM 1.106+ must be told to start
+      # with the key unset.
+      && litellm.general_settings.dangerously_permit_weak_or_unset_master_key == true
     ))
 
     # Behind the router the local model is on the voice path: it gets the CPU
