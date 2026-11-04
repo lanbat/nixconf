@@ -102,7 +102,7 @@ let
         default = { };
         example = {
           BitTorrent."Session\\MaxActiveDownloads" = 8;
-          Preferences."WebUI\\Port" = 8090;
+          WebUI.Port = 8090;
         };
         description = ''
           qBittorrent.conf: section name, then key (a backslash is part of the
@@ -162,16 +162,18 @@ in
     # Fixed: these make the Authentik forward auth the only login (see Auth
     # above). A profile that sets one differently gets a conflict, not a
     # quietly open web UI.
-    Preferences = {
-      "WebUI\\Address" = "127.0.0.1";
-      "WebUI\\AlternativeUIEnabled" = true;
-      "WebUI\\RootFolder" = "/vuetorrent";
-      "WebUI\\AuthSubnetWhitelistEnabled" = true;
+    # The [WebUI] section is qBittorrent 5.x's own: it no longer reads the
+    # legacy WebUI\* keys under [Preferences] once the settings migration has
+    # run (recorded in [Meta], which is kept as it is).
+    WebUI = {
+      Address = "127.0.0.1";
+      AlternativeUIEnabled = true;
+      RootFolder = "/vuetorrent";
+      AuthSubnetWhitelistEnabled = true;
       # Host networking: Caddy connects via loopback (127.0.0.1). Bridge/pasta
       # used to rewrite the source to the server IP — keep both.
-      "WebUI\\AuthSubnetWhitelist" =
-        "127.0.0.1/32, ::1/128, ${config.lanbat.deployment.serverIp}/32, ::ffff:${config.lanbat.deployment.serverIp}/128";
-      "WebUI\\Port" = config.lanbat.services.qbittorrent.port;
+      AuthSubnetWhitelist = "127.0.0.1/32, ::1/128, ${config.lanbat.deployment.serverIp}/32, ::ffff:${config.lanbat.deployment.serverIp}/128";
+      Port = config.lanbat.services.qbittorrent.port;
     };
 
     # Defaults a profile may change.
@@ -262,7 +264,7 @@ in
 
     # Host networking avoids pasta's IPv4 fragment drops, which break BitTorrent
     # peer connections in rootless Podman. The web UI stays on loopback via
-    # WebUI\Address in the settings above.
+    # WebUI.Address in the settings above.
     #
     # The image runs qBittorrent as PUID:PGID. Rootless Podman would put those
     # on sub-IDs of qbt's range, which own nothing on the media drives, so they
