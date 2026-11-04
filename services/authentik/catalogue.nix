@@ -40,6 +40,8 @@
 #                        always have (forward_single mode does not use it).
 #   user (users)         the account's username (unique in the instance);
 #                        groups are matched by name, as in the service bindings.
+#   email scope mapping  "Lanbat OIDC 'email' (trusted)", the scope mapping
+#                        every OIDC provider selects for the email scope.
 #
 # The OIDC client secret is read from the Authentik containers' environment
 # with !Env, from the variable AUTHENTIK_<NAME>_CLIENT_SECRET (upper case,
@@ -47,7 +49,11 @@
 #
 # Every OIDC provider maps the openid, email and profile scopes, plus the
 # service's oidc.extraScopes (each must exist as an Authentik scope mapping,
-# e.g. offline_access, created by the system blueprint).
+# e.g. offline_access, created by the system blueprint). For email it selects
+# the catalogue's own mapping (below) rather than Authentik's default: since
+# 2025.10 the default reports email_verified false, which makes RomM reject
+# the login. Every account here is created by an admin, so its email is
+# trusted and the mapping reports it as verified.
 { lib }:
 
 {
@@ -237,6 +243,34 @@ let
     else
       "AUTHENTIK_${lib.toUpper (lib.replaceStrings [ "-" ] [ "_" ] svc.name)}_CLIENT_SECRET";
 
+  # The scope mapping every OIDC provider selects for the email scope (see the
+  # header): it reports the address as verified, which RomM requires. It has
+  # to be its own mapping rather than an edit of Authentik's default, which the
+  # system blueprints would restore on upgrade.
+  trustedEmailMapping = {
+    name = "Lanbat OIDC 'email' (trusted)";
+    expression = ''
+      return {
+          "email": user.email,
+          "email_verified": True,
+      }
+    '';
+  };
+
+  emailMappingEntry = {
+    model = "authentik_providers_oauth2.scopemapping";
+    state = "present";
+    identifiers = {
+      name = trustedEmailMapping.name;
+    };
+    attrs = {
+      name = trustedEmailMapping.name;
+      scope_name = "email";
+      description = "The email scope, reporting every account's address as verified (admin-created, trusted users).";
+      expression = trustedEmailMapping.expression;
+    };
+  };
+
   oidcEntries =
     svc:
     [
@@ -257,14 +291,15 @@ let
           signing_key = find "authentik_crypto.certificatekeypair" "name" "authentik Self-signed Certificate";
           sub_mode = "hashed_user_id";
           include_claims_in_id_token = true;
-          property_mappings = map (find "authentik_providers_oauth2.scopemapping" "scope_name") (
-            [
-              "openid"
-              "email"
-              "profile"
-            ]
-            ++ svc.oidc.extraScopes
-          );
+          # The email scope comes from the catalogue's own mapping (see the
+          # header), found by name: finding by scope_name "email" would be
+          # ambiguous with Authentik's default mapping.
+          property_mappings = [
+            (find "authentik_providers_oauth2.scopemapping" "scope_name" "openid")
+            (find "authentik_providers_oauth2.scopemapping" "name" trustedEmailMapping.name)
+            (find "authentik_providers_oauth2.scopemapping" "scope_name" "profile")
+          ]
+          ++ map (find "authentik_providers_oauth2.scopemapping" "scope_name") svc.oidc.extraScopes;
         };
       }
       (application {
@@ -312,7 +347,9 @@ in
   );
 
   oidc = blueprint "Homelab OIDC Providers" (
-    groupEntries oidcClients ++ lib.concatMap oidcEntries oidcClients
+    lib.optional (oidcClients != [ ]) emailMappingEntry
+    ++ groupEntries oidcClients
+    ++ lib.concatMap oidcEntries oidcClients
   );
 
   users = blueprint "Homelab Users" (userGroupEntries ++ userEntries);

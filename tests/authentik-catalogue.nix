@@ -586,8 +586,8 @@ let
             "openid"
           ]
           [
-            "scope_name"
-            "email"
+            "name"
+            "Lanbat OIDC 'email' (trusted)"
           ]
           [
             "scope_name"
@@ -598,6 +598,47 @@ let
             "offline_access"
           ]
         ]
+    ))
+
+    (expect "the OIDC blueprint creates the trusted email scope mapping before its providers" (
+      let
+        entries = base.oidc.entries;
+        mappings = lib.filter (e: e.model == "authentik_providers_oauth2.scopemapping") entries;
+        m = lib.head mappings;
+        mappingAt = lib.lists.findFirstIndex (
+          e: e.model == "authentik_providers_oauth2.scopemapping"
+        ) null entries;
+        firstProvider = lib.lists.findFirstIndex (
+          e: e.model == "authentik_providers_oauth2.oauth2provider"
+        ) null entries;
+      in
+      lib.length mappings == 1
+      && m.state == "present"
+      && m.identifiers.name == "Lanbat OIDC 'email' (trusted)"
+      && m.attrs.scope_name == "email"
+      && lib.hasInfix ''"email_verified": True'' m.attrs.expression
+      && mappingAt != null
+      && firstProvider != null
+      && mappingAt < firstProvider
+    ))
+
+    (expect "every OIDC provider selects the trusted email mapping, never Authentik's default" (
+      let
+        refs = p: map (m: lib.last (untag m)) p.attrs.property_mappings;
+        providers = oidcProviders base;
+      in
+      providers != [ ]
+      && lib.all (
+        p:
+        lib.elem [
+          "name"
+          "Lanbat OIDC 'email' (trusted)"
+        ] (refs p)
+        && !(lib.elem [
+          "scope_name"
+          "email"
+        ] (refs p))
+      ) providers
     ))
 
     (expect "a forward-auth service with OIDC gets -proxy objects beside the OIDC ones" (
