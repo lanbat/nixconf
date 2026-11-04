@@ -20,7 +20,7 @@ buildKodiAddon rec {
 
   src = fetchzip {
     url = "https://github.com/Vashiel/repository.adulthideout/raw/fa1606fdbf524c864fa57e509dac926cb2c34287/zips/${namespace}/${namespace}-${version}.zip";
-    hash = "sha256-BIf4t/SB0icCIXIVQrHZ/08VX697bB79WYibX41eo6A=";
+    hash = "sha256-ZGInHp7oxLw3lZFT+J33IB05totE2TPvxbFbSE7y4vM=";
   };
 
   propagatedBuildInputs = [ requests ];
