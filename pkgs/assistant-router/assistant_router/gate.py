@@ -38,10 +38,30 @@ ASSISTANT_PHRASES = re.compile(r"\blet me know if\b|\bit's (on|off)\b|\bdone[.!]
 # ("Turned off...", "Okay, it's on") don't, so a request is never an echo.
 COMMAND_START = {"turn", "switch", "play", "pause", "stop", "set", "open", "close", "put", "start", "skip",
                  "increase", "decrease", "lower", "raise", "volume", "next", "resume", "dim", "make"}
+# Conjunctions that can open a request ("So, find the matrix", "And turn off the
+# light") even though they usually mark the middle of someone else's sentence.
+# They are dropped when a request follows, and left in place (so the
+# continuation rule rejects them) when none does.
+_LEAD_IN = re.compile(r"^\s*(?:(?:and|but|so|or|then)\b[\s,]*)+", re.IGNORECASE)
+# A request can follow a lead-in as a device command (COMMAND_START), a media
+# search (these verbs), or a question the cloud answers (CLOUD).
+SEARCH_START = {"find", "search", "look", "show"}
 
 
 def _words(text: str) -> list[str]:
     return _WORD.findall(text.lower())
+
+
+def _after_lead_in(text: str) -> str:
+    """The text without a leading conjunction ("So, find ..." -> "find ...")."""
+    return _LEAD_IN.sub("", text)
+
+
+def _is_request(text: str) -> bool:
+    """Whether these words open a request: a command, a search or a question."""
+    words = _words(text)
+    return bool(words) and (words[0] in COMMAND_START or words[0] in SEARCH_START
+                            or CLOUD.search(text) is not None)
 
 
 def _is_echo(text: str, last_reply: str) -> bool:
@@ -55,6 +75,13 @@ def _is_echo(text: str, last_reply: str) -> bool:
 
 
 def gate(text: str, last_reply: str) -> Verdict:
+    # A leading conjunction can open a request ("So, find the matrix") or be
+    # the middle of someone else's sentence ("and then the lights went out").
+    # Strip it when a request follows, so the rules below judge that request;
+    # otherwise it stays, and the continuation rule rejects it.
+    stripped = _after_lead_in(text)
+    if stripped != text and _is_request(stripped):
+        text = stripped
     words = _words(text)
     joined = " ".join(words)
     # "Yes" to the assistant's own question is an answer, not a fragment: to
