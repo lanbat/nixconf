@@ -32,6 +32,13 @@ ACTIONS = {
     ecodes.KEY_MUTE: "mute",
 }
 
+# Keys whose action repeats while held. Volume keys are stepped repeatedly;
+# mute is a toggle, so it fires once per press and would flicker on/off if it
+# kept repeating.
+REPEATABLE = {ecodes.KEY_VOLUMEUP, ecodes.KEY_VOLUMEDOWN}
+REPEAT_DELAY = 0.5  # hold this long before the volume starts stepping
+REPEAT_INTERVAL = 0.15  # step the volume this often while held
+
 
 def log(msg: str) -> None:
     print(f"kodi-volume-keys: {msg}", flush=True)
@@ -58,18 +65,57 @@ def kodi_action(action: str) -> None:
         log(action)
 
 
+async def _repeat(action: str) -> None:
+    """Step the action repeatedly, until cancelled, while a key stays down.
+
+    The Consumer Control interface the volume keys live on sends a single
+    press and release and does not advertise EV_REP, so neither the device nor
+    the kernel generates repeats — holding a key must therefore be expanded
+    here. The socket call blocks; it is run off the loop so the timers below
+    keep firing while it is in flight.
+    """
+    await asyncio.sleep(REPEAT_DELAY)
+    try:
+        while True:
+            await asyncio.to_thread(kodi_action, action)
+            await asyncio.sleep(REPEAT_INTERVAL)
+    except asyncio.CancelledError:
+        pass
+
+
 async def watch(device: evdev.InputDevice) -> None:
+    held: dict[int, asyncio.Task] = {}
     try:
         async for event in device.async_read_loop():
-            if event.type != ecodes.EV_KEY or event.value == 0:
+            if event.type != ecodes.EV_KEY:
                 continue
             action = ACTIONS.get(event.code)
-            if action is not None:
-                # The socket call blocks; keep the event loop free for repeats.
+            if action is None:
+                continue
+            if event.value == 0:  # release: stop stepping this key
+                task = held.pop(event.code, None)
+                if task is not None:
+                    task.cancel()
+                continue
+            if event.value == 2:  # the device/kernel already repeats natively
+                # Let the native stream drive it; drop our timer so we never
+                # fire both.
+                task = held.pop(event.code, None)
+                if task is not None:
+                    task.cancel()
                 await asyncio.to_thread(kodi_action, action)
+                continue
+            # value == 1: a fresh press
+            if event.code in held:
+                continue
+            await asyncio.to_thread(kodi_action, action)
+            if event.code in REPEATABLE:
+                held[event.code] = asyncio.create_task(_repeat(action))
     except OSError:
         pass  # unplugged
     finally:
+        for task in held.values():
+            task.cancel()
         device.close()
 
 
