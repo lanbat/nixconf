@@ -127,6 +127,12 @@ re-apply, don't delete).
 - `oidc` present → an **OAuth2 provider** (`provider-<name>`, `client_id` = the service
   name) and an **application** (slug `<name>`) with the service's `redirectPaths` as its
   redirect URIs.
+- Every OIDC provider maps the `openid`, `email` and `profile` scopes (plus any
+  `oidc.extraScopes`). The `email` scope uses the blueprint's own mapping,
+  `Lanbat OIDC 'email' (trusted)`, which reports every account's address as
+  `email_verified: true` — since Authentik 2025.10 the default mapping reports
+  `false`, and RomM rejects the login when the claim is not verified. Accounts
+  here are admin-created, so the email is trusted.
 
 When a service is **both** forward-auth and an OIDC client (Immich), the OIDC objects
 keep the plain names and the **proxy** side takes the `-proxy` suffix (`provider-<name>-proxy`,
@@ -149,6 +155,7 @@ idempotent):
 - proxy provider name = `provider-<name>` (or `provider-<name>-proxy` when the service is also an OIDC client)
 - OIDC provider name = `provider-<name>`
 - application slug = `<name>` (or `<name>-proxy` for the proxy side of a co-located service)
+- email scope mapping name = `Lanbat OIDC 'email' (trusted)` (every OIDC provider references it by name)
 
 A service whose identity is only in the UI (its user/group bindings, the copied-back
 client secret) will be *orphaned* if these identifiers change — the blueprint will
