@@ -8,7 +8,9 @@
 # counter: without a database it lives in memory and starts again when the
 # gateway restarts, so set a hard spend limit in the provider's console too.
 # There is no master key: any process on the server can use the gateway,
-# which listens on the loopback only.
+# which listens on the loopback only. LiteLLM 1.106+ refuses to start without
+# one, so the gateway tells it to permit the unset key (the config flag below);
+# there is nothing to protect with a key while the port is loopback-bound.
 #
 # Settings: lanbat.services.llm-gateway.settings.models and budgetMonthly,
 # for example a second provider behind Claude:
@@ -142,6 +144,13 @@ in
             max_budget = cfg.budgetMonthly;
             budget_duration = "30d";
             drop_params = true;
+          };
+          # LiteLLM 1.106+ demands a master key and exits when none is set.
+          # The gateway listens on the loopback only (see the header), so
+          # permit the unset key instead of minting one every client would
+          # then have to send.
+          general_settings = {
+            dangerously_permit_weak_or_unset_master_key = true;
           };
         };
       };
