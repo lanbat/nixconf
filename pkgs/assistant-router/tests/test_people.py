@@ -187,6 +187,7 @@ def test_a_phone_heard_through_a_wall_counts_where_it_is_loudest():
     p.observe_phone("Bedroom 1", "kiril", -64, now=20.0)
     assert "Kiril" in p.line("Bedroom 1", now=24.0)
     # Gone quiet in the kitchen: the bedroom alone has it.
+    p.observe_phone("Bedroom 1", "kiril", -64, now=30.0)
     assert "Kiril" in p.line("Bedroom 1", now=35.0)
     assert p.line("Kitchen", now=35.0) is None
 
@@ -208,7 +209,7 @@ def test_a_noisy_neighbour_does_not_move_them_between_rooms():
     assert p.where("kiril", now=7.0)[0] == "Office"
     p.observe_phone("Bedroom 1", "kiril", -64, now=12.0)
     p.observe_phone("Office", "kiril", -70, now=12.0)
-    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"  # six seconds of leading
+    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"  # past the switch hold
 
 
 def test_a_face_in_the_other_room_moves_them_at_once():
@@ -228,6 +229,20 @@ def test_going_quiet_in_the_old_room_moves_them_at_once():
     # The office stops hearing it; the bedroom still does.
     p.observe_phone("Bedroom 1", "kiril", -64, now=30.0)
     assert p.where("kiril", now=31.0)[0] == "Bedroom 1"
+
+
+def test_the_old_room_lets_go_within_the_freshness_window():
+    # Placing someone in a room goes by the last PHONE_FRESH_S of sightings,
+    # not the whole 25 s evidence window: once the old room's sensor stops
+    # hearing the phone, the next report from the new room moves them at once,
+    # with no switch hold.
+    p = People(NAMES)
+    p.observe_phone("Office", "kiril", -70, now=0.0)
+    assert p.where("kiril", now=1.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=2.0)  # close through-wall lead: hold
+    assert p.where("kiril", now=3.0)[0] == "Office"
+    p.observe_phone("Bedroom 1", "kiril", -64, now=12.0)  # the office has been quiet since
+    assert p.where("kiril", now=13.0)[0] == "Bedroom 1"
 
 
 def test_bluetooth_and_wifi_strengths_are_not_compared():
@@ -307,7 +322,7 @@ def test_presence_puts_the_sources_together():
     p.observe_home(["maria", "ivo"], now=100.0)
     found = p.presence("Kitchen", 101.0)
     assert found["kiril"] == (round(1 - 0.02 * 0.2, 3), ["card", "voice"])  # either would do
-    assert found["maria"] == (round(1 - 0.2 * 0.8, 3), ["home", "wifi"])
+    assert found["maria"] == (round(1 - 0.4 * 0.8, 3), ["home", "wifi"])
     assert found["ivo"] == (0.2, ["home"])
     assert set(p.here("Kitchen", 101.0)) == {"kiril", "maria"}  # home alone isn't here
 
@@ -318,7 +333,7 @@ def test_where_is_the_room_they_most_likely_are_in():
     p.note_voice("Bedroom 1", scores(kiril=0.9), now=100.0)
     assert p.where("kiril", 101.0) == ("Bedroom 1", 0.9, ["voice"])
     p.observe_phone("Kitchen", "kiril", -60, 400.0, via="ble")  # the voice is old now
-    assert p.where("kiril", 401.0) == ("Kitchen", 0.8, ["bluetooth"])
+    assert p.where("kiril", 401.0) == ("Kitchen", 0.6, ["bluetooth"])
     p.observe_home(["maria"], now=401.0)
     assert p.where("maria", 402.0) == ("home", 0.2, ["home"])
     assert p.where("ivo", 402.0) == ("away", 0.0, [])

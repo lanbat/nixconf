@@ -196,6 +196,7 @@ When adding a deployment-time value:
 | `config.lanbat.deployment.voiceRooms` | Area name → host key for voice satellites |
 | `config.lanbat.deployment.dns` | LAN DNS for the `lanbat-dns` plugin: short suffix, upstreams, extra records |
 | `config.lanbat.deployment.androidDevices` | Android TV boxes to provision over ADB |
+| `config.lanbat.deployment.broadlinkDevices` | Broadlink IR/RF blasters and plugs, added to Home Assistant by IP |
 | `config.lanbat.deployment.voiceCompute.profile` | Where the voice assistant's heavy work runs: `low-spec` or `apple-silicon` (`lib/voice-compute.nix`) |
 
 For the domain specifically, the common pattern in service files is:

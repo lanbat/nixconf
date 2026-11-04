@@ -88,7 +88,17 @@ let
 
   commonModules = [
     agenix.nixosModules.default
-    { nixpkgs.config.allowUnfree = true; }
+    {
+      nixpkgs.config = {
+        allowUnfree = true;
+        # The Android SDK's own Google license, for the android-presence APK
+        # (pkgs/android-presence, built when a device declares `presence`):
+        # Nix refuses to build the SDK without this. Here, not in the
+        # android module: the assertions check evaluates the modules without
+        # the `nixpkgs` option module.
+        android_sdk.accept_license = true;
+      };
+    }
     ../modules/core
     hostContextModule
   ]

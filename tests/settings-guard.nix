@@ -34,6 +34,7 @@ let
     "deployment.parkingGuard"
     "deployment.androidDevices"
     "deployment.xiaomiClocks"
+    "deployment.broadlinkDevices"
     "deployment.techo5Devices"
     # Nobody to recognise is a valid household setting, not a placeholder.
     "deployment.people"

@@ -92,6 +92,32 @@ def shell(state, args):
             return 0
         print(f"    versionCode={code} minSdk=21 targetSdk=34")
         return 0
+    if args[0] == "pm" and args[1] == "grant":
+        state.setdefault("grants", []).append(args[2:])
+        save(state)
+        return 0
+    if args[0] == "am" and args[1] == "broadcast":
+        state.setdefault("broadcasts", []).append(args[2:])
+        save(state)
+        print("Broadcasting: Intent { ... }")
+        return 0
+    if args[0] == "am" and args[1] == "start-foreground-service":
+        state.setdefault("services", []).append(args[2:])
+        save(state)
+        print("Starting service: Intent { ... }")
+        return 0
+    if args[0] == "cmd" and args[1] == "deviceidle":
+        state.setdefault("deviceidle", []).append(args[2:])
+        save(state)
+        return 0
+    if args[0] == "cmd" and args[1] == "location":
+        state.setdefault("location", []).append(args[2:])
+        save(state)
+        return 0
+    if args[0] == "appops" and args[1] == "set":
+        state.setdefault("appops", []).append(args[2:])
+        save(state)
+        return 0
     if args[0] == "dumpsys" and args[1] == "device_policy":
         owner = state.get("device_owner")
         if owner:

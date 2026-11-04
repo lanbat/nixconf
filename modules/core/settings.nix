@@ -562,6 +562,54 @@ in
         '';
       };
 
+      broadlinkDevices = mkOption {
+        type = types.attrsOf (
+          types.submodule {
+            options = {
+              host = mkOption {
+                type = types.str;
+                description = "The device's IP address on the LAN.";
+              };
+              name = mkOption {
+                type = types.str;
+                description = ''
+                  The device's name in Home Assistant: its config entry title,
+                  which becomes the device name (and the slug its entities use).
+                '';
+              };
+              mac = mkOption {
+                type = types.strMatching "([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}";
+                description = "The device's MAC address.";
+              };
+              devtype = mkOption {
+                type = types.ints.u16;
+                example = 21004;
+                description = ''
+                  The Broadlink device type (devtype), e.g. 21004 (0x520c) for
+                  an RM4 mini.  Probe it with `broadlink.hello(host).devtype`
+                  (python-broadlink); see its SUPPORTED_TYPES table.
+                '';
+              };
+            };
+          }
+        );
+        default = { };
+        example = {
+          "living-room" = {
+            host = "192.168.1.105";
+            name = "Living Room Remote";
+            mac = "1c:d1:d7:27:5f:d5";
+            devtype = 21004;
+          };
+        };
+        description = ''
+          Broadlink devices (IR/RF blasters, smart plugs) for Home Assistant to
+          control, one per key.  Each is added as a broadlink integration entry
+          on the server, so put its entity in a room with
+          lanbat.services.home-assistant.settings.deviceAreas.
+        '';
+      };
+
       techo5Devices = mkOption {
         type = types.attrsOf (
           types.submodule (

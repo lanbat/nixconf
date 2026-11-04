@@ -20,11 +20,17 @@ let
   cfg = config.lanbat.homeAssistant.followMe;
   deployment = config.lanbat.deployment;
 
-  # The rooms a "Where is" sensor can name: a voice room's area, or a TECHO5
-  # screen's room.
-  presenceRooms = lib.unique (
-    lib.attrNames (deployment.voiceRooms or { })
-    ++ lib.mapAttrsToList (_: d: d.room) (deployment.techo5Devices or { })
+  # The rooms a "Where is" sensor can name: a voice room's area, a TECHO5
+  # screen's room, or an Android box that scans for phones itself
+  # (androidDevices.<name>.presence).
+  presenceRooms = lib.filter (room: room != null) (
+    lib.unique (
+      lib.attrNames (deployment.voiceRooms or { })
+      ++ lib.mapAttrsToList (_: d: d.room) (deployment.techo5Devices or { })
+      ++ lib.mapAttrsToList (_: d: d.room) (
+        lib.filterAttrs (_: d: (d.presence or null) != null) (deployment.androidDevices or { })
+      )
+    )
   );
 
   time = types.strMatching "([01][0-9]|2[0-3]):[0-5][0-9]";

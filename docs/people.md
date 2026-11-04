@@ -142,12 +142,18 @@ plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.satellite-
 ## Phones in the room
 
 The `room-presence` plugin (`modules/pi/room-presence.nix`) scans Bluetooth LE on any
-host whose satellite has a room (a Pi, or the server), and every 2 s tells the router whose phones it heard in the
-last 20 seconds, with their signal strength. The router counts a phone as *nearby* for 25
-seconds; a phone never names the speaker. A phone heard by sensors in several rooms (a
-wall is no barrier to Bluetooth) counts only in the room where it is loudest, or in each
-room within 6 dB of that, a doorway say. Bluetooth and Wi-Fi strengths are on different
-scales, so each is compared only with its own kind. Enable it next to the voice plugin:
+host whose satellite has a room (a Pi, or the server), and every second tells the router
+whose phones it has heard recently, with the median of the last 20 seconds of their
+signal strength. A sensor stops reporting a phone within a few seconds of it going out
+of earshot, so a room that no longer hears it lets it go at once. The router counts a
+phone as *nearby* for 25 seconds; a phone never names the speaker. For placing someone
+in a room only the last 10 seconds of sightings count, so walking into a louder room
+moves them within a few seconds; a phone heard by sensors in several rooms (a wall is no
+barrier to Bluetooth) counts only in the room where it is loudest, or in each room
+within 6 dB of that, a doorway say, and a room must stay louder for 3 seconds before the
+"Where is" sensor moves, so one noisy sample doesn't yank them between rooms. Bluetooth
+and Wi-Fi strengths are on different scales, so each is compared only with its own kind.
+Enable it next to the voice plugin:
 
 ```nix
 plugins = [ inputs.self.lanbatPlugins.voice inputs.self.lanbatPlugins.room-presence ];
@@ -162,7 +168,9 @@ Phones change their Bluetooth address every few minutes, so each needs one of:
   ```nix
   people.alex = { name = "Alex"; bleBeacon = "a1b2c3d4-e5f6-0718-293a-4b5c6d7e8f90"; };
   ```
-  It is not secret: a beacon only says "this is Alex's phone" to whoever listens.
+  It is not secret: a beacon only says "this is Alex's phone" to whoever listens. It may stop
+  advertising while the screen is off (GrapheneOS and battery modes do): that is one reason a
+  beacon is a weak hint — it places someone, but a face or a voice always outranks it.
 - **Any phone, no app: its IRK.** The Identity Resolving Key lets a sensor recognise
   the phone's rotating addresses. A phone paired once with any host hands it over. The
   router keeps the keys per person (`/var/lib/assistant-router/irks.json`, readable by it
@@ -186,6 +194,12 @@ its flash until they change or are forgotten, and reports the phones near it eve
 like a room sensor. That places phones where the robot stands, also away from its Pi on
 Wi-Fi. It listens a slice of every second, so Wi-Fi keeps the radio most of the time.
 
+An **Android TV box** can scan too, with the `android-presence` app
+(`pkgs/android-presence`) installed by `pkgs/android-provision` when the box's
+`androidDevices` entry sets `presence`: it reports the same medians to the router over
+the same socket, so no Pi is needed in that room. The app, its permissions and the
+provisioning are described in [android-devices.md](android-devices.md#bluetooth-presence-follow-me).
+
 The Pi 3's own Bluetooth chip works but is flaky (it shares a UART and sometimes starts
 without a controller; `hosts/pi3/hardware.nix` retries). The scanner restarts on its own;
 if `journalctl -u room-presence` keeps showing `scan stopped`, a USB Bluetooth adapter
@@ -206,7 +220,7 @@ it never names anyone by itself, and a phone that is away rules nobody out. It d
 say anything about rooms ("nearby" is still Bluetooth, faces and the robot).
 
 A host that extends the home Wi-Fi (`lanbat.wifi.accessPoint`, [wifi.md](wifi.md)) does
-say which room: its room sensor reads the access point's clients every 15 s and reports
+say which room: its room sensor reads the access point's clients every second and reports
 the phones among them, by the same addresses (the profile's `wifiMacs` and those learned
 from taps), with the signal it measures. The router compares Wi-Fi signals only with
 other Wi-Fi sensors, as Bluetooth with Bluetooth, and the strongest room wins.
@@ -566,12 +580,13 @@ and an extra one stands for someone not enrolled.
 
 - **A tap** of their card or phone on the room's robot (last 2 minutes) names them unless
   the voice clearly disagrees.
-- **Presence** raises a candidate's weight: their phone in the room (last 25 seconds),
-  their face on a room camera (last 10 s), their voice clearly heard in the room (a match
-  of 0.7 or more, well ahead of anyone else's, in the last 5 minutes), having been the
-  speaker earlier in this conversation, and, less, their phone on the home network (last
-  3 minutes). Absence lowers it but never rules anyone out, so a phone left in another
-  room doesn't overrule a clear voice.
+- **Presence** raises a candidate's weight: their phone in the room (last 10
+  seconds), their face on a room camera (last 10 s), their voice clearly heard
+  in the room (a match of 0.7 or more, well ahead of anyone else's, in the last
+  5 minutes), having been the speaker earlier in this conversation, and, less,
+  their phone on the home network (last 3 minutes). Absence lowers it but never
+  rules anyone out, so a phone left in another room doesn't overrule a clear
+  voice.
 - **Evidence** multiplies in: the voice scores of this sentence, and above all the face
   the robot saw after turning to the voice.
 - **The speaker** is named only when one candidate clearly leads (80 % and three times
@@ -582,9 +597,10 @@ and an extra one stands for someone not enrolled.
 **Who is in a room** puts the same evidence together per person, rather than per
 sentence. Each source is a chance that they are there: a tap or card 98 %, a face on a
 camera, the robot's look or their voice its own confidence, their phone placed in the room
-80 %, their phone on the home network 20 % (for the whole house). The chances combine as
-independent ones (two sources that each say 80 % make 96 %). Someone counts as in the
-room from 50 %, and only with something more than the home network. The room a person is
+60 % (a weak hint: the phone's beacon is silent whenever its screen is off, and a face or a
+voice outranks it), their phone on the home network 20 % (for the whole house). The chances
+combine as independent ones (two sources that each say 80 % make 96 %). Someone counts as in
+the room from 50 %, and only with something more than the home network. The room a person is
 most likely in is where they are; with nothing but the home network they are "home", and
 with nothing at all "away".
 

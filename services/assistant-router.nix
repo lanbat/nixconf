@@ -86,13 +86,24 @@ let
     )
   );
   overlay = config.lanbat.overlay;
-  bodyAddresses = lib.concatMap (
-    h:
-    [ config.lanbat.hosts.${h}.networking.ip ]
-    ++ lib.optional (overlay.onOverlay h && overlay.onOverlay config.lanbat.hostKey) (
-      overlay.addressOf h
+  # Android boxes that scan for phones themselves (androidDevices.<name>.presence)
+  # speak the room-sensor protocol from outside the NixOS host table, so the
+  # generated policy and this service's IP allowlist would not know them.
+  presenceBoxes = lib.mapAttrsToList (_: d: d.host) (
+    lib.filterAttrs (_: d: (d.presence or null) != null) (
+      config.lanbat.deployment.androidDevices or { }
     )
-  ) bodyHosts;
+  );
+  bodyAddresses = lib.unique (
+    presenceBoxes
+    ++ lib.concatMap (
+      h:
+      [ config.lanbat.hosts.${h}.networking.ip ]
+      ++ lib.optional (overlay.onOverlay h && overlay.onOverlay config.lanbat.hostKey) (
+        overlay.addressOf h
+      )
+    ) bodyHosts
+  );
   personaFile = pkgs.writeText "assistant-router-persona.txt" cfg.body.persona;
   # Who it may recognise (lanbat.deployment.people): keys and names only.
   peopleFile = pkgs.writeText "assistant-router-people.json" (

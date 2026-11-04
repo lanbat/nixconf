@@ -382,6 +382,7 @@ Every field of `androidDevices.<name>`, with its default:
 | `deviceOwner.enable` | `false` | Set a Device Owner via `dpm set-device-owner`. Only succeeds on a box with no configured accounts. |
 | `deviceOwner.component` | `null` | DPC admin receiver component, e.g. `"com.example.dpc/.AdminReceiver"`. Required when `deviceOwner.enable` is set. |
 | `room` | `null` | The Home Assistant area the box is in. The voice assistant controls the TV of the room it hears the request in. |
+| `presence` | `null` | Make the box a Bluetooth room sensor for follow-me: `{ routerUrl, reportSeconds = 2, windowSeconds = 20 }`. Needs `room` and the `android-presence` app installed. Scans every person's `bleBeacon` and reports their median RSSI to the assistant router. |
 | `apps` | `{ }` | Apps the voice assistant opens, as spoken name → package, e.g. `{ SmartTube = "app.smarttube.fdroid"; }`. List a box's packages with `adb shell pm list packages -3`. |
 
 Evaluation rejects two devices sharing a `host:port`, `deviceOwner.enable` without a
@@ -424,6 +425,57 @@ The caveat: a box on a VLAN or Wi-Fi network that blocks multicast will never se
 mDNS advertisement, Snapdroid will find no server, and nothing in this module — or in
 `plan`'s output — can detect that from the server side. If a box can't find audio,
 check multicast reachability on its network segment before anything else.
+
+## Bluetooth presence (follow-me)
+
+A box with `presence` set and the `android-presence` app installed is a room sensor
+exactly like a Pi running `pkgs/room-presence`: it scans for the phones' iBeacons
+(`people.<key>.bleBeacon`), reports the median RSSI of each to the assistant router
+every `reportSeconds`, and the router places that person in the box's `room`. With
+`lanbat.homeAssistant.followMe` enabled, music then follows them to that room's player.
+The box needs no beacon list of its own — the module sends every person's `bleBeacon`
+with the config.
+
+```nix
+androidDevices.bedroom = {
+  # ... host, abi, packages as usual ...
+  room = "Living Room";
+  presence = { routerUrl = "ws://192.168.1.10:8770/v1/body"; };
+  github = [ { repo = "lanbat/android-presence"; } ];  # once released and pinned
+};
+```
+
+The provisioner installs the APK (from `github`), grants `BLUETOOTH_SCAN`,
+`BLUETOOTH_CONNECT`, the location permissions (fine, coarse and background) and
+notifications, forces the location app-ops allowed, turns location on, exempts the app
+from background limits, sends the room/router/beacons as a broadcast, and starts the
+foreground service over adb (Android 12+ refuses a background start).
+The scan is filtered to iBeacon adverts because Android refuses *unfiltered* scans
+while the screen or location is off — the normal state of a TV box — and iBeacons must
+not be hidden with `neverForLocation`, which also makes the location permission
+necessary on every Android version. All of that is the `presence` resource, so it
+shows up in a `plan` and re-runs only when the config or the person list changes.
+
+The router's own IP allowlist (`IPAddressAllow`, `services/assistant-router.nix`) is
+generated from the NixOS hosts that consume it, so it also learns every
+`androidDevices` entry with `presence`; a box needs no NixOS host entry. The port is
+still opened by hand in the deployment, like the Jellyfin rule, because the wiring
+policy can only admit hosts it knows:
+`iptables -I INPUT -p tcp --dport 8770 -s <box> -j ACCEPT`.
+
+The app's own notes — the parser, the median window, the filter, and how to verify it
+without an Android SDK — are in `pkgs/android-presence/README.md`.
+
+`follow-me` accepts a room with an Android presence sensor as a room it can follow
+into, so a box is enough presence for its room; no satellite Pi is needed there.
+
+One limit is Google Play Services, not the app: on the reference Box R 4K Plus
+(Android 14) it switches location off whenever the display sleeps until the
+“Turn on location with Location Accuracy?” prompt is accepted, and Android delivers
+no BLE scan results without location. Accept the prompt once (the app logs
+`location services are off` until then); after that location stays on across sleep
+and the box keeps scanning with the TV off. A factory reset brings the prompt back.
+A Linux `room-presence` scanner has no such requirement.
 
 ## Exit codes
 

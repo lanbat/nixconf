@@ -75,11 +75,24 @@ class Tracking(unittest.TestCase):
         self.assertEqual(t.report(now=15.0), [{"person": "alex", "rssi": -72}])
 
     def test_people_who_left_are_dropped(self):
-        t = Tracker(window_s=60)
+        # The window (not the freshness gate) is what this covers: fresh_s the
+        # same as the window, so only age within it matters.
+        t = Tracker(window_s=60, fresh_s=60)
         t.observe("alex", -60, now=0.0)
         t.observe("sam", -60, now=50.0)
         self.assertEqual(t.report(now=70.0), [{"person": "sam", "rssi": -60}])
         self.assertEqual(t.report(now=200.0), [])
+
+    def test_a_person_not_heard_recently_leaves_the_report_at_once(self):
+        # The median still spans the whole window, but a report carries a person
+        # only while an ad came within FRESH_SECONDS: the old room must stop
+        # claiming them as soon as the phone is no longer heard (docs/people.md).
+        t = Tracker(window_s=60, fresh_s=6)
+        t.observe("alex", -70, now=10.0)
+        t.observe("alex", -60, now=14.0)
+        self.assertEqual(t.report(now=15.0), [{"person": "alex", "rssi": -65}])
+        self.assertEqual(t.report(now=21.0), [])  # 7 s since the last ad
+        self.assertEqual(t.report(now=22.0), [])  # still nothing, and nothing kept
 
 
 class FromTheRouter(unittest.TestCase):

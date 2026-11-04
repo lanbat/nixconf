@@ -45,6 +45,17 @@
     # haXiaomiBle = true;
     # Xiaomi BLE thermometers with a clock display (lanbatPlugins.xiaomi-clock).
     # xiaomiClocks = [ "A4:C1:38:00:00:01" ];
+    # Broadlink devices (IR/RF blasters, plugs) added to Home Assistant by IP.
+    # mac and devtype are stable per device (probe with `broadlink.hello(host)`);
+    # the room comes from lanbat.services.home-assistant.settings.deviceAreas.
+    # broadlinkDevices = {
+    #   "living-room" = {
+    #     host = "10.0.0.x";
+    #     name = "Living Room Remote";
+    #     mac = "aa:bb:cc:dd:ee:ff";
+    #     devtype = 21004; # 0x520c, RM4 mini
+    #   };
+    # };
 
     # LAN DNS, for hosts with lanbatPlugins.dns: short names (torrent.lan
     # redirects to torrent.<domain>) and further LAN names.

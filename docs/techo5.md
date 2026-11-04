@@ -308,15 +308,27 @@ When the screen doesn't do what you expect, `journalctl -u techo5-bridge` and
   `{"greet": "no", ..., "why": ...}` is why someone placed in a room wasn't greeted: they were
   already there at the last look (a greeting is for arriving, after `ARRIVAL_S` of absence), they
   were greeted lately (not twice in 30 minutes), or the body was asleep, in night mode or busy.
-- **Bridge:** `present` (the camera's person and presence, and whether the screen was on),
-  `face_result` (what the router named), `here` (who the router said is in the room), `view` (the
-  dashboard chosen, and for whom: a person's own, or the household's) and `screen` (on or off, and
-  why). The household's view is shown for nobody, someone it can't name, or two or more people.
+- **Bridge:** `connected` (with `presence_entities`, which of `presence`, `person` and
+  their switches the device has), `present` (the camera's person and presence, and whether
+  the screen was on), `face_result` (what the router named), `here` (who the router said is in
+  the room), `view` (the dashboard chosen, and for whom: a person's own, or the household's)
+  and `screen` (on or off, and why). A `missing_entities` warning means TECHO5 has no
+  `presence` or `person` sensor on the device: its camera is unavailable (off, muted, its
+  cover shut, or this TECHO5 has no camera for it), and who-is-in-front cannot work until
+  they appear. The household's view is shown for nobody, someone it can't name, or two or more
+  people.
 
 ## Limits
 
 - Its Wi-Fi radio can't sense phones: the device is only a Wi-Fi client and runs no code
   of ours.
+- **The Echo Show 8 1st gen (`crown`) camera.** Its OV9734 sensor (640×360 frames) works, but
+  a boot image older than TECHO5 v1.0.1 leaves the camera gated after a quick tap of the mute
+  button to unmute: presence, person detection and the camera stills then all stay off
+  (the bridge logs `missing_entities`). Hold the mute button for a second to bring it back
+  (tap it once if that mutes), or restart, and update the boot image for good. With the
+  camera unavailable there is no `presence` or `person` sensor, so the screen never turns
+  off for an empty room and the router never gets a frame to name.
 - No moods: a Show has no ring and no face. The persona still applies.
 - No Snapcast client: it joins multi-room audio as Music Assistant's Sendspin player.
 - The CA rides on TECHO5's internals (the bundle's path, the daemon reading it once, init

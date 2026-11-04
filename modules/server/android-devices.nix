@@ -69,6 +69,12 @@ let
 
   provisioner = pkgs.callPackage ../../pkgs/android-provision { };
 
+  # The android-presence app, built in Nix (pkgs/android-presence): a room
+  # sensor APK the provisioner installs beside the lockfile-pinned apps.  The
+  # derivation is only forced when a device declares `presence`, so hosts with
+  # no such box never build the (heavy) Android SDK.
+  presenceApk = pkgs.callPackage ../../pkgs/android-presence { };
+
   lock = lib.importJSON ../../pkgs/android-provision/apks.lock.json;
 
   # One fetchurl per locked APK variant actually needed by a device.
@@ -121,7 +127,18 @@ let
           allowDowngrade
           ;
         homeActivity = device.homeActivity;
-        apks = apkEntries device;
+        apks =
+          apkEntries device
+          ++ lib.optionals (device.presence != null && device.room != null) [
+            {
+              packageId = "com.lanbat.presence";
+              versionCode = 1;
+              versionName = "1.0";
+              minSdk = 26;
+              source = "nix";
+              path = "${presenceApk}/android-presence.apk";
+            }
+          ];
         caCerts = map (cert: {
           name = baseNameOf (toString cert);
           sha256 = builtins.hashFile "sha256" cert;
@@ -139,6 +156,21 @@ let
         deviceOwner = {
           inherit (device.deviceOwner) enable component;
         };
+        # The android-presence app is a generic room sensor; this gives it the
+        # deployment's room, router socket and every person's beacon UUID.
+        presence =
+          if device.presence == null || device.room == null then
+            null
+          else
+            {
+              room = device.room;
+              inherit (device.presence) routerUrl reportSeconds windowSeconds;
+              beacons = lib.mapAttrs' (key: person: lib.nameValuePair (lib.toLower person.bleBeacon) key) (
+                lib.filterAttrs (_: person: (person.bleBeacon or null) != null) (
+                  config.lanbat.deployment.people or { }
+                )
+              );
+            };
       }
     );
 
@@ -214,6 +246,39 @@ let
           (its Android TV integration, with the provisioning key), and voice
           commands such as "open SmartTube" or "pause the TV" act on the box in
           the room of the satellite that heard them.
+        '';
+      };
+
+      presence = mkOption {
+        type = types.nullOr (
+          types.submodule {
+            options = {
+              routerUrl = mkOption {
+                type = types.str;
+                example = "ws://192.168.1.10:8770/v1/body";
+                description = "The assistant router's room-sensor socket.";
+              };
+              reportSeconds = mkOption {
+                type = types.ints.positive;
+                default = 2;
+                description = "How often the app reports sightings.";
+              };
+              windowSeconds = mkOption {
+                type = types.ints.positive;
+                default = 20;
+                description = "The RSSI median window.";
+              };
+            };
+          }
+        );
+        default = null;
+        description = ''
+          Make this box a Bluetooth room sensor for the assistant router: it
+          installs none of this itself, so add the android-presence app to
+          `github`/`packages`, and give the box a `room`. Every person with a
+          `bleBeacon` in `lanbat.deployment.people` is scanned for. The app
+          reports the median RSSI to the router, which places the person in
+          `room` like a Pi room-presence scanner does.
         '';
       };
 
@@ -380,6 +445,10 @@ in
       ++ lib.mapAttrsToList (name: d: {
         assertion = !d.deviceOwner.enable || d.deviceOwner.component != null;
         message = "androidDevices.${name}: deviceOwner.enable needs deviceOwner.component.";
+      }) devices
+      ++ lib.mapAttrsToList (name: d: {
+        assertion = d.presence == null || d.room != null;
+        message = "androidDevices.${name}: presence needs a room (set `room`).";
       }) devices
       ++ lib.mapAttrsToList (
         name: d:
