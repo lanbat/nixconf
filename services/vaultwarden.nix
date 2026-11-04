@@ -99,6 +99,13 @@ in
       # Log level: warn is quiet enough for daily use.
       LOG_LEVEL = "warn";
 
+      # One imported KeePass entry (alphabay market) carries a ~20k-char note
+      # (wallet/account recovery keys + the market's ToS), which exceeds the
+      # default 10,000-char encrypted-note cap and aborts the import. Raise the
+      # cap to 100,000 so it imports intact. (Vaultwarden warns large notes can
+      # occasionally trip very old clients; current clients handle it fine.)
+      INCREASE_NOTE_SIZE_LIMIT = true;
+
       # SSO via the identity provider (see Design). Matching the email to an
       # existing account means the account must already exist (invited); a
       # fresh email cannot create one over SSO.

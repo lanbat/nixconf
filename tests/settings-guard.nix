@@ -43,6 +43,8 @@ let
     # One admin key (adminSshKey) is enough; the extra keys are optional.
     "deployment.extraAdminSshKeys"
     "deployment.dns"
+    # No IPv6 is a valid network setting, not a placeholder.
+    "deployment.lanSubnet6"
     "hosts"
     "mosquitto.extraUsers"
   ];

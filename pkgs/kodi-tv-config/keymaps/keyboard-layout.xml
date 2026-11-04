@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Toggle Kodi's on-screen keyboard layout from the physical keyboard.
+
+     Kodi has no shortcut of its own for this. Ctrl+Alt+K presses the keyboard
+     dialog's layout button (control 309), exactly as a click would: the
+     on-screen layout cycles, locale.activekeyboardlayout changes, and
+     kodi-keyboard-layout moves the physical keyboard to match (us or phonetic
+     bg).
+
+     The binding is inside <VirtualKeyboard>, so it only applies while the
+     on-screen keyboard is open, where changing the layout matters; SendClick
+     then clicks the active window (the keyboard dialog). -->
+<keymap>
+  <VirtualKeyboard>
+    <keyboard>
+      <k mod="ctrl,alt">SendClick(309)</k>
+    </keyboard>
+  </VirtualKeyboard>
+</keymap>

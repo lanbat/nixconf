@@ -418,8 +418,7 @@ sudo systemctl start backup-server
 ```
 
 The nightly timer (`modules/server/backups.nix`) writes at 03:00 and keeps 7
-daily snapshots. See `docs/backup.md` for what is included, including the
-`lanbat.backups.skipDatabases` exclusions.
+daily snapshots. See `docs/backup.md` for what is included.
 
 ## Rebuilding Immich thumbnails
 

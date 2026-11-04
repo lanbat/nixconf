@@ -424,7 +424,7 @@ let
           type = types.attrsOf dirSubmodule;
           default = { };
           example = {
-            "immich/thumbs".user = "immich";
+            "immich/model-cache".user = "immich";
           };
           description = ''
             Directories under /mnt/workload to create with this ownership when the

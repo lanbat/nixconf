@@ -41,6 +41,14 @@
 # of a public one, and the box trusts that instance's internal-CA certificate
 # so both the add-on and inputstream.adaptive reach it.
 #
+# Text entry: Kodi's on-screen keyboard offers English and the phonetic
+# Bulgarian layout (settings.keyboardLayouts), and its layout button cycles
+# between them. Ctrl+Alt+K presses that button (pkgs/kodi-tv-config/keymaps/
+# keyboard-layout.xml). The physical keyboard follows that choice:
+# kodi-keyboard-layout sets Kodi's libinput layout (us or bg), and tv-kodi's
+# XKB_CONFIG_ROOT makes "bg" the same phonetic (ЯВЕРТЪ) layout, since Kodi can
+# name a layout but not a variant.
+#
 # The private-group folder (settings.privateMedia, off by default) is a
 # browse-only Videos > Files source: never scanned, so it stays out of the
 # library and Global Search. script.private-media plays a random video from it,
@@ -51,6 +59,12 @@
 # and echo canceller. The satellite's companion (pkgs/lva-kodi-companion)
 # pauses a film while you talk, shows what you said and the reply on screen,
 # and switches the TV on and off over CEC when Home Assistant asks.
+#
+# Volume keys: on a keyboard whose media keys are a separate HID "Consumer
+# Control" interface, Kodi's GBM input grabs the interface but maps only its
+# main keyboard, so the keys are lost. The udev rule makes that interface
+# root-only and libinput-ignored, and kodi-volume-keys reads it and sends
+# volumeup/volumedown/mute to Kodi's JSON-RPC.
 #
 # Controllers: wired Xbox pads use the kernel's xpad driver, Bluetooth Xbox
 # pads use xpadneo (pair once with bluetoothctl), and USB arcade encoders are
@@ -216,6 +230,45 @@ let
           Playback is proxied through that instance (the add-on's "local"
           setting), and the box trusts its internal-CA certificate. Needs
           Invidious in the deployment.
+        '';
+      };
+      keyboardLayouts = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        # Kodi names a layout "<language> <layout>", as in the layout files it
+        # ships in system/keyboardlayouts; "Bulgarian ЯВЕРТЪ" is the phonetic
+        # layout (QWERTY positions). The physical keyboard follows the
+        # on-screen one (see kodi-keyboard-layout), with the same layout.
+        default = [
+          "English QWERTY"
+          "Bulgarian ЯВЕРТЪ"
+        ];
+        example = [ "English QWERTY" ];
+        description = ''
+          Kodi's on-screen keyboard layouts, so search fields can be typed in
+          another script. The keyboard dialog's layout button cycles through
+          them in this order, and it opens on the first one unless the user has
+          switched it there. Kodi keeps at most three.
+
+          Ctrl+Alt+K presses the layout button from the physical keyboard
+          while the on-screen keyboard is open.
+
+          The physical keyboard follows the layout selected here: English
+          QWERTY switches it to xkb "us", Bulgarian ЯВЕРТЪ to the phonetic xkb
+          "bg" (pkgs/xkb-phonetic-root). A layout this module does not know
+          leaves the physical keyboard alone.
+        '';
+      };
+      volumeKeysDevice = lib.mkOption {
+        type = lib.types.str;
+        default = "*Consumer Control*";
+        description = ''
+          Glob of the input device whose media volume keys Kodi's evdev input
+          grabs but never maps. Kodi's GBM input grabs every /dev/input device
+          but registers only one keyboard; on a keyboard whose volume keys are
+          a separate HID interface (the "Consumer Control" device) they are
+          grabbed and dropped. The matched device is made root-only so Kodi
+          cannot open it, and kodi-volume-keys reads it and drives Kodi's
+          volume over its TCP JSON-RPC.
         '';
       };
       privateMedia = lib.mkOption {
@@ -386,6 +439,10 @@ let
     set_setting services.webserverssl false
     set_setting services.esenabled true
     set_setting services.esallinterfaces true
+    # Kodi's on-screen keyboard, in the order its layout button cycles: the
+    # first is the one it opens with (unless the user switched it on the TV,
+    # which Kodi remembers in locale.activekeyboardlayout).
+    set_setting locale.keyboardlayouts '${lib.concatStringsSep "|" kodiCfg.keyboardLayouts}'
     # Kodi plays through the system PipeWire, as PCM, so the music, films and
     # the assistant's replies share the speakers and the echo canceller.
     set_setting audiooutput.audiodevice ${kodiAudioDevice}
@@ -415,6 +472,9 @@ let
   # add-on over the bundled skin.
   estuaryPowerSkin = pkgs.callPackage ../../pkgs/kodi-skin-estuary-power { };
   kodiBootstrap = pkgs.callPackage ../../pkgs/kodi-bootstrap { };
+  kodiVolumeKeys = pkgs.callPackage ../../pkgs/kodi-volume-keys { };
+  kodiKeyboardLayout = pkgs.callPackage ../../pkgs/kodi-keyboard-layout { };
+  xkbPhoneticRoot = pkgs.callPackage ../../pkgs/xkb-phonetic-root { };
 
   # Tuned for the Raspberry Pi 5: emulators that run well on it. Another board
   # would want its own list.
@@ -734,6 +794,19 @@ in
       musicSources = lib.mapAttrs (_: lib.mkDefault) musicSourceDefaults;
     };
 
+    # Kodi's keyboard setting is a list of one to three layouts; catch a
+    # profile that leaves it empty or adds a fourth before deploy.
+    assertions = [
+      {
+        assertion = kodiCfg.keyboardLayouts != [ ];
+        message = "lanbat: lanbat.services.kodi.settings.keyboardLayouts needs at least one layout.";
+      }
+      {
+        assertion = lib.length kodiCfg.keyboardLayouts <= 3;
+        message = "lanbat: lanbat.services.kodi.settings.keyboardLayouts holds at most three layouts (Kodi's limit).";
+      }
+    ];
+
     # Kodi's remote control, for Home Assistant (see the top).
     lanbat.services.kodi = {
       endpoint = {
@@ -801,6 +874,15 @@ in
     hardware.xpadneo.enable = true;
     boot.kernelModules = [ "joydev" ];
 
+    # Kodi's GBM evdev input grabs every /dev/input device but only registers
+    # its main keyboard. A wireless keyboard whose volume keys are a separate
+    # HID "Consumer Control" interface therefore loses them: Kodi grabs the
+    # events and drops them. Make that device root-only so Kodi cannot open
+    # it; kodi-volume-keys (root) reads it and drives Kodi over JSON-RPC.
+    services.udev.extraRules = ''
+      SUBSYSTEM=="input", ATTRS{name}=="${kodiCfg.volumeKeysDevice}", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess", ENV{LIBINPUT_IGNORE_DEVICE}="1"
+    '';
+
     environment.systemPackages = [
       kodi
       retroarch
@@ -845,11 +927,17 @@ in
               "kodi-bootstrap.service"
             ];
             serviceConfig.ExecStartPre = [ "+${kodiRemote}" ];
-            # Kodi's requests module trusts its bundled certifi, not the system
-            # bundle, so the Invidious add-on could not reach the instance's
-            # internal-CA certificate. inputstream.adaptive (the DASH stream)
-            # uses the system bundle, which the CA above joins.
-            environment = lib.optionalAttrs kodiCfg.invidious {
+            # Kodi's physical keyboard is an xkb keymap. The root below makes
+            # "bg" its phonetic (ЯВЕРТЪ) layout, because Kodi can name a
+            # layout but not a variant (pkgs/xkb-phonetic-root).
+            environment = {
+              XKB_CONFIG_ROOT = xkbPhoneticRoot;
+            }
+            // lib.optionalAttrs kodiCfg.invidious {
+              # Kodi's requests module trusts its bundled certifi, not the system
+              # bundle, so the Invidious add-on could not reach the instance's
+              # internal-CA certificate. inputstream.adaptive (the DASH stream)
+              # uses the system bundle, which the CA above joins.
               REQUESTS_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt";
               SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
               INVIDIOUS_URL = invidiousUrl;
@@ -878,6 +966,58 @@ in
         other = "tv-kodi.service";
         extraConflicts = [ "tv-games.service" ];
         command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe tvChiaki}";
+      };
+
+      # Kodi's input layer grabs every input device, so the volume keys on a
+      # separate Consumer Control interface never reach it. The udev rule
+      # above keeps that device root-only; this reads it and sends the action
+      # to Kodi's password-less TCP JSON-RPC.
+      kodi-volume-keys = {
+        description = "Forward the TV keyboard's volume keys to Kodi";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "tv-kodi.service" ];
+        environment = {
+          VOLUME_DEVICE = kodiCfg.volumeKeysDevice;
+          KODI_PORT = toString kodiEventsPort;
+        };
+        serviceConfig = {
+          ExecStart = lib.getExe kodiVolumeKeys;
+          Restart = "always";
+          RestartSec = "5s";
+          # Reads an input device and talks to Kodi on the loopback.
+          IPAddressDeny = "any";
+          IPAddressAllow = "localhost";
+        };
+      };
+
+      # Kodi's on-screen keyboard and its physical keyboard are independent
+      # settings: the layout button only changes the former. This follows the
+      # selected on-screen layout and sets input.libinputkeyboardlayout to the
+      # matching xkb layout, which Kodi applies live. tv-kodi's XKB_CONFIG_ROOT
+      # makes "bg" the phonetic (ЯВЕРТЪ) layout, the same as the on-screen one.
+      kodi-keyboard-layout = {
+        description = "Follow Kodi's on-screen keyboard layout with the physical keyboard";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "tv-kodi.service" ];
+        environment = {
+          KODI_PORT = toString kodiEventsPort;
+        };
+        serviceConfig = {
+          ExecStart = lib.getExe kodiKeyboardLayout;
+          Restart = "always";
+          RestartSec = "5s";
+          # Only Kodi's JSON-RPC on the loopback.
+          IPAddressDeny = "any";
+          IPAddressAllow = "localhost";
+          RestrictAddressFamilies = [
+            "AF_INET"
+            "AF_INET6"
+          ];
+          DynamicUser = true;
+          ProtectHome = true;
+          PrivateDevices = true;
+          NoNewPrivileges = true;
+        };
       };
 
       lva-kodi-companion = lib.mkIf lvaHere {
@@ -1017,6 +1157,8 @@ in
       # The power key opens the TV power menu instead of Kodi's shutdown menu.
       "d ${home}/.kodi/userdata/keymaps 0755 media media -"
       "L+ ${home}/.kodi/userdata/keymaps/power-menu.xml - - - - ${kodiTvConfig}/keymaps/power-menu.xml"
+      # Ctrl+Alt+K in the on-screen keyboard presses its layout button.
+      "L+ ${home}/.kodi/userdata/keymaps/keyboard-layout.xml - - - - ${kodiTvConfig}/keymaps/keyboard-layout.xml"
       "C ${home}/.kodi/userdata/sources.xml - - - - ${kodiTvConfig}/sources.xml"
       "C ${home}/.kodi/userdata/favourites.xml - - - - ${kodiFavourites}"
       "z ${home}/.kodi/userdata/favourites.xml 0644 media media -"

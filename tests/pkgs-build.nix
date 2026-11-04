@@ -11,6 +11,9 @@ let
   dashboards = pkgs.callPackage ../pkgs/grafana-dashboards { };
   kodiTvConfig = pkgs.callPackage ../pkgs/kodi-tv-config { };
   kodiBootstrap = pkgs.callPackage ../pkgs/kodi-bootstrap { };
+  kodiKeyboardLayout = pkgs.callPackage ../pkgs/kodi-keyboard-layout { };
+  kodiVolumeKeys = pkgs.callPackage ../pkgs/kodi-volume-keys { };
+  xkbPhoneticRoot = pkgs.callPackage ../pkgs/xkb-phonetic-root { };
   # The bootstrap adds a video source the seeded sources.xml predates (the
   # documentary series) and leaves the rest of the file alone.
   kodiBootstrapSources =
@@ -94,6 +97,9 @@ pkgs.runCommand "pkgs-build-smoke"
       kodiGlobalsearch
       kodiAdulthideout
       kodiPrivateMedia
+      kodiKeyboardLayout
+      kodiVolumeKeys
+      xkbPhoneticRoot
       androidProvision
       xiaomiClockSync
       feedBridge
@@ -122,6 +128,8 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${caPage}/index.html
     test -d ${dashboards}
     test -f ${kodiTvConfig}/sources.xml
+    test -f ${kodiTvConfig}/keymaps/keyboard-layout.xml
+    grep -q 'SendClick(309)' ${kodiTvConfig}/keymaps/keyboard-layout.xml
     test -f ${kodiTvConfig}/keymaps/power-menu.xml
     grep -q 'RunScript(script.tv-power)' ${kodiTvConfig}/keymaps/power-menu.xml
     test -f ${kodiInvidious}/share/kodi/addons/plugin.video.invidious/addon.xml
@@ -146,6 +154,12 @@ pkgs.runCommand "pkgs-build-smoke"
     test -f ${lvaWakeupChime}/wakeup.flac
     command -v lva-snapcast-duck
     command -v lva-kodi-companion
+    command -v kodi-keyboard-layout
+    command -v kodi-volume-keys
+    test -f ${xkbPhoneticRoot}/symbols/bg_full
+    grep -q 'include "bg_full(phonetic)"' ${xkbPhoneticRoot}/symbols/bg
+    test -d ${xkbPhoneticRoot}/rules
+    test -e ${xkbPhoneticRoot}/symbols/us
     home-assistant-dashboards --help >/dev/null
     voice-id --help >/dev/null
     assistant-router --help >/dev/null

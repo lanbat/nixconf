@@ -724,6 +724,7 @@ let
       && u.attrs.username == "momchilov"
       && u.attrs.name == "Kiril"
       && u.attrs.email == "momchilov@example.com"
+      && u.attrs.is_email_verified == true
       && !(u.attrs ? password)
     ))
 
