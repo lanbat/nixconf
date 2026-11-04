@@ -11,6 +11,8 @@
 # Both share a PostgreSQL database and a Redis instance.
 # They run as OCI containers with --network host so they can reach
 # services.postgresql and services.redis.servers.authentik on localhost.
+# Since 2026.8 the worker binds its own HTTP and metrics listeners, which
+# the shared host network forces onto their own ports (9001/9301).
 #
 # Secret injection
 # ----------------
@@ -80,7 +82,9 @@ in
     subdomain = "auth";
     port = 9000;
     extraPorts = [
+      9001 # worker's own HTTP (see the worker container below)
       9300 # metrics
+      9301 # worker's own metrics
       9443 # HTTPS
     ];
     account = {
@@ -194,7 +198,16 @@ in
       "--gidmap=1001:1001:64535"
     ];
 
-    environment = authentikEnv;
+    environment = authentikEnv // {
+      # Since 2026.8 the worker binds the HTTP and metrics listeners in
+      # worker mode too, and both containers share the host network: point
+      # the worker at its own ports or it exits when it cannot bind the
+      # server's 9000/9300. Nothing reaches the worker over TCP — its HTTP
+      # server only answers healthchecks the image does not even define,
+      # and nothing scrapes its metrics — so the offsets are invisible.
+      AUTHENTIK_LISTEN__HTTP = "[::]:9001";
+      AUTHENTIK_LISTEN__METRICS = "[::]:9301";
+    };
     environmentFiles = [ authentikEnvFile ];
 
     volumes = [
