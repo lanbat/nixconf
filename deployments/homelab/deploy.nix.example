@@ -190,6 +190,18 @@
       #       channels.computerphile.url = "https://www.youtube.com/@Computerphile/videos";
       #     };
       #   }
+      #
+      # Jellyfin as a DLNA media server for the whole LAN (docs/techo5.md). Play-to
+      # (casting to the Echo Shows) is on by default; server opens discovery
+      # (UDP 1900) and plain HTTP 8096 to every address so TVs, consoles, phones
+      # and other DLNA apps browse and play the libraries without signing in.
+      # DLNA has no logins, so anyone on the LAN can reach it.
+      #   {
+      #     lanbat.services.jellyfin.settings.dlna = {
+      #       server = true;
+      #       # renderers = [ "10.0.0.x" ]; # any non-Echo-Shows to also cast TO
+      #     };
+      #   }
       modules = [
         ./frigate.nix
         # Rooms for Home Assistant devices that have none (docs/dashboards.md).
