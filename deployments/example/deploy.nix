@@ -181,6 +181,10 @@
               "Music/Albums" = "/media/b/music/albums";
               "Video" = "";
               "Video/Movies" = "/media/a/movies";
+              # Radarr/Sonarr download into these on their own (the category
+              # name is the app's — see pkgs/servarr-bootstrap).
+              "radarr" = "/media/a/movies";
+              "sonarr" = "/media/a/tv";
             };
             preferences.BitTorrent = {
               "Session\\MaxActiveDownloads" = 8;
