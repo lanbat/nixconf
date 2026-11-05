@@ -22,6 +22,9 @@ DLNA_ENABLE="${DLNA_ENABLE:-0}"
 # (services/jellyfin.nix settings.metadataLanguage / metadataCountryCode).
 METADATA_LANGUAGE="${METADATA_LANGUAGE:-en}"
 METADATA_COUNTRY_CODE="${METADATA_COUNTRY_CODE:-US}"
+# Authentik groups that become Jellyfin administrators over SSO, as a JSON
+# array (services/jellyfin.nix settings.ssoAdminRoles).
+SSO_ADMIN_ROLES="${SSO_ADMIN_ROLES:-[]}"
 STATE_DIR="${STATE_DIR:-/var/lib/jellyfin}"
 WIZARD_STATE_FILE="${WIZARD_STATE_FILE:-${STATE_DIR}/.lanbat-bootstrap-complete}"
 CONFIG_STATE_FILE="${CONFIG_STATE_FILE:-${STATE_DIR}/.lanbat-jellyfin-config-complete}"
@@ -604,28 +607,57 @@ configuration_complete() {
 }
 
 setup_sso() {
-  if sso_configured; then
+  ensure_api_key
+
+  # Role mapping: the OIDC `groups` claim (a list of the Authentik groups the
+  # user belongs to, carried by Authentik's `profile` scope, which the plugin
+  # always requests) is checked against adminRoles, so a member of any listed
+  # group becomes a Jellyfin administrator. roles is left empty, which disables
+  # the plugin's "who may sign in" check, so everyone else still gets in as a
+  # normal user.
+  local desired
+  desired="$(jq -n \
+    --arg endpoint "https://auth.${AUTH_DOMAIN}/application/o/jellyfin/" \
+    --arg clientId "jellyfin" \
+    --arg secret "$AUTHENTIK_JELLYFIN_CLIENT_SECRET" \
+    --argjson adminRoles "$SSO_ADMIN_ROLES" \
+    '{
+      oidEndpoint: $endpoint,
+      oidClientId: $clientId,
+      oidSecret: $secret,
+      enabled: true,
+      enableAuthorization: true,
+      enableAllFolders: true,
+      roleClaim: "groups",
+      adminRoles: $adminRoles,
+      oidScopes: ["openid", "profile", "email"]
+    }')"
+
+  # /sso/OID/Get serializes the configuration with PascalCase names (the
+  # sso_configured gate reads `.authentik.Enabled`), while /sso/OID/Add accepts
+  # camelCase. Compare only the fields this step owns so an already configured
+  # instance picks up the role mapping without churning on every run.
+  local current
+  current="$(sso_api "${JELLYFIN_URL}/sso/OID/Get" | jq -c '.authentik // empty')"
+  if [[ -n "$current" ]] && jq -e --argjson d "$desired" '
+    ((.OidEndpoint // "") == $d.oidEndpoint)
+    and ((.OidClientId // "") == $d.oidClientId)
+    and ((.OidSecret // "") == $d.oidSecret)
+    and ((.Enabled // false) == $d.enabled)
+    and ((.EnableAuthorization // false) == $d.enableAuthorization)
+    and ((.EnableAllFolders // false) == $d.enableAllFolders)
+    and ((.RoleClaim // "") == $d.roleClaim)
+    and (((.AdminRoles // []) | sort) == ($d.adminRoles | sort))
+    and (((.OidScopes // []) | sort) == ($d.oidScopes | sort))
+  ' <<<"$current" >/dev/null; then
     log "Authentik SSO provider already configured"
     return 0
   fi
 
-  ensure_api_key
   log "configuring Authentik OIDC provider"
   sso_api -X POST "${JELLYFIN_URL}/sso/OID/Add/authentik" \
     -H 'Content-Type: application/json' \
-    -d "$(jq -n \
-      --arg endpoint "https://auth.${AUTH_DOMAIN}/application/o/jellyfin/" \
-      --arg clientId "jellyfin" \
-      --arg secret "$AUTHENTIK_JELLYFIN_CLIENT_SECRET" \
-      '{
-        oidEndpoint: $endpoint,
-        oidClientId: $clientId,
-        oidSecret: $secret,
-        enabled: true,
-        enableAuthorization: true,
-        enableAllFolders: true,
-        oidScopes: ["openid", "profile", "email"]
-      }')" \
+    -d "$desired" \
     -o /dev/null
 }
 
