@@ -233,7 +233,10 @@ translation pattern differs by service:
 - **Own account system (Jellyfin, Vaultwarden, Forgejo).** The service keeps its own users.
   Jellyfin's `jellyfin-bootstrap` also configures an Authentik OIDC login (only when
   Home Assistant is present too), so an authentik session lands on the matching Jellyfin
-  account. Vaultwarden keeps Bitwarden accounts, but its OIDC is wired too: SSO signs in
+  account. Whichever Authentik group a user belongs to decides Jellyfin *permissions*
+  over the OIDC `groups` claim: `lanbat.services.jellyfin.settings.ssoAdminRoles` names
+  the groups whose members become Jellyfin administrators, and everyone else signs in
+  as a normal user. Vaultwarden keeps Bitwarden accounts, but its OIDC is wired too: SSO signs in
   by matching the email to an account that already exists (invite it from the admin
   panel first), gated on the `vaultwarden` group, and the `offline_access` scope hands
   Bitwarden clients a refresh token. Forgejo's `forgejo-bootstrap` pre-creates the owner

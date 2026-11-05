@@ -117,6 +117,19 @@ let
         automatically.
       '';
     };
+    options.ssoAdminRoles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        Authentik group names whose members become Jellyfin administrators
+        when they sign in through SSO. jellyfin-bootstrap tells the SSO
+        plugin to check the OIDC `groups` claim against this list, so a
+        member of any listed group is made an admin. The group must exist in
+        Authentik (declared in deployment.authentik — either in its groups
+        map or in one of its users' group lists). Empty keeps today's
+        behaviour: no SSO user becomes an admin.
+      '';
+    };
     options.dlna.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -180,7 +193,9 @@ in
     port = 8096;
     extraPorts = [ 7359 ]; # UDP auto-discovery for TV and mobile apps
     apiClients = true; # TV and mobile apps
-    # The SSO Authentication plugin, configured by jellyfin-bootstrap.
+    # The SSO Authentication plugin, configured by jellyfin-bootstrap. The
+    # `groups` claim it reads for settings.ssoAdminRoles comes from Authentik's
+    # `profile` scope, which the catalogue maps for every OIDC client already.
     oidc.redirectPaths = [ "/sso/OID/redirect/authentik" ];
     # jellyfin-bootstrap takes the owner account from Home Assistant's
     # bootstrap secret and its OIDC client secret from Authentik's.
@@ -288,6 +303,7 @@ in
       export AUTH_DOMAIN="${domain}"
       export METADATA_LANGUAGE="${cfg.metadataLanguage}"
       export METADATA_COUNTRY_CODE="${cfg.metadataCountryCode}"
+      export SSO_ADMIN_ROLES='${builtins.toJSON cfg.ssoAdminRoles}'
       export DLNA_ENABLE="${if cfg.dlna.enable then "1" else "0"}"
       exec jellyfin-bootstrap
     '';
