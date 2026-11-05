@@ -89,8 +89,8 @@ in
   # Bind loopback (Caddy proxies; the firewall keeps the port closed anyway,
   # as Jackett's --ListenPrivate does) and let Authentik sign users in.
   systemd.services.radarr.environment = {
-    RADARR__BINDADDRESS = "127.0.0.1";
-    RADARR__AUTHENTICATIONMETHOD = "External";
+    RADARR__SERVER__BINDADDRESS = "127.0.0.1";
+    RADARR__AUTH__METHOD = "External";
   };
 
   # Configure Radarr once it is up: root folders, the qBittorrent download
