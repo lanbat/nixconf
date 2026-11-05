@@ -783,6 +783,7 @@ if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>
   configure_dlna
   exclude_imvdb_from_music_artists
   configure_opensubtitles
+  setup_sso
   setup_branding
   refresh_all_libraries
   refresh_new_provider_libraries
