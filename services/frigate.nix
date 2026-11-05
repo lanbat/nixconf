@@ -341,7 +341,7 @@ let
           default = false;
           description = ''
             Local face recognition on the detect stream (face_recognition.enabled).
-            Frigate's bundled FaceNet model names faces it has been shown; the
+            Frigate's bundled ArcFace model names faces it has been shown; the
             person mapper (services/person-mapper.nix) reads those matches from
             the frigate MQTT topics. Enrolling people happens in Frigate's face
             library, not here.
@@ -350,11 +350,14 @@ let
         modelSize = mkOption {
           type = types.enum [
             "small"
-            "medium"
             "large"
           ];
           default = "small";
-          description = "FaceNet model size (face_recognition.model_size).";
+          description = ''
+            ArcFace model size (face_recognition.model_size). Frigate 0.18
+            dropped FaceNet and the "medium" size: "small" runs on the CPU,
+            "large" typically needs a GPU.
+          '';
         };
         confidence = optional score "Minimum match score to name a person (face_recognition.confidence).";
         threshold = optional score "Detection confidence threshold (face_recognition.threshold).";
