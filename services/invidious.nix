@@ -215,6 +215,10 @@ in
       RemainAfterExit = true;
       RuntimeDirectory = "invidious-companion";
       RuntimeDirectoryMode = "0700";
+      # The directory holds the shared key and companion.env for the podman
+      # container to read; without this systemd removes it on deactivation
+      # (a system switch), and the companion then fails to start.
+      RuntimeDirectoryPreserve = true;
     };
     script = ''
       set -euo pipefail

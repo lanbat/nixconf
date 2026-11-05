@@ -18,6 +18,10 @@ OPENSUBTITLES_PASSWORD="${OPENSUBTITLES_PASSWORD:-}"
 # The plugin's media-server side has no switch: who can reach it is the
 # firewall's to say (services/jellyfin.nix).
 DLNA_ENABLE="${DLNA_ENABLE:-0}"
+# Metadata language and country for the startup wizard and every library
+# (services/jellyfin.nix settings.metadataLanguage / metadataCountryCode).
+METADATA_LANGUAGE="${METADATA_LANGUAGE:-en}"
+METADATA_COUNTRY_CODE="${METADATA_COUNTRY_CODE:-US}"
 STATE_DIR="${STATE_DIR:-/var/lib/jellyfin}"
 WIZARD_STATE_FILE="${WIZARD_STATE_FILE:-${STATE_DIR}/.lanbat-bootstrap-complete}"
 CONFIG_STATE_FILE="${CONFIG_STATE_FILE:-${STATE_DIR}/.lanbat-jellyfin-config-complete}"
@@ -111,7 +115,8 @@ run_startup_wizard() {
   log "setting locale and metadata language"
   curl -fsS -X POST "${JELLYFIN_URL}/Startup/Configuration" \
     -H 'Content-Type: application/json' \
-    -d '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}' \
+    -d "$(jq -n --arg lang "$METADATA_LANGUAGE" --arg country "$METADATA_COUNTRY_CODE" \
+      '{UICulture:"en-US",MetadataCountryCode:$country,PreferredMetadataLanguage:$lang}')" \
     >/dev/null
 
   log "initializing admin user record"
@@ -143,10 +148,12 @@ library_exists() {
 
 library_options_json() {
   local path="$1"
-  jq -n --arg path "$path" '{
+  jq -n --arg path "$path" --arg lang "$METADATA_LANGUAGE" --arg country "$METADATA_COUNTRY_CODE" '{
     LibraryOptions: {
       PathInfos: [{Path: $path}],
-      EnableRealtimeMonitor: false
+      EnableRealtimeMonitor: false,
+      PreferredMetadataLanguage: $lang,
+      MetadataCountryCode: $country
     }
   }'
 }
@@ -250,6 +257,37 @@ configure_nfs_libraries() {
   if [[ "$updated" == true ]]; then
     log "realtime monitoring disabled on NFS libraries"
   fi
+}
+
+# Apply the configured metadata language and country to every library, so a
+# change to settings.metadataLanguage reaches libraries that add_library
+# created before it (it only sets the language on new libraries). Idempotent:
+# a library already on the configured language is left alone.
+configure_metadata_language() {
+  local folders updated=false
+  folders="$(api_call "${JELLYFIN_URL}/Library/VirtualFolders")"
+
+  while IFS= read -r library; do
+    [[ -n "$library" ]] || continue
+    local id name options
+    id="$(jq -r '.ItemId // empty' <<< "$library")"
+    name="$(jq -r '.Name // empty' <<< "$library")"
+    [[ -n "$id" && -n "$name" ]] || continue
+
+    if [[ "$(jq -r '.LibraryOptions.PreferredMetadataLanguage // empty' <<< "$library")" == "$METADATA_LANGUAGE" &&
+          "$(jq -r '.LibraryOptions.MetadataCountryCode // empty' <<< "$library")" == "$METADATA_COUNTRY_CODE" ]]; then
+      continue
+    fi
+
+    options="$(jq --arg lang "$METADATA_LANGUAGE" --arg country "$METADATA_COUNTRY_CODE" \
+      '.LibraryOptions | .PreferredMetadataLanguage = $lang | .MetadataCountryCode = $country' <<< "$library")"
+    log "setting metadata language ${METADATA_LANGUAGE} (${METADATA_COUNTRY_CODE}) on ${name}"
+    api_call -X POST "${JELLYFIN_URL}/Library/VirtualFolders/LibraryOptions" \
+      -H 'Content-Type: application/json' \
+      -d "$(jq -n --arg id "$id" --argjson opts "$options" '{Id: $id, LibraryOptions: $opts}')" \
+      -o /dev/null
+    updated=true
+  done < <(jq -c '.[] | select(.LibraryOptions != null)' <<< "$folders")
 }
 
 # Default Jellyfin scan interval is 12 hours; shorten it because NFS has no
@@ -681,6 +719,7 @@ run_configuration() {
   configure_networking
   setup_libraries
   configure_nfs_libraries
+  configure_metadata_language
   configure_scheduled_scan
   setup_plugins
   configure_imvdb
@@ -704,6 +743,7 @@ if [[ -f "$CONFIG_STATE_FILE" ]] && wizard_complete && configuration_complete 2>
   configure_networking
   setup_libraries
   configure_nfs_libraries
+  configure_metadata_language
   configure_scheduled_scan
   # Plugins added to this script after the server was first set up.
   setup_plugins
