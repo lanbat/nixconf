@@ -41,6 +41,32 @@ generation on its own.
 
 A deploy doesn't start workload-gated services while the workload layer is locked.
 
+### Coordinating concurrent deploys
+
+A deploy mutates a live host, so two deploys to the *same* host must not overlap —
+they would both `switch` the generation and roll back against each other. Deploys to
+*different* hosts are independent and can run in parallel. `scripts/deploy-host.sh`
+serializes per host with a lock keyed by the target, while leaving different hosts
+parallel:
+
+```bash
+nix develop                                        # once per terminal
+./scripts/deploy-host.sh homelab-server
+./scripts/deploy-host.sh homelab-pi-storage
+```
+
+The wrapper takes an exclusive `flock` on `<git-common-dir>/deploy-<target>.lock`
+(one shared path for the main checkout and every worktree), so a second deploy to the
+same host waits instead of racing. It falls back to `nix develop --command deploy`
+when `deploy` isn't already on `PATH`, and passes anything after the target through
+to deploy-rs. When several agents or tabs are working from this repo, use the wrapper
+rather than calling `deploy` directly — see `~/.config/opencode/skills/repo-ops` for
+the coordination rule.
+
+A deploy ships the *working tree's* flake, so tracked files with uncommitted edits
+are included. Don't leave half-finished tracked edits in the main checkout when you
+deploy; finish and commit them first.
+
 ### Rolling back by hand
 
 ```bash
