@@ -2781,8 +2781,8 @@ let
       && base.lanbat.services.radarr.tier == "workload"
       && base.services.radarr.enable
       && base.users.users.radarr.extraGroups == [ "media" ]
-      && base.systemd.services.radarr.environment.RADARR__AUTHENTICATIONMETHOD == "External"
-      && base.systemd.services.radarr.environment.RADARR__BINDADDRESS == "127.0.0.1"
+      && base.systemd.services.radarr.environment.RADARR__AUTH__METHOD == "External"
+      && base.systemd.services.radarr.environment.RADARR__SERVER__BINDADDRESS == "127.0.0.1"
       && lib.elem "radarr-bootstrap" base.lanbat.services.radarr.units
       && base.systemd.services.radarr-bootstrap.environment.APP == "radarr"
       &&
@@ -2798,8 +2798,8 @@ let
         ]
       && base.services.sonarr.enable
       && base.users.users.sonarr.extraGroups == [ "media" ]
-      && base.systemd.services.sonarr.environment.SONARR__AUTHENTICATIONMETHOD == "External"
-      && base.systemd.services.sonarr.environment.SONARR__BINDADDRESS == "127.0.0.1"
+      && base.systemd.services.sonarr.environment.SONARR__AUTH__METHOD == "External"
+      && base.systemd.services.sonarr.environment.SONARR__SERVER__BINDADDRESS == "127.0.0.1"
       && lib.elem "sonarr-bootstrap" base.lanbat.services.sonarr.units
       && base.systemd.services.sonarr-bootstrap.environment.APP == "sonarr"
       &&

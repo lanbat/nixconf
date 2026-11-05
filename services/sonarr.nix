@@ -87,8 +87,8 @@ in
   # Bind loopback (Caddy proxies; the firewall keeps the port closed anyway,
   # as Jackett's --ListenPrivate does) and let Authentik sign users in.
   systemd.services.sonarr.environment = {
-    SONARR__BINDADDRESS = "127.0.0.1";
-    SONARR__AUTHENTICATIONMETHOD = "External";
+    SONARR__SERVER__BINDADDRESS = "127.0.0.1";
+    SONARR__AUTH__METHOD = "External";
   };
 
   # Configure Sonarr once it is up: root folders, the qBittorrent download
