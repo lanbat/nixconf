@@ -46,7 +46,6 @@ in
     subdomain = "sonarr";
     inherit port;
     auth = "forward-auth";
-    access.groups = lib.mkDefault [ "authentik Admins" ];
     tier = "workload";
     state = [ "sonarr" ];
     units = [

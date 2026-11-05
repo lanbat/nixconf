@@ -264,7 +264,9 @@ let
     "jackett"
     "music-assistant"
     "qbittorrent"
+    "radarr"
     "snapcast"
+    "sonarr"
     "syncthing"
     "zigbee2mqtt"
   ];
@@ -275,7 +277,9 @@ let
     jackett = "Jackett";
     music-assistant = "Music Assistant";
     qbittorrent = "qBittorrent";
+    radarr = "Radarr";
     snapcast = "Snapcast";
+    sonarr = "Sonarr";
     syncthing = "Syncthing";
     zigbee2mqtt = "Zigbee2MQTT";
   };

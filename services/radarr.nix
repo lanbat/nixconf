@@ -48,7 +48,6 @@ in
     subdomain = "radarr";
     inherit port;
     auth = "forward-auth";
-    access.groups = lib.mkDefault [ "authentik Admins" ];
     tier = "workload";
     state = [ "radarr" ];
     units = [
