@@ -35,12 +35,14 @@
   person-mapper = ../../services/person-mapper.nix;
   postgresql = ../../services/postgresql.nix;
   qbittorrent = ../../services/qbittorrent.nix;
+  radarr = ../../services/radarr.nix;
   redis = ../../services/redis.nix;
   redlib = ../../services/redlib.nix;
   romm = ../../services/romm.nix;
   samba = ../../services/samba.nix;
   searxng = ../../services/searxng.nix;
   snapcast = ../../services/snapcast.nix;
+  sonarr = ../../services/sonarr.nix;
   syncthing = ../../services/syncthing.nix;
   tang = ../../services/tang.nix;
   techo5-bridge = ../../services/techo5-bridge.nix;

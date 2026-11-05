@@ -725,6 +725,16 @@ let
     }
   ];
 
+  # Bulgarian metadata language and country, to reach the bootstrap.
+  jellyfinBg = serverWith [
+    {
+      lanbat.services.jellyfin.settings = {
+        metadataLanguage = "bg";
+        metadataCountryCode = "BG";
+      };
+    }
+  ];
+
   # ── Audiobookshelf ───────────────────────────────────────────────────────
   absEnv = config: config.systemd.services.audiobookshelf-bootstrap.environment;
 
@@ -2751,6 +2761,50 @@ let
       kodiOf tvBoxAdulthideout == kodiAdulthideout.outPath
       && !(tvBoxAdulthideout.lanbat.secrets ? "kodi-youtube-env")
       && failedAssertions tvBoxAdulthideout == [ ]
+    ))
+    (expect "jellyfin: metadata language and country default to en/US and reach the bootstrap" (
+      lib.hasInfix ''METADATA_LANGUAGE="en"'' (jellyfinBootstrap base)
+      && lib.hasInfix ''METADATA_COUNTRY_CODE="US"'' (jellyfinBootstrap base)
+      && lib.hasInfix ''METADATA_LANGUAGE="bg"'' (jellyfinBootstrap jellyfinBg)
+      && lib.hasInfix ''METADATA_COUNTRY_CODE="BG"'' (jellyfinBootstrap jellyfinBg)
+      && failedAssertions jellyfinBg == [ ]
+    ))
+    (expect "radarr/sonarr: registered, behind forward auth, and in the media group" (
+      base.lanbat.services.radarr.subdomain == "radarr"
+      && base.lanbat.services.radarr.port == 7878
+      && base.lanbat.services.radarr.auth == "forward-auth"
+      &&
+        base.lanbat.services.radarr.nfs.drives == [
+          "a"
+          "b"
+        ]
+      && base.lanbat.services.radarr.tier == "workload"
+      && base.services.radarr.enable
+      && base.users.users.radarr.extraGroups == [ "media" ]
+      && base.systemd.services.radarr.environment.RADARR__AUTHENTICATIONMETHOD == "External"
+      && base.systemd.services.radarr.environment.RADARR__BINDADDRESS == "127.0.0.1"
+      && lib.elem "radarr-bootstrap" base.lanbat.services.radarr.units
+      && base.systemd.services.radarr-bootstrap.environment.APP == "radarr"
+      &&
+        base.systemd.services.radarr-bootstrap.environment.ROOT_FOLDERS
+        == "/srv/storage/a/media/movies /srv/storage/b/media/documentaries"
+      && base.lanbat.services.sonarr.subdomain == "sonarr"
+      && base.lanbat.services.sonarr.port == 8989
+      && base.lanbat.services.sonarr.auth == "forward-auth"
+      &&
+        base.lanbat.services.sonarr.nfs.drives == [
+          "a"
+          "b"
+        ]
+      && base.services.sonarr.enable
+      && base.users.users.sonarr.extraGroups == [ "media" ]
+      && base.systemd.services.sonarr.environment.SONARR__AUTHENTICATIONMETHOD == "External"
+      && base.systemd.services.sonarr.environment.SONARR__BINDADDRESS == "127.0.0.1"
+      && lib.elem "sonarr-bootstrap" base.lanbat.services.sonarr.units
+      && base.systemd.services.sonarr-bootstrap.environment.APP == "sonarr"
+      &&
+        base.systemd.services.sonarr-bootstrap.environment.ROOT_FOLDERS
+        == "/srv/storage/a/media/tv /srv/storage/b/media/documentary-series"
     ))
   ];
 

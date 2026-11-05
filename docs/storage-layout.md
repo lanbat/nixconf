@@ -172,6 +172,8 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Audiobookshelf | server-local | server-local (SQLite) | Pi/b/media/audiobooks (read in place) |
 | qBittorrent | server-local | — | Pi/a/media + Pi/b/media (by category) |
 | Jackett | server-local | — | — (searches remote indexers; keeps only its configuration) |
+| Radarr | workload | workload (SQLite) | Pi/a/media/movies + Pi/b/media/documentaries (renames in place) |
+| Sonarr | workload | workload (SQLite) | Pi/a/media/tv + Pi/b/media/documentary-series (renames in place) |
 | Frigate | server-local | server-local (SQLite) | Pi/a/surveillance |
 | Bitmagnet | server-local | workload PostgreSQL | — |
 | RomM | server-local | workload PostgreSQL | Pi/b/media/roms (ROM library), Pi/b/media/roms-browser (arcade zips) |

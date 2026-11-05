@@ -74,6 +74,28 @@ let
   jellyfin = pkgs.jellyfin;
 
   jellyfinSettings = {
+    options.metadataLanguage = lib.mkOption {
+      type = lib.types.str;
+      default = "en";
+      description = ''
+        The metadata language Jellyfin fetches titles and artwork in. This is
+        what the startup wizard sets and every library's preferred metadata
+        language inherits. For a library that is mostly Bulgarian or Russian
+        titles, set "bg" or "ru"; unmatched originals still fall back to the
+        title TMDb lists. Changing it applies to libraries already created
+        too, but existing items keep their titles until their metadata is
+        refreshed (Jellyfin's "Refresh metadata" per library).
+      '';
+    };
+    options.metadataCountryCode = lib.mkOption {
+      type = lib.types.str;
+      default = "US";
+      description = ''
+        The metadata country code (e.g. "BG" for Bulgaria), which providers use
+        to prefer regional titles and artwork. Passed to the startup wizard and
+        to every library, the same way metadataLanguage is.
+      '';
+    };
     options.imvdb = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -264,6 +286,8 @@ in
       export JELLYFIN_URL="http://127.0.0.1:8096"
       export EXTERNAL_URL="https://media.${domain}"
       export AUTH_DOMAIN="${domain}"
+      export METADATA_LANGUAGE="${cfg.metadataLanguage}"
+      export METADATA_COUNTRY_CODE="${cfg.metadataCountryCode}"
       export DLNA_ENABLE="${if cfg.dlna.enable then "1" else "0"}"
       exec jellyfin-bootstrap
     '';

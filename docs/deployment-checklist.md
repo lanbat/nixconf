@@ -558,6 +558,32 @@ jellyfin-imvdb-env.age`), and set `lanbat.services.jellyfin.settings.imvdb = tru
 in a module of the server's `modules`. The next deploy installs the plugin, gives
 it the key and fetches the Music Videos library's metadata again.
 
+#### Radarr and Sonarr — automatic setup
+
+Radarr (movies) and Sonarr (TV) run behind Authentik (`radarr.<domain>`,
+`sonarr.<domain>`), on the workload layer, in the `media` group so they can read
+and rename the media on the Pi. `radarr-bootstrap` / `sonarr-bootstrap` finish
+first-run setup, idempotently, at each unlock:
+
+- Root folders: Radarr → `/srv/storage/a/media/movies` and
+  `/srv/storage/b/media/documentaries`; Sonarr → `/srv/storage/a/media/tv` and
+  `/srv/storage/b/media/documentary-series`.
+- Download client: qBittorrent at `127.0.0.1:8090` (qBittorrent skips its own
+  login for the server's loopback), with the `radarr` / `sonarr` category.
+
+Two things remain in the web UI:
+
+- **Indexers** — Radarr/Sonarr reject Jackett's `/all` endpoint, so the
+  bootstrap does not add one. Add indexers individually (Jackett → each
+  tracker, or adopt Prowlarr, which integrates natively).
+- **Library → Import** — so each app matches the files already on disk to
+  TMDb/TVDB and renames them to `Title (Year)` (movies) or
+  `Show/Season NN/Show - SxxEyy` (TV). This is what makes Jellyfin recognize
+  the titles whose release filenames it could not match.
+
+The `media` folder is `qbt:media` with mode `2775`, so Radarr and Sonarr rename
+files in place and new files inherit the `media` group via setgid.
+
 #### Audiobookshelf — automatic setup
 
 `audiobookshelf-bootstrap` sets up Audiobookshelf when the workload layer is
