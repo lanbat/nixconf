@@ -663,6 +663,9 @@ modules = [ {
     # lightsOffAny = true;
     rooms."Office" = { lights = [ "light.office_lamp" ]; illuminance = "sensor.office_lux"; };
     rooms."Kitchen" = { lights = [ "light.kitchen_strip" ]; music = false; };
+    # Everything off 15 minutes after the room empties: turn the plug and the TV
+    # box off, and run the script that fires the IR blaster's power-off at the TV.
+    # rooms."Living Room".off = [ "switch.living_room_plug" "media_player.box_r_4k_plus" "script.living_room_tv_off" ];
   };
 } ];
 ```
@@ -679,6 +682,7 @@ lists some; someone not listed (a guest) neither moves music nor keeps a room oc
 | **Hand-switched lights off** | optional (`lightsOffAny`, default off): the room has been empty `lightsOffAnyMinutes` (10), and any of the room's listed `lights` is on, including ones you switched on by hand. Only those listed lights; a screen's or robot's own light is never touched unless you list it. Respects dry run, pause and guests like the other empty-room rules. |
 | **Music follows** | a person's last room changes and holds 4 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per 20 s per person at most. |
 | **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
+| **Everything off** | the room has been empty `offMinutes` (15): every device listed in the room's `off` is turned off, and each `script.*` or `scene.*` in it is turned on — its off action runs, so it can fire an IR blaster's learned power-off at the TV or amp. Only what is listed; a screen's or robot's own light is never touched unless you list it. |
 
 The first time a person is placed in a room after a fresh install, the music does not follow:
 follow-me has no earlier room to take it from. From then on it is remembered, across restarts.
@@ -690,6 +694,12 @@ hears but cannot place keeps their last room occupied for 20 minutes
 `unlocatedMinutes` plus `lightsOffMinutes` later, and in 5 minutes if they were seen in
 another room. `unknown` and `unavailable` presence (a router or Home Assistant restart) is never
 "empty": the rules do nothing.
+
+A room's `off` list holds whatever should be off when the room is empty: switches,
+fans, lights, a TV box, and the `script.*`/`scene.*` that power the rest off. Because
+an IR power command is usually a toggle, prefer a device's discrete "off" code when it
+has one, and make each script/scene run that discrete off; the rule fires once per
+occupied→empty transition, not on a loop.
 
 In Home Assistant, **System → Follow-me** has two switches: **Pause follow-me** (off means
 running; it stops every action, though the last-room bookkeeping goes on) and **Guests here** (stops the "empty room" rules, since guests

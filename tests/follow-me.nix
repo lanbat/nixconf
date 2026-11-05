@@ -175,6 +175,35 @@ let
     };
     inherit people;
   };
+  genOffCfg = genCfg // {
+    rooms = genCfg.rooms // {
+      "Office" = genCfg.rooms."Office" // {
+        off = [
+          "switch.office_plug"
+          "script.office_tv_off"
+        ];
+      };
+      "Living Room" = {
+        lights = [ ];
+        illuminance = null;
+        music = true;
+        off = [
+          "light.livingroom_shelf_spot"
+          "scene.living_room_night"
+        ];
+      };
+    };
+  };
+  genOff = fmLib.mkFollowMe {
+    cfg = genOffCfg;
+    inherit people;
+  };
+  genOffLive = fmLib.mkFollowMe {
+    cfg = genOffCfg // {
+      dryRun = false;
+    };
+    inherit people;
+  };
   templateEntities = lib.concatMap (b: (b.binary_sensor or [ ]) ++ (b.sensor or [ ])) gen.template;
   entityNames = map (e: e.name) templateEntities;
 
@@ -218,6 +247,13 @@ let
   lightsOffAnyLive = automationAnyLive "followme_lights_off_any_office";
   lightsOffAnyKitchen = automationAny "followme_lights_off_any_kitchen";
 
+  automationOff = id: lib.findFirst (a: (a.id or "") == id) null genOff.automation;
+  automationOffLive = id: lib.findFirst (a: (a.id or "") == id) null genOffLive.automation;
+  offRule = automationOff "followme_off_office";
+  offRuleLive = automationOffLive "followme_off_office";
+  offRuleLiving = automationOff "followme_off_living_room";
+  offRuleLivingLive = automationOffLive "followme_off_living_room";
+
   generated = pkgs.writeText "follow-me-generated.json" (
     builtins.toJSON {
       inherit (gen) template automation;
@@ -257,7 +293,7 @@ let
     };
   configCheck = pkgs.runCommand "follow-me-config-check" { } ''
     export HOME=$TMPDIR
-    for yaml in ${haConfig gen} ${haConfig genLive}; do
+    for yaml in ${haConfig gen} ${haConfig genLive} ${haConfig genOff} ${haConfig genOffLive}; do
       d=$TMPDIR/$(basename $yaml)
       mkdir -p $d
       cp --no-preserve=mode $yaml $d/configuration.yaml
@@ -301,6 +337,7 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && c.followSeconds == 4
       && c.followCooldownSeconds == 20
       && c.musicPauseMinutes == 15
+      && c.offMinutes == 15
       && c.unlocatedMinutes == 20
       && c.darkLux == 30
       && c.sunBelow == -1
@@ -665,6 +702,53 @@ pkgs.runCommand "follow-me-check" { inherit templatesCheck configCheck; } ''
       && (lib.head litClear.triggers).to == "off"
       && lib.hasInfix "input_boolean.turn_off" (json litClear.actions)
       && lib.hasInfix "followme_lit_office" (json litClear.actions)
+    )
+    + expect "off: absent by default" (automation "followme_off_office" == null)
+    + expect "off: a rule per room with off, none for a room without" (
+      offRule != null && offRuleLiving != null && automationOff "followme_off_kitchen" == null
+    )
+    + expect "off: triggered by the room going from occupied to empty for offMinutes" (
+      let
+        t = lib.head offRule.triggers;
+      in
+      t.entity_id == "binary_sensor.followme_office_occupied"
+      && t.from == "on"
+      && t.to == "off"
+      && t.for.minutes == 15
+    )
+    + expect "off: never from unavailable (a router restart is not an empty room)" (
+      (lib.head offRule.triggers).from == "on"
+    )
+    + expect "off: not while paused or with guests" (
+      let
+        c = json offRule.conditions;
+      in
+      lib.hasInfix "input_boolean.followme_paused" c && lib.hasInfix "input_boolean.followme_guests" c
+    )
+    + expect "off: turns off entities and turns on the scripts that power the rest off" (
+      let
+        a = json offRuleLive.actions;
+      in
+      lib.hasInfix "homeassistant.turn_off" a
+      && lib.hasInfix "switch.office_plug" a
+      && lib.hasInfix "script.turn_on" a
+      && lib.hasInfix "script.office_tv_off" a
+      && !(lib.hasInfix "scene.turn_on" a)
+    )
+    + expect "off: a scene is turned on, not a script or an entity turn_off" (
+      let
+        a = json offRuleLivingLive.actions;
+      in
+      lib.hasInfix "homeassistant.turn_off" a
+      && lib.hasInfix "light.livingroom_shelf_spot" a
+      && lib.hasInfix "scene.turn_on" a
+      && lib.hasInfix "scene.living_room_night" a
+      && !(lib.hasInfix "script.turn_on" a)
+    )
+    + expect "off: dry run logs and switches nothing" (
+      lib.length offRule.actions == 1
+      && lib.hasPrefix "would " (lib.head offRule.actions).data.message
+      && lib.hasInfix "nobody there" (lib.head offRule.actions).data.message
     )
   }"
   if [ -n "$errors" ]; then

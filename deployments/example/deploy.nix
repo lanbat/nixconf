@@ -163,7 +163,13 @@
         #   lanbat.homeAssistant.followMe = {
         #     enable = true;
         #     # lightsOffAny = true;
+        #     # offMinutes = 15; # how long a room must be empty before its `off` runs
         #     rooms."Office" = { lights = [ "light.office_lamp" ]; };
+        #     rooms."Living Room".off = [
+        #       "switch.living_room_plug"
+        #       "media_player.box_r_4k_plus"
+        #       "script.living_room_tv_off"   # IR blaster's learned power-off
+        #     ];
         #   };
         # }
         # qBittorrent's categories and qBittorrent.conf (services/qbittorrent.nix).
