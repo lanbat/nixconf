@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Forward a TV keyboard's media volume keys to Kodi.
+"""Forward a TV keyboard's media keys to Kodi.
 
 Kodi's GBM evdev input grabs every /dev/input device but only registers its
-main keyboard. A wireless keyboard whose volume keys are a separate HID
-"Consumer Control" interface therefore loses them: Kodi grabs the events and
-never maps them. modules/storage/tv-box.nix makes that device root-only so
-Kodi cannot open it; this service (root) reads it and sends the matching
-action to Kodi's password-less TCP JSON-RPC.
+main keyboard. A wireless keyboard whose media keys (volume, mute, play/pause,
+stop, next/previous, fast-forward/rewind) live on a separate HID "Consumer
+Control" interface therefore loses them: Kodi grabs the events and never maps
+them. modules/storage/tv-box.nix makes that device root-only so Kodi cannot
+open it; this service (root) reads it and sends the matching action to Kodi's
+password-less TCP JSON-RPC.
 
-The device is found by name (VOLUME_DEVICE, a glob) and by the volume keys it
+The device is found by name (VOLUME_DEVICE, a glob) and by the media keys it
 advertises, so a replug or a different event number needs no change.
 """
 
@@ -27,14 +28,27 @@ DEVICE_MATCH = os.environ.get("VOLUME_DEVICE", "*Consumer Control*")
 POLL_SECONDS = 3.0
 
 ACTIONS = {
+    # Volume and mute.
     ecodes.KEY_VOLUMEUP: "volumeup",
     ecodes.KEY_VOLUMEDOWN: "volumedown",
     ecodes.KEY_MUTE: "mute",
+    # Transport. Play/pause toggles; the rest are single actions.
+    ecodes.KEY_PLAYPAUSE: "playpause",
+    ecodes.KEY_PLAYCD: "playpause",
+    ecodes.KEY_PLAY: "playpause",
+    ecodes.KEY_PAUSECD: "pause",
+    ecodes.KEY_PAUSE: "pause",
+    ecodes.KEY_STOPCD: "stop",
+    ecodes.KEY_STOP: "stop",
+    ecodes.KEY_NEXTSONG: "skipnext",
+    ecodes.KEY_PREVIOUSSONG: "skipprevious",
+    ecodes.KEY_FASTFORWARD: "fastforward",
+    ecodes.KEY_REWIND: "rewind",
 }
 
 # Keys whose action repeats while held. Volume keys are stepped repeatedly;
-# mute is a toggle, so it fires once per press and would flicker on/off if it
-# kept repeating.
+# every other key is a one-shot or a toggle (mute, play/pause), so it fires
+# once per press and would flicker on/off if it kept repeating.
 REPEATABLE = {ecodes.KEY_VOLUMEUP, ecodes.KEY_VOLUMEDOWN}
 REPEAT_DELAY = 0.5  # hold this long before the volume starts stepping
 REPEAT_INTERVAL = 0.15  # step the volume this often while held
