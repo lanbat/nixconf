@@ -144,7 +144,8 @@ add_indexer() {
 
   # One Torznab indexer per Jackett tracker. Modern Radarr/Sonarr reject
   # Jackett's /all aggregate endpoint, so each tracker is added at its own
-  # torznab URL; a tracker the user has not configured in Jackett is skipped.
+  # torznab URL. /all/results lists the configured trackers in its "Indexers"
+  # array (ID, Name); an unconfigured tracker is not searched, so not listed.
   local trackers id name
   trackers="$(curl -fsS "${JACKETT_URL}/api/v2.0/indexers/all/results?apikey=${key}" 2>/dev/null || true)"
   if [[ -z "$trackers" ]]; then
@@ -180,7 +181,7 @@ add_indexer() {
           ]
         }')" \
       -o /dev/null
-  done < <(jq -r '.[] | select(.configured == true) | [.id, .name] | @tsv' <<< "$trackers")
+  done < <(jq -r '.Indexers[] | [.ID, .Name] | @tsv' <<< "$trackers")
 }
 
 wait_for_api_key
