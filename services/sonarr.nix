@@ -106,6 +106,7 @@ in
       CONFIG_XML = "/var/lib/sonarr/.config/Sonarr/config.xml";
       ROOT_FOLDERS = rootFolders;
       JACKETT_CONFIG = lib.optionalString withJackett "/var/lib/jackett/.config/Jackett/ServerConfig.json";
+      JACKETT_URL = lib.optionalString withJackett "http://127.0.0.1:${toString config.lanbat.services.jackett.port}";
     };
     serviceConfig = {
       Type = "oneshot";

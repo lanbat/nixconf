@@ -2785,6 +2785,7 @@ let
       && base.systemd.services.radarr.environment.RADARR__SERVER__BINDADDRESS == "127.0.0.1"
       && lib.elem "radarr-bootstrap" base.lanbat.services.radarr.units
       && base.systemd.services.radarr-bootstrap.environment.APP == "radarr"
+      && base.systemd.services.radarr-bootstrap.environment.JACKETT_URL == "http://127.0.0.1:9117"
       &&
         base.systemd.services.radarr-bootstrap.environment.ROOT_FOLDERS
         == "/srv/storage/a/media/movies /srv/storage/b/media/documentaries"
@@ -2802,6 +2803,7 @@ let
       && base.systemd.services.sonarr.environment.SONARR__SERVER__BINDADDRESS == "127.0.0.1"
       && lib.elem "sonarr-bootstrap" base.lanbat.services.sonarr.units
       && base.systemd.services.sonarr-bootstrap.environment.APP == "sonarr"
+      && base.systemd.services.sonarr-bootstrap.environment.JACKETT_URL == "http://127.0.0.1:9117"
       &&
         base.systemd.services.sonarr-bootstrap.environment.ROOT_FOLDERS
         == "/srv/storage/a/media/tv /srv/storage/b/media/documentary-series"
