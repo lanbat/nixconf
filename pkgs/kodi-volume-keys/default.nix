@@ -1,11 +1,12 @@
 # pkgs/kodi-volume-keys/default.nix
 #
-# Forward a TV keyboard's media volume keys to Kodi. Kodi's GBM evdev input
-# grabs every /dev/input device but only maps its main keyboard; on keyboards
-# whose volume keys are a separate HID "Consumer Control" interface, Kodi
-# grabs the events and drops them. modules/storage/tv-box.nix keeps that
-# device root-only so Kodi cannot grab it, and this service reads it and sends
-# the action to Kodi's password-less TCP JSON-RPC on port 9090.
+# Forward a TV keyboard's media keys to Kodi. Kodi's GBM evdev input grabs
+# every /dev/input device but only maps its main keyboard; on keyboards whose
+# media keys (volume, mute, play/pause, stop, next/previous) are a separate
+# HID "Consumer Control" interface, Kodi grabs the events and drops them.
+# modules/storage/tv-box.nix keeps that device root-only so Kodi cannot grab
+# it, and this service reads it and sends the action to Kodi's password-less
+# TCP JSON-RPC on port 9090.
 {
   python3Packages,
 }:

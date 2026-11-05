@@ -60,11 +60,12 @@
 # pauses a film while you talk, shows what you said and the reply on screen,
 # and switches the TV on and off over CEC when Home Assistant asks.
 #
-# Volume keys: on a keyboard whose media keys are a separate HID "Consumer
+# Media keys: on a keyboard whose media keys are a separate HID "Consumer
 # Control" interface, Kodi's GBM input grabs the interface but maps only its
 # main keyboard, so the keys are lost. The udev rule makes that interface
 # root-only and libinput-ignored, and kodi-volume-keys reads it and sends
-# volumeup/volumedown/mute to Kodi's JSON-RPC.
+# volume/mute and the transport keys (play/pause, stop, next/previous) to
+# Kodi's JSON-RPC.
 #
 # Controllers: wired Xbox pads use the kernel's xpad driver, Bluetooth Xbox
 # pads use xpadneo (pair once with bluetoothctl), and USB arcade encoders are
@@ -262,13 +263,13 @@ let
         type = lib.types.str;
         default = "*Consumer Control*";
         description = ''
-          Glob of the input device whose media volume keys Kodi's evdev input
-          grabs but never maps. Kodi's GBM input grabs every /dev/input device
-          but registers only one keyboard; on a keyboard whose volume keys are
-          a separate HID interface (the "Consumer Control" device) they are
-          grabbed and dropped. The matched device is made root-only so Kodi
-          cannot open it, and kodi-volume-keys reads it and drives Kodi's
-          volume over its TCP JSON-RPC.
+          Glob of the input device whose media keys Kodi's evdev input grabs
+          but never maps. Kodi's GBM input grabs every /dev/input device but
+          registers only one keyboard; on a keyboard whose media keys (volume,
+          mute, play/pause, stop, next/previous) are a separate HID interface
+          (the "Consumer Control" device) they are grabbed and dropped. The
+          matched device is made root-only so Kodi cannot open it, and
+          kodi-volume-keys reads it and drives Kodi over its TCP JSON-RPC.
         '';
       };
       privateMedia = lib.mkOption {
@@ -875,7 +876,7 @@ in
     boot.kernelModules = [ "joydev" ];
 
     # Kodi's GBM evdev input grabs every /dev/input device but only registers
-    # its main keyboard. A wireless keyboard whose volume keys are a separate
+    # its main keyboard. A wireless keyboard whose media keys are a separate
     # HID "Consumer Control" interface therefore loses them: Kodi grabs the
     # events and drops them. Make that device root-only so Kodi cannot open
     # it; kodi-volume-keys (root) reads it and drives Kodi over JSON-RPC.
@@ -968,12 +969,12 @@ in
         command = "${lib.getExe pkgs.cage} -s -- ${lib.getExe tvChiaki}";
       };
 
-      # Kodi's input layer grabs every input device, so the volume keys on a
+      # Kodi's input layer grabs every input device, so the media keys on a
       # separate Consumer Control interface never reach it. The udev rule
       # above keeps that device root-only; this reads it and sends the action
       # to Kodi's password-less TCP JSON-RPC.
       kodi-volume-keys = {
-        description = "Forward the TV keyboard's volume keys to Kodi";
+        description = "Forward the TV keyboard's media keys to Kodi";
         wantedBy = [ "multi-user.target" ];
         after = [ "tv-kodi.service" ];
         environment = {
