@@ -495,6 +495,64 @@ let
       };
     };
 
+  # Everything off once the room has been empty for a while: the devices the
+  # profile lists, and the scripts and scenes that power the rest off (an IR
+  # blaster's learned power-off, for instance). A script or scene is "turned on"
+  # — its off action runs; every other entity is turned off. Only what the room
+  # lists; never a screen's or robot's own light unless it is listed.
+  offRule =
+    cfg: room: rc:
+    let
+      r = slug room;
+      off = rc.off or [ ];
+      offables = lib.filter (e: !(lib.hasPrefix "script." e || lib.hasPrefix "scene." e)) off;
+      scripts = lib.filter (e: lib.hasPrefix "script." e) off;
+      scenes = lib.filter (e: lib.hasPrefix "scene." e) off;
+    in
+    {
+      id = "followme_off_${r}";
+      alias = "Follow-me: turn everything off in ${room}";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.followme_${r}_occupied";
+          from = "on";
+          to = "off";
+          for.minutes = cfg.offMinutes;
+        }
+      ];
+      conditions = [
+        notPaused
+        notGuests
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn everything off in ${room} (nobody there)";
+        steps =
+          lib.optionals (offables != [ ]) [
+            {
+              action = "homeassistant.turn_off";
+              target.entity_id = offables;
+            }
+          ]
+          ++ lib.optionals (scripts != [ ]) [
+            {
+              action = "script.turn_on";
+              target.entity_id = scripts;
+              continue_on_error = true;
+            }
+          ]
+          ++ lib.optionals (scenes != [ ]) [
+            {
+              action = "scene.turn_on";
+              target.entity_id = scenes;
+              continue_on_error = true;
+            }
+          ];
+      };
+    };
+
   mkFollowMe =
     { cfg, people }:
     let
@@ -560,6 +618,9 @@ let
           ) rooms
         )
         ++ lib.mapAttrsToList (r: _: musicPause cfg r) (lib.filterAttrs (_: rc: rc.music) rooms)
+        ++ lib.mapAttrsToList (r: rc: offRule cfg r rc) (
+          lib.filterAttrs (_: rc: (rc.off or [ ]) != [ ]) rooms
+        )
         ++ map (lastRoom cfg) people
         ++ lib.optionals (lib.length (lib.filter (rc: rc.music) (lib.attrValues rooms)) >= 2) (
           map (musicFollow cfg) people

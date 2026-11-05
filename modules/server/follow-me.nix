@@ -117,6 +117,23 @@ in
                 speakers and a TV box); name the real speaker.
               '';
             };
+            off = mkOption {
+              type = types.listOf (types.strMatching "[a-z][a-z0-9_]*\\.[a-z0-9_]+");
+              default = [ ];
+              example = [
+                "switch.living_room_plug"
+                "media_player.box_r_4k_plus"
+                "script.living_room_tv_off"
+              ];
+              description = ''
+                The room's devices to turn off once it has been empty for
+                `offMinutes`, and the scripts and scenes that power the rest off
+                (an IR blaster's learned power-off, for instance). A `script.*`
+                or `scene.*` is turned on, which runs its off action; every other
+                entity is turned off. Only what is listed here; never a screen's
+                or robot's own light unless you list it.
+              '';
+            };
           };
         }
       );
@@ -160,6 +177,11 @@ in
       type = seconds;
       default = 15;
       description = "How long a room must be empty before its music is paused.";
+    };
+    offMinutes = mkOption {
+      type = seconds;
+      default = 15;
+      description = "How long a room must be empty before everything listed in its `off` is turned off.";
     };
     unlocatedMinutes = mkOption {
       type = seconds;
