@@ -128,6 +128,7 @@
         inputs.self.lanbatPlugins.services
         inputs.self.lanbatPlugins.android
         inputs.self.lanbatPlugins.follow-me
+        inputs.self.lanbatPlugins.lighting
         inputs.self.lanbatPlugins.xiaomi-clock
         inputs.self.lanbatPlugins.dns
       ];
@@ -165,11 +166,39 @@
         #     # lightsOffAny = true;
         #     # offMinutes = 15; # how long a room must be empty before its `off` runs
         #     rooms."Office" = { lights = [ "light.office_lamp" ]; };
+        #     # A room is also occupied while any `activity` sensor is on:
+        #     rooms."Kitchen" = {
+        #       lights = [ "light.kitchen_strip" ];
+        #       activity = [ "binary_sensor.kitchen_camera_person_occupancy" "binary_sensor.kitchen_motion_occupancy" ];
+        #     };
         #     rooms."Living Room".off = [
         #       "switch.living_room_plug"
         #       "media_player.box_r_4k_plus"
         #       "script.living_room_tv_off"   # IR blaster's learned power-off
         #     ];
+        #   };
+        # }
+        # Lighting routines (lanbat.homeAssistant.lighting): lights that come on
+        # when it gets dark and off in the early morning, and hallway lights that
+        # follow someone from the entrance into the hall. dryRun defaults to true.
+        # {
+        #   lanbat.homeAssistant.lighting = {
+        #     enable = true;
+        #     duskRoutines.fairyLights = {
+        #       lights = [ "light.livingroom_fairylights" ];
+        #       offAt = "04:00";
+        #     };
+        #     approach.hall = {
+        #       approach = [ "binary_sensor.c1_person_occupancy" ];
+        #       presence = [ "binary_sensor.hall_occupancy" ];
+        #       # Lights on (porch and hallway) when someone outside is within
+        #       # 10 m and it is dark; someone inside only lights the hallway.
+        #       distance = [ "sensor.alex_phone_distance" ];
+        #       inside = [ "sensor.lanbat_people_where_alex" ];
+        #       right = [ "light.hall_right" ];
+        #       left = [ "light.hall_left" ];
+        #       offAfterSeconds = 180;
+        #     };
         #   };
         # }
         # qBittorrent's categories and qBittorrent.conf (services/qbittorrent.nix).

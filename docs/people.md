@@ -682,6 +682,7 @@ lists some; someone not listed (a guest) neither moves music nor keeps a room oc
 | **Hand-switched lights off** | optional (`lightsOffAny`, default off): the room has been empty `lightsOffAnyMinutes` (10), and any of the room's listed `lights` is on, including ones you switched on by hand. Only those listed lights; a screen's or robot's own light is never touched unless you list it. Respects dry run, pause and guests like the other empty-room rules. |
 | **Music follows** | a person's last room changes and holds 4 s, they were the only one in the room they left, music is playing there, and the new room has a Music Assistant player that is free. The queue moves (`music_assistant.transfer_queue`) and the old room stops. Once per 20 s per person at most. |
 | **Music pauses** | a room with music on has been empty 15 minutes. Paused, not stopped, so "resume" works. TVs are never touched. |
+| **Occupied by activity** | a room's `activity` sensors (a camera's person detection, motion, presence, a listening voice satellite) hold it occupied like a placed person, so the other rules wait for them too. |
 | **Everything off** | the room has been empty `offMinutes` (15): every device listed in the room's `off` is turned off, and each `script.*` or `scene.*` in it is turned on — its off action runs, so it can fire an IR blaster's learned power-off at the TV or amp. Only what is listed; a screen's or robot's own light is never touched unless you list it. |
 
 The first time a person is placed in a room after a fresh install, the music does not follow:

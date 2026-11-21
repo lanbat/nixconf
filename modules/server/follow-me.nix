@@ -117,6 +117,22 @@ in
                 speakers and a TV box); name the real speaker.
               '';
             };
+            activity = mkOption {
+              type = types.listOf (types.strMatching "(binary_sensor|input_boolean)\\.[a-z0-9_]+");
+              default = [ ];
+              example = [
+                "binary_sensor.kitchen_camera_person_occupancy"
+                "binary_sensor.kitchen_motion_occupancy"
+                "binary_sensor.kitchen_voice_active"
+              ];
+              description = ''
+                Sensors that hold the room occupied besides the people who are
+                placed there: a camera's person detection, motion, presence or
+                a voice satellite that is listening. Any of them on keeps the
+                room occupied; the room's `off` list runs after all of them and
+                every person have been gone for `offMinutes`.
+              '';
+            };
             off = mkOption {
               type = types.listOf (types.strMatching "[a-z][a-z0-9_]*\\.[a-z0-9_]+");
               default = [ ];

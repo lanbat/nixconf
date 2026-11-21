@@ -7,6 +7,7 @@
   voice = import ./voice;
   android = import ./android;
   follow-me = import ./follow-me;
+  lighting = import ./lighting;
   xiaomi-clock = import ./xiaomi-clock;
   dns = import ./dns;
   stackchan = import ./stackchan;

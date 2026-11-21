@@ -63,7 +63,7 @@ let
       }) people
     );
 
-  occupied = cfg: people: room: {
+  occupied = cfg: people: room: roomCfg: {
     name = "followme ${room} occupied";
     unique_id = "followme_${slug room}_occupied";
     state = ''
@@ -80,12 +80,18 @@ let
           {% set ns.on = true %}
         {% endif %}
       {% endfor %}
+      {% for s in ${toJSON (roomCfg.activity or [ ])} %}
+        {% if states(s) == 'on' %}{% set ns.on = true %}{% endif %}
+      {% endfor %}
       {{ ns.on }}
     '';
     availability = ''
       {% set ns = namespace(known=false) %}
       {% for p in ${trackers people} %}
         {% if states(p.w) not in ['unknown', 'unavailable'] %}{% set ns.known = true %}{% endif %}
+      {% endfor %}
+      {% for s in ${toJSON (roomCfg.activity or [ ])} %}
+        {% if states(s) not in ['unknown', 'unavailable'] %}{% set ns.known = true %}{% endif %}
       {% endfor %}
       {{ ns.known }}
     '';
@@ -593,7 +599,7 @@ let
         {
           binary_sensor = lib.concatLists (
             lib.mapAttrsToList (r: rc: [
-              (occupied cfg people r)
+              (occupied cfg people r rc)
               (dark cfg r rc)
             ]) rooms
           );
