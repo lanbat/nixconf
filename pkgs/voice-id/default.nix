@@ -27,7 +27,7 @@ python3Packages.buildPythonApplication {
   passthru.model = fetchurl {
     # 3D-Speaker CAM++, trained on VoxCeleb, 16 kHz, 512-dimensional embeddings.
     url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx";
-    hash = "sha256-NXqDT3ArgBYeW5gRgsA44YVTwfLKdS7WzsIFI2XUEps=";
+    hash = "sha256-mNr5vPHIq/PbN0/sTCel7afFhwW7PxgNBXsIWnKoi7U=";
   };
   meta = {
     description = "Wyoming speech-to-text proxy that identifies the speaker";
