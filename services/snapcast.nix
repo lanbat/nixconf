@@ -108,6 +108,27 @@ let
         Snapdroid), keyed by a name of your choice. Each sets mac, host or both.
       '';
     };
+
+    options.latency = mkOption {
+      type = types.attrsOf (types.ints.between 0 1000);
+      default = { };
+      example = lib.literalExpression ''{ bedroom = 12; "2c:d8:ae:00:00:01" = 150; }'';
+      description = ''
+        Per-client latency offsets in milliseconds, keyed by the name a client
+        reports to snapserver (its host name, as listed by Server.GetStatus or
+        shown in Snapweb) or by its client id (its MAC address), ignoring case.
+        A positive value makes that client play that much earlier, which
+        corrects a speaker whose output path delays the sound (a USB or HDMI
+        device, a Bluetooth link) so it lines up with the others in its group.
+        Snapserver keeps this in its own state and has no configuration for it,
+        so a small timer applies the values to the running server: a client
+        snapserver has not seen yet is set on the first run after it connects.
+        The value cannot exceed snapserver's buffer (1000 ms).
+
+        Tune by ear: raise it while the client is late, lower it when it is
+        early. Snapweb's per-client Latency control does the same live.
+      '';
+    };
   };
 
   isIPv4 = s: builtins.match "([0-9]{1,3}\\.){3}[0-9]{1,3}" s != null;
@@ -291,6 +312,30 @@ in
   systemd.services.snapserver = {
     after = [ "avahi-daemon.service" ];
     serviceConfig.SupplementaryGroups = [ "avahi-snapserver" ];
+  };
+
+  # Per-client latency (settings.latency). Snapserver keeps it in its own
+  # state, so this sets it over the control API; a timer repeats it so a client
+  # that connects later, or a reset of snapserver's state, is corrected too.
+  systemd.services.snapcast-client-latency = lib.mkIf (cfg.latency != { }) {
+    description = "Apply per-client Snapcast latency offsets";
+    after = [ "snapserver.service" ];
+    environment.CLIENT_LATENCIES = builtins.toJSON cfg.latency;
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = lib.getExe (pkgs.callPackage ../pkgs/snapcast-client-latency { });
+      DynamicUser = true;
+      # Only snapserver's control port on the loopback.
+      IPAddressDeny = "any";
+      IPAddressAllow = "localhost";
+    };
+  };
+  systemd.timers.snapcast-client-latency = lib.mkIf (cfg.latency != { }) {
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "1min";
+      OnUnitActiveSec = "2min";
+    };
   };
 
   services.dbus.packages = [
