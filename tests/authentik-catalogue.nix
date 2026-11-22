@@ -265,6 +265,7 @@ let
     "music-assistant"
     "qbittorrent"
     "radarr"
+    "slskd"
     "snapcast"
     "sonarr"
     "syncthing"
@@ -278,6 +279,7 @@ let
     music-assistant = "Music Assistant";
     qbittorrent = "qBittorrent";
     radarr = "Radarr";
+    slskd = "Soulseek";
     snapcast = "Snapcast";
     sonarr = "Sonarr";
     syncthing = "Syncthing";
@@ -350,6 +352,11 @@ let
             secret = "AUTHENTIK_JELLYFIN_CLIENT_SECRET";
           }
           {
+            n = "paperless";
+            name = "Paperless";
+            secret = "AUTHENTIK_PAPERLESS_CLIENT_SECRET";
+          }
+          {
             n = "romm";
             name = "RomM";
             secret = "AUTHENTIK_ROMM_CLIENT_SECRET";
@@ -374,6 +381,7 @@ let
           "home-assistant"
           "immich"
           "jellyfin"
+          "paperless"
           "romm"
           "vaultwarden"
         ];

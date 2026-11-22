@@ -137,6 +137,11 @@ pkgs.testers.runNixOSTest {
           ADMIN_TOKEN=test
           SSO_CLIENT_SECRET=test
         '';
+        paperless-env = "PAPERLESS_ADMIN_PASSWORD=test-admin-password\n";
+        slskd-env = ''
+          SLSKD_SLSK_USERNAME=test
+          SLSKD_SLSK_PASSWORD=test
+        '';
         forgejo-env = ''
           FORGEJO_ADMIN_PASSWORD=test-admin-password
           FORGEJO_OAUTH_CLIENT_SECRET=test

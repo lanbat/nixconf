@@ -123,6 +123,8 @@ a `profiles` wrapper uses unprefixed names (`server`, `pi-storage`).
 | qBittorrent | Caddy forward-auth (Authentik), web UI and API | No OIDC; VueTorrent web UI; who did what is in the audit log; Homepage reads it on loopback |
 | Bitmagnet | Caddy forward-auth (Authentik) | No native OIDC |
 | Jackett | Caddy forward-auth (Authentik), admins only (`access.groups`) | One shared Jackett login and no roles, so everyone let in can change indexers and read their credentials; qBittorrent reaches it on loopback with the API key, not through Caddy |
+| Paperless | Own accounts + native OIDC (Authentik), group `paperless` | Anyone in the group gets an account on first login, tagged documents per person; no forward auth, so the apps and scanners reach the API directly |
+| slskd (Soulseek) | Caddy forward-auth (Authentik) | slskd's own login is off; everyone let in shares one Soulseek account; who did what is in the audit log |
 | Audiobookshelf | Own accounts + native OIDC (Authentik) | Phone apps log in through the same OIDC; an Authentik user gets the account with their username, or a new one |
 | RomM | Own accounts + native OIDC (Authentik) | App clients (Argosy Launcher) pair by code; admin email must match the Authentik user |
 | SearXNG | None (intentional) | Public LAN search |
@@ -172,6 +174,8 @@ Caddy and Authentik on this one.
 | `bitmagnet.<domain>` | Bitmagnet (on-demand) |
 | `jackett.<domain>` | Jackett (indexer manager for qBittorrent search; admins only) |
 | `romm.<domain>` | RomM (on-demand) |
+| `docs.<domain>` | Paperless-ngx document archive |
+| `soulseek.<domain>` | slskd, the Soulseek web client |
 | `search.<domain>` | SearXNG |
 | `reddit.<domain>` | Redlib (Reddit front-end) |
 | `youtube.<domain>` | Invidious (YouTube front-end) |

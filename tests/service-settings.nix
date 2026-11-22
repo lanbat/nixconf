@@ -2175,6 +2175,7 @@ let
         authentik = 0;
         immich = 1;
         romm = 2;
+        paperless = 3;
       }
       && (envOf base "authentik-server").AUTHENTIK_REDIS__DB == "0"
       && (envOf base "immich-server").REDIS_DBINDEX == "1"

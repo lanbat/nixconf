@@ -7,13 +7,15 @@
 #   bash secrets/generate-oidc-secrets.sh
 #
 # What this script does:
-#   - Creates/replaces authentik-oidc-secrets.age  (8 client secrets for the
+#   - Creates/replaces authentik-oidc-secrets.age  (9 client secrets for the
 #     blueprint; Authentik reads them via !Env at startup, and Jellyfin's,
 #     Audiobookshelf's and Vaultwarden's configs read their own)
 #   - Appends/replaces GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET in grafana-env.age
 #   - Creates/replaces immich-oidc-env.age
 #   - Creates/replaces romm-oidc-env.age
 #   - Appends/replaces SSO_CLIENT_SECRET in vaultwarden-env.age
+#   - Sets PAPERLESS_SOCIALACCOUNT_PROVIDERS in paperless-env.age (needs
+#     DOMAIN=<your domain> in the environment)
 #   - Creates/updates forgejo-env.age (break-glass admin password + the same
 #     client secret, which Forgejo's bootstrap reads)
 #   - Prints client_id/secret for Home Assistant and Jellyfin
@@ -99,6 +101,7 @@ AUDIOBOOKSHELF_SECRET=$(rand)
 VAULTWARDEN_SECRET=$(rand)
 FORGEJO_SECRET=$(rand)
 FORGEJO_ADMIN_PASSWORD=$(rand)
+PAPERLESS_SECRET=$(rand)
 
 overwrite "authentik-oidc-secrets.age" \
 "AUTHENTIK_GRAFANA_CLIENT_SECRET=$GRAFANA_SECRET
@@ -108,7 +111,8 @@ AUTHENTIK_JELLYFIN_CLIENT_SECRET=$JELLYFIN_SECRET
 AUTHENTIK_ROMM_CLIENT_SECRET=$ROMM_SECRET
 AUTHENTIK_AUDIOBOOKSHELF_CLIENT_SECRET=$AUDIOBOOKSHELF_SECRET
 AUTHENTIK_VAULTWARDEN_CLIENT_SECRET=$VAULTWARDEN_SECRET
-AUTHENTIK_FORGEJO_CLIENT_SECRET=$FORGEJO_SECRET"
+AUTHENTIK_FORGEJO_CLIENT_SECRET=$FORGEJO_SECRET
+AUTHENTIK_PAPERLESS_CLIENT_SECRET=$PAPERLESS_SECRET"
 
 upsert_line "grafana-env.age" \
   "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=$GRAFANA_SECRET"
@@ -128,10 +132,19 @@ upsert_line "forgejo-env.age" \
 upsert_line "forgejo-env.age" \
   "FORGEJO_OAUTH_CLIENT_SECRET=$FORGEJO_SECRET"
 
+# Paperless reads its OIDC client as one JSON line, which names the identity
+# provider's address, so this one needs the domain: DOMAIN=example.com ./...
+if [ -n "${DOMAIN:-}" ]; then
+  upsert_line "paperless-env.age" \
+    "PAPERLESS_SOCIALACCOUNT_PROVIDERS={\"openid_connect\":{\"OAUTH_PKCE_ENABLED\":true,\"APPS\":[{\"provider_id\":\"authentik\",\"name\":\"Authentik\",\"client_id\":\"paperless\",\"secret\":\"$PAPERLESS_SECRET\",\"settings\":{\"server_url\":\"https://auth.$DOMAIN/application/o/paperless/.well-known/openid-configuration\"}}]}}"
+else
+  echo "  SKIP  paperless-env.age: set DOMAIN=<your domain> to write its OIDC line"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
-echo "Done. Grafana, Immich, RomM, Audiobookshelf, Vaultwarden and Forgejo are fully wired."
+echo "Done. Grafana, Immich, RomM, Audiobookshelf, Vaultwarden, Forgejo and Paperless are fully wired."
 echo
 echo "Manual UI setup required for the following two services."
 echo "Secrets are also stored in authentik-oidc-secrets.age for later retrieval."

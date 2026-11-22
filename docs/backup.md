@@ -19,6 +19,8 @@
 | Invidious state | always-on PostgreSQL (`invidious`) and `/var/lib/invidious/` (hmac key) | `pg_dump` and `backup-server.sh`; losing the hmac key only invalidates sessions |
 | Syncthing config + identity | `/var/lib/syncthing/.config/syncthing/` | `backup-server.sh` (without the index, which Syncthing rebuilds) |
 | Audiobookshelf accounts + listening progress | `/var/lib/audiobookshelf/config/` | `backup-server.sh` |
+| Paperless documents and settings | `/var/lib/paperless/media/` and workload PostgreSQL (`paperless`) | `backup-server.sh` and `pg_dump`; the search index (`index/`) and thumbnails are rebuilt by `paperless-manage document_index reindex` |
+| slskd configuration | `/var/lib/slskd/` | `backup-server.sh`; the downloads are on the Pi |
 | Forgejo repositories + accounts (SQLite) | `/var/lib/forgejo/` | `backup-server.sh` |
 
 ### Important (back up — slow to regenerate)

@@ -146,6 +146,8 @@ are overlaid by bind mounts from `/mnt/workload/`.
 ├── jackett/           Jackett indexers, their credentials and cookies, and the API key (BACK THIS UP)
 ├── bitmagnet/         Bitmagnet config
 ├── romm/              RomM config, artwork, saves and states
+├── paperless/         Paperless documents (media/), search index, inbox (consume/) (BACK THIS UP)
+├── slskd/             slskd config, share index, incomplete downloads
 ├── vaultwarden/       Vaultwarden SQLite DB + attachments (BACK THIS UP)
 ├── forgejo/           Forgejo repositories, config and SQLite DB (BACK THIS UP)
 ├── syncthing/         Syncthing config + SQLite index (BACK THIS UP)
@@ -176,6 +178,8 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Sonarr | workload | workload (SQLite) | Pi/a/media/tv + Pi/b/media/documentary-series (renames in place) |
 | Frigate | server-local | server-local (SQLite) | Pi/a/surveillance |
 | Bitmagnet | server-local | workload PostgreSQL | — |
+| Paperless | server-local | workload PostgreSQL | Pi/b/users (read, copied in; originals untouched) |
+| slskd | server-local | — | Pi/b/media/music/aMule (downloads, and shared back; `settings.downloadsPath`) |
 | RomM | server-local | workload PostgreSQL | Pi/b/media/roms (ROM library), Pi/b/media/roms-browser (arcade zips) |
 | SearXNG | server-local | — | — |
 | Redlib | server-local (none) | — | — |

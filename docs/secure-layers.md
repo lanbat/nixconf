@@ -26,7 +26,7 @@ SERVER — one disk (hosts/server/disk.nix)
   always-on service data (always-on PostgreSQL, Authentik, HA, Grafana, Invidious,
   InfluxDB, Mosquitto, Frigate, Caddy TLS certs, container images)
 - **Does NOT contain**: Tang keys, workload-gated service data (Immich, Jellyfin,
-  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM)
+  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM, Paperless, slskd)
 
 After a reboot, this layer is immediately accessible. SSH works. Admin tools
 work. Nothing sensitive is exposed.
@@ -51,8 +51,8 @@ will not start until that target is active.
 - **Mount**: `/mnt/workload` (manual, not at boot)
 - **Unlocked by**: admin passphrase (`unlock-workload`)
 - **Contains**: workload-gated service data (Immich, Jellyfin, Audiobookshelf,
-  Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM), including
-  the workload PostgreSQL instance that holds the Immich, Bitmagnet and RomM databases
+  Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM, Paperless, slskd), including
+  the workload PostgreSQL instance that holds the Immich, Bitmagnet, RomM and Paperless databases
 
 Bind mounts overlay `/var/lib/<service>` paths with subdirectories of
 `/mnt/workload`. The `workload-online.target` is activated once all bind mounts
@@ -113,6 +113,8 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
                     synced indexer definitions (xdg/cardigann/definitions)
   bitmagnet/      — Bitmagnet torrent index
   romm/           — RomM config, artwork, saves and states
+  paperless/      — Paperless documents, thumbnails, search index and inbox
+  slskd/          — slskd configuration, share index and incomplete downloads
   samba/          — Samba configuration and state
 ```
 
@@ -169,7 +171,7 @@ boot
                           └── gated services start
                                (Immich, Jellyfin, Audiobookshelf, Vaultwarden,
                                 Syncthing, Samba, qBittorrent, Jackett, Bitmagnet,
-                                RomM)
+                                RomM, Paperless, slskd)
 ```
 
 ## Raspberry Pi unlock model

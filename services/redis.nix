@@ -6,6 +6,7 @@
 #   DB 0 — Authentik  (sessions, cache)
 #   DB 1 — Immich     (job queues, cache)
 #   DB 2 — RomM       (task queues, cache)
+#   DB 3 — Paperless (task queue, cache)
 # Nothing is persisted (save = []): every consumer treats Redis as a cache.
 {
   lanbat.services.redis.extraPorts = [ 6379 ];

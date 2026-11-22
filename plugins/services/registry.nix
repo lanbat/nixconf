@@ -32,6 +32,7 @@
   mosquitto = ../../services/mosquitto.nix;
   llm-gateway = ../../services/llm-gateway.nix;
   music-assistant = ../../services/music-assistant.nix;
+  paperless = ../../services/paperless.nix;
   person-mapper = ../../services/person-mapper.nix;
   postgresql = ../../services/postgresql.nix;
   qbittorrent = ../../services/qbittorrent.nix;
@@ -41,6 +42,7 @@
   romm = ../../services/romm.nix;
   samba = ../../services/samba.nix;
   searxng = ../../services/searxng.nix;
+  slskd = ../../services/slskd.nix;
   snapcast = ../../services/snapcast.nix;
   sonarr = ../../services/sonarr.nix;
   syncthing = ../../services/syncthing.nix;
