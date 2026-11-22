@@ -188,6 +188,10 @@
       #     };
       #   }
       #
+      # A speaker that plays late against the others in its Snapcast group takes a
+      # latency offset in milliseconds (docs/deployment-checklist.md):
+      #   { lanbat.services.snapcast.settings.latency.bedroom = 12; }
+      #
       # Music Assistant's radio stations, podcasts and video channels
       # (lanbat.services.music-assistant.settings, docs/deployment-checklist.md#3m-music-assistant):
       #   {

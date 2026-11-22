@@ -1019,6 +1019,24 @@ Snapcast lists every client it has seen, with the address it came from:
 `echo '{"id":1,"jsonrpc":"2.0","method":"Server.GetStatus"}' | nc <server> 1705` (from the
 server). A client listed there with an IPv6 address needs its MAC.
 
+**Speakers that play out of sync.** A client with a slow output path (a USB speaker, an
+HDMI sink, a Bluetooth link) can play late against the others in its group. Snapcast keeps
+clients aligned by timestamp but cannot know that delay, so give the client a latency in
+milliseconds: a positive value makes it play earlier. Key it by the name the client
+reports (its host name in `Server.GetStatus` or Snapweb) or by its MAC:
+
+```nix
+hosts.server.modules = [
+  { lanbat.services.snapcast.settings.latency.bedroom = 12; }
+];
+```
+
+Tune it by ear (raise it while the client is late, lower it when it is early); the
+per-client Latency control in Snapweb applies a value live while you try. A small timer
+(`snapcast-client-latency`) sets the configured values on the running snapserver, so a
+client that connects later is corrected too. The value cannot exceed snapserver's
+1000 ms buffer.
+
 Verify Snapclient on the Pi: `systemctl status snapclient`. The client should
 appear in both the Snapcast web UI (`https://audio.<domain>`) and Music Assistant.
 

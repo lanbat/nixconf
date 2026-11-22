@@ -836,6 +836,12 @@ let
     { lanbat.services.snapcast.settings.clients.tv.mac = "2c:d8:ae:00:00:01"; }
   ];
   snapEmpty = serverWith [ { lanbat.services.snapcast.settings.clients.tv = { }; } ];
+  snapLatency = serverWith [
+    { lanbat.services.snapcast.settings.latency.bedroom = 12; }
+  ];
+  snapLatencyTooBig = serverWith [
+    { lanbat.services.snapcast.settings.latency.bedroom = 1500; }
+  ];
   snapBadMac = serverWith [ { lanbat.services.snapcast.settings.clients.tv.mac = "2c-d8-ae"; } ];
   # Music Assistant placed on a host without the snapserver.
   maApart = serverWith [ { lanbat.endpoints.snapcast.hosts = lib.mkForce [ "pi-storage" ]; } ];
@@ -2266,6 +2272,24 @@ let
 
     (expect "snapcast: a client must be an IPv4 address" (
       lib.any (lib.hasInfix "phone.lan") (failedAssertions snapBadHost)
+    ))
+
+    (expect
+      "snapcast: settings.latency runs a timer that sets each client's offset, and nothing by default"
+      (
+        snapLatency.systemd.services.snapcast-client-latency.environment.CLIENT_LATENCIES
+        == ''{"bedroom":12}''
+        && snapLatency.systemd.timers.snapcast-client-latency.wantedBy == [ "timers.target" ]
+        && snapLatency.systemd.services.snapcast-client-latency.serviceConfig.IPAddressAllow == "localhost"
+        && !(snapClients.systemd.services ? snapcast-client-latency)
+        && !(snapClients.systemd.timers ? snapcast-client-latency)
+      )
+    )
+
+    (expect "snapcast: a latency above snapserver's 1000 ms buffer is rejected" (
+      !(builtins.tryEval (
+        builtins.deepSeq snapLatencyTooBig.systemd.services.snapcast-client-latency.environment true
+      )).success
     ))
 
     (expect "jackett: workload-native service stays private behind admin forward auth" (
