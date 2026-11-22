@@ -93,9 +93,10 @@ browser ──▶ service (sets its own session from the ID token)
 | Service | `auth` | OIDC client | Notes |
 |---|---|---|---|
 | Home Assistant | app | yes | OIDC login (`auth_oidc`, see below); companion apps sign in with a device code |
-| Frigate, Music Assistant, Snapcast, Zigbee2MQTT, Syncthing, qBittorrent, Bitmagnet | forward-auth | no | pure forward auth |
+| Frigate, Music Assistant, Snapcast, Zigbee2MQTT, Syncthing, qBittorrent, Bitmagnet, slskd | forward-auth | no | pure forward auth |
 | Immich | forward-auth | yes | web UI forward-authed; mobile app OIDC + `apiClients` |
 | Grafana | app | yes | `generic_oauth`, maps roles from a claim (see below) |
+| Paperless | app | yes | native OIDC (django-allauth, provider id `authentik`), gated on the `paperless` group; the apps use the API directly |
 | RomM, Audiobookshelf | app | yes | native OIDC; apps pair/call the API via `apiClients` |
 | Jellyfin | app | yes | **own account system** plus OIDC (via `jellyfin-bootstrap`) |
 | Vaultwarden | app | yes | **own account system** (Bitwarden) plus OIDC; SSO signs in by matching the email to an existing account (created from the admin panel or its API), gated on the `vaultwarden` group |

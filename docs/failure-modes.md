@@ -8,7 +8,7 @@
    SearXNG, Redlib, Invidious, Telegraf.
 3. Admin SSHes in and runs `sudo unlock-control` → Tang starts on port 7500.
 4. Admin runs `sudo unlock-workload` → the PostgreSQL workload instance, Immich,
-   Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM come up.
+   Jellyfin, Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM, Paperless, slskd come up.
 5. Pi boots from SD card. After network is up, `storage-a-unlock` and `storage-b-unlock`
    contact Tang, unlock both NVMe drives (retries every 5 min until Tang is reachable).
 6. `/mnt/storage-a` and `/mnt/storage-b` mount on the Pi. NFS server starts.
@@ -106,6 +106,8 @@ Workload-gated services that pause and restart (NFS-dependent):
 - Jellyfin ⏸→▶
 - Audiobookshelf ⏸→▶ (Music Assistant's Audiobookshelf provider is reconnected by `music-assistant-audiobookshelf` at each unlock)
 - qBittorrent ⏸→▶
+- slskd ⏸→▶ (downloads and shares are on Pi storage)
+- Paperless ⏸→▶ (its documents are local; only the nightly import from the Pi's `users/` folders waits for storage)
 - Frigate ⏸→▶
 - Samba ⏸→▶
 - Immich server ⏸→▶ (only the storage-facing parts)

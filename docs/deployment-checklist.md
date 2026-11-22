@@ -1117,6 +1117,34 @@ plugin configuration before every qBittorrent start.
 5. Search from qBittorrent. "Jackett: api key error" means the plugin file was not
    rewritten; read `journalctl -u jackett-qbittorrent-plugin`.
 
+### 3s. Paperless and Soulseek (slskd)
+
+**Paperless** (`https://docs.<domain>`, workload layer):
+
+1. Create `paperless-env.age`: run `DOMAIN=<your domain> secrets/generate-oidc-secrets.sh`
+   (it writes the OIDC line there and the matching secret into
+   `authentik-oidc-secrets.age`), then add `PAPERLESS_ADMIN_USER=` and
+   `PAPERLESS_ADMIN_PASSWORD=` with `agenix -e paperless-env.age` for the break-glass
+   superuser.
+2. In Authentik create the group `paperless` and add the people who should use it
+   (the catalogue creates the provider and application).
+3. Check `lanbat.services.paperless.settings`: `usersPath` (default `users`) is the folder
+   on drive `drive` (default `b`) with one subfolder per person.
+4. After `unlock-workload`, `paperless-import-users` copies their documents into the
+   inbox (originals stay on the Pi); each is tagged with the person's name and folders.
+   Watch it with `journalctl -u paperless-import-users -u paperless-consumer`. It repeats
+   nightly for new files; `/var/lib/paperless/import-ledger` records what was copied.
+
+**Soulseek** (`https://soulseek.<domain>`, workload layer):
+
+1. Create `slskd-env.age` with `SLSKD_SLSK_USERNAME=` and `SLSKD_SLSK_PASSWORD=` (a
+   Soulseek account is made by logging in with a name nobody has taken).
+2. Create the downloads folder on the Pi before the first start: by default
+   `/mnt/storage-b/media/music/aMule`, `install -d -m 2775 -g media`. Set
+   `lanbat.services.slskd.settings.downloadsPath` if the existing aMule folder in the
+   Syncthing music directory is elsewhere. slskd shares this folder back to the network.
+3. Optionally forward TCP 50300 on the router for more sources.
+
 ## Phase 4 — Ongoing
 
 - Deploy changes immediately: `deploy --skip-checks path:.#homelab-server` / `deploy --skip-checks path:.#homelab-pi-storage`.
