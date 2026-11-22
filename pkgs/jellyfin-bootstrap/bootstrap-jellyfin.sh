@@ -502,12 +502,15 @@ configure_opensubtitles() {
     return 0
   fi
   log "setting Open Subtitles credentials for ${OPENSUBTITLES_USERNAME}"
+  # The plugin sets CredentialsInvalid when OpenSubtitles rejects a login and
+  # refuses every download until it is cleared, so new credentials must clear
+  # it too or a corrected secret would stay ignored.
   api_call -X POST "${JELLYFIN_URL}/Plugins/${id}/Configuration" \
     -H 'Content-Type: application/json' \
     -d "$(jq \
       --arg u "$OPENSUBTITLES_USERNAME" \
       --arg p "$OPENSUBTITLES_PASSWORD" \
-      '.Username = $u | .Password = $p' \
+      '.Username = $u | .Password = $p | .CredentialsInvalid = false' \
       <<<"$current")" \
     -o /dev/null
 }
