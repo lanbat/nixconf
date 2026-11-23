@@ -289,6 +289,12 @@ let
           client_id = svc.name;
           client_secret = tag "!Env" (secretVariable svc);
           client_type = "confidential";
+          # Newer Authentik leaves a provider created from a blueprint with no
+          # grant types, and rejects every login ("Invalid grant_type").
+          grant_types = [
+            "authorization_code"
+            "refresh_token"
+          ];
           redirect_uris = map (url: {
             inherit url;
             matching_mode = "strict";
