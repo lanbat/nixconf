@@ -122,12 +122,18 @@ in
 
   networking.firewall.allowedTCPPorts = [ listenPort ];
 
+  # .NET takes its singleton lock under $HOME; the module's system user has
+  # none, and slskd exits at once ("singleton mutex") without one.
+  systemd.services.slskd.environment.HOME = "/var/lib/slskd";
+
   systemd.services.slskd.serviceConfig = {
     # The module's private user namespace hides the media group, which the
     # downloads folder on the Pi needs.
     PrivateUsers = lib.mkForce false;
-    # Group-writable, for Syncthing and Jellyfin.
-    UMask = "0002";
+    # The module makes every shared folder read-only, and the downloads folder
+    # is shared too, which would make it read-only for the downloads as well.
+    # slskd never writes to a share, so only the extra shares are listed.
+    ReadOnlyPaths = lib.mkForce (map (p: "/srv/storage/${cfg.drive}/${p}") cfg.sharePaths);
     RestartSec = "15s";
   };
 }
