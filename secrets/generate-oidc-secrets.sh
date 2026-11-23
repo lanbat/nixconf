@@ -136,7 +136,7 @@ upsert_line "forgejo-env.age" \
 # provider's address, so this one needs the domain: DOMAIN=example.com ./...
 if [ -n "${DOMAIN:-}" ]; then
   upsert_line "paperless-env.age" \
-    "PAPERLESS_SOCIALACCOUNT_PROVIDERS={\"openid_connect\":{\"OAUTH_PKCE_ENABLED\":true,\"APPS\":[{\"provider_id\":\"authentik\",\"name\":\"Authentik\",\"client_id\":\"paperless\",\"secret\":\"$PAPERLESS_SECRET\",\"settings\":{\"server_url\":\"https://auth.$DOMAIN/application/o/paperless/.well-known/openid-configuration\"}}]}}"
+    "PAPERLESS_SOCIALACCOUNT_PROVIDERS='{\"openid_connect\":{\"OAUTH_PKCE_ENABLED\":true,\"APPS\":[{\"provider_id\":\"authentik\",\"name\":\"Authentik\",\"client_id\":\"paperless\",\"secret\":\"$PAPERLESS_SECRET\",\"settings\":{\"server_url\":\"https://auth.$DOMAIN/application/o/paperless/.well-known/openid-configuration\"}}]}}'"
 else
   echo "  SKIP  paperless-env.age: set DOMAIN=<your domain> to write its OIDC line"
 fi

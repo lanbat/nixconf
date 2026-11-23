@@ -40,7 +40,7 @@
 #   PAPERLESS_ADMIN_USER=<name>        (optional, creates the superuser)
 #   PAPERLESS_ADMIN_PASSWORD=<password>
 #   PAPERLESS_SOCIALACCOUNT_PROVIDERS=<single line of JSON>, for example
-#     {"openid_connect":{"OAUTH_PKCE_ENABLED":true,"APPS":[{"provider_id":"authentik","name":"Authentik","client_id":"paperless","secret":"<value>","settings":{"server_url":"https://auth.<domain>/application/o/paperless/.well-known/openid-configuration"}}]}}
+#     '{"openid_connect":{"OAUTH_PKCE_ENABLED":true,"APPS":[{"provider_id":"authentik","name":"Authentik","client_id":"paperless","secret":"<value>","settings":{"server_url":"https://auth.<domain>/application/o/paperless/.well-known/openid-configuration"}}]}}'
 #   <value> is the same as AUTHENTIK_PAPERLESS_CLIENT_SECRET in
 #   authentik-oidc-secrets.age (secrets/generate-oidc-secrets.sh writes both).
 {
