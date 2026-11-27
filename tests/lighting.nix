@@ -38,6 +38,10 @@ let
       lights = [ "light.livingroom_fairylights" ];
       offAt = "04:00";
     };
+    rooms.kitchen = {
+      sensors = [ "binary_sensor.kitchen_presence_occupancy" ];
+      lights = [ "switch.kitchen_light" ];
+    };
     approach.hall = {
       approach = [ "binary_sensor.c1_person_occupancy" ];
       presence = [ "binary_sensor.hall_occupancy" ];
@@ -96,6 +100,10 @@ let
   automation = id: lib.findFirst (a: (a.id or "") == id) null gen.automation;
   automationLive = id: lib.findFirst (a: (a.id or "") == id) null genLive.automation;
 
+  roomOn = automation "lighting_room_kitchen_on";
+  roomOnLive = automationLive "lighting_room_kitchen_on";
+  roomOff = automation "lighting_room_kitchen_off";
+  roomOffLive = automationLive "lighting_room_kitchen_off";
   duskOn = automation "lighting_dusk_fairy_on";
   duskOnLive = automationLive "lighting_dusk_fairy_on";
   duskOff = automation "lighting_dusk_fairy_off";
@@ -331,6 +339,42 @@ pkgs.runCommand "lighting-check" { inherit configCheck; } ''
         a = lib.findFirst (e: e.name == "lighting hall active") null templateSensors;
       in
       lib.hasInfix "binary_sensor.lighting_approach_hall_near" a.state
+    )
+    + expect "room lights: offAfterSeconds defaults to 300" (
+      (lt on).rooms.kitchen.offAfterSeconds == 300
+    )
+    + expect "room on: sensor, darkness and restart trigger it" (
+      let
+        t = roomOn.triggers;
+      in
+      lib.length t == 3
+      && (lib.head t).entity_id == [ "binary_sensor.kitchen_presence_occupancy" ]
+      && (lib.head t).to == "on"
+      && (lib.elemAt t 1).entity_id == "binary_sensor.lighting_dark"
+    )
+    + expect "room on: not while paused, only when dark, occupied and every light off" (
+      let
+        c = json roomOn.conditions;
+      in
+      lib.hasInfix "lighting_paused" c
+      && lib.hasInfix "binary_sensor.lighting_dark" c
+      && lib.hasInfix "binary_sensor.kitchen_presence_occupancy" c
+      && lib.hasInfix "switch.kitchen_light" c
+    )
+    + expect "room on: live run turns on only the room's lights, dry run only logs" (
+      (lib.elemAt roomOnLive.actions 1).action == "homeassistant.turn_on"
+      && (lib.elemAt roomOnLive.actions 1).target.entity_id == [ "switch.kitchen_light" ]
+      && lib.length roomOn.actions == 1
+    )
+    + expect "room off: waits offAfterSeconds of the sensor off, and only if none is on" (
+      let
+        t = lib.head roomOff.triggers;
+      in
+      t.to == "off"
+      && t.for.seconds == 300
+      && lib.hasInfix "binary_sensor.kitchen_presence_occupancy" (json roomOff.conditions)
+      && lib.hasInfix "homeassistant.turn_off" (json roomOffLive.actions)
+      && lib.hasInfix "switch.kitchen_light" (json roomOffLive.actions)
     )
     + expect "the configuration check ran" (configCheck != null)
   }"

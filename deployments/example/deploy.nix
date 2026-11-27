@@ -179,14 +179,21 @@
         #   };
         # }
         # Lighting routines (lanbat.homeAssistant.lighting): lights that come on
-        # when it gets dark and off in the early morning, and hallway lights that
-        # follow someone from the entrance into the hall. dryRun defaults to true.
+        # when it gets dark and off in the early morning, room lights that follow
+        # a presence sensor, and hallway lights that follow someone from the
+        # entrance into the hall. dryRun defaults to true.
         # {
         #   lanbat.homeAssistant.lighting = {
         #     enable = true;
         #     duskRoutines.fairyLights = {
         #       lights = [ "light.livingroom_fairylights" ];
         #       offAt = "04:00";
+        #     };
+        #     # On when the sensor reports someone and it is dark outside; off
+        #     # once it has reported nobody for offAfterSeconds (default 300).
+        #     rooms.kitchen = {
+        #       sensors = [ "binary_sensor.kitchen_presence_occupancy" ];
+        #       lights = [ "light.kitchen_ceiling" ];
         #     };
         #     approach.hall = {
         #       approach = [ "binary_sensor.c1_person_occupancy" ];
