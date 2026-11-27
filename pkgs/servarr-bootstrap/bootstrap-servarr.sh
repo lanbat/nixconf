@@ -110,7 +110,10 @@ add_remote_path_mappings() {
   for pair in "/media/a:/srv/storage/a/media" "/media/b:/srv/storage/b/media"; do
     remote_path="${pair%%:*}"
     local_path="${pair#*:}"
-    if api "${SERVARR_URL}/api/v3/remotepathmapping" | jq -e --arg r "$remote_path" --arg l "$local_path" '.[] | select(.remotePath == $r and .localPath == $l)' >/dev/null 2>&1; then
+    # The app stores both paths with a trailing slash ("/media/a/"), so compare
+    # without one: a mapping it already has must not be added again, which it
+    # refuses with a 500 ("RemotePath already configured").
+    if api "${SERVARR_URL}/api/v3/remotepathmapping" | jq -e --arg r "$remote_path" --arg l "$local_path" '.[] | select((.remotePath | rtrimstr("/")) == ($r | rtrimstr("/")) and (.localPath | rtrimstr("/")) == ($l | rtrimstr("/")))' >/dev/null 2>&1; then
       log "remote path mapping ${remote_path} -> ${local_path} already present"
       continue
     fi

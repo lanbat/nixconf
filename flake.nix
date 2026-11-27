@@ -225,6 +225,7 @@
         wifi-presence = import ./tests/wifi-presence.nix { inherit pkgs; };
         lva-snapcast-duck = import ./tests/lva-snapcast-duck.nix { inherit pkgs; };
         mic-watchdog = import ./tests/mic-watchdog.nix { inherit pkgs; };
+        servarr-bootstrap = import ./tests/servarr-bootstrap.nix { inherit pkgs; };
         lva-connection-watchdog = import ./tests/lva-connection-watchdog.nix { inherit pkgs; };
         snapclient-watchdog = import ./tests/snapclient-watchdog.nix { inherit pkgs; };
         doa-order = import ./tests/doa-order.nix { inherit pkgs; };
