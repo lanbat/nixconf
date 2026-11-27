@@ -11,6 +11,7 @@ let
   lva = cfg.lva;
 
   lvaPackage = pkgs.callPackage ../../pkgs/linux-voice-assistant { };
+  connectionWatchdog = pkgs.callPackage ../../pkgs/lva-connection-watchdog { };
   heyNabuWakeWords = pkgs.callPackage ../../pkgs/lva-wakewords-hey-nabu { };
 
   stateDir = "/var/lib/linux-voice-assistant";
@@ -245,6 +246,26 @@ in
           "char-dri rw"
         ];
         SupplementaryGroups = lib.optionals usesPipewire [ "pipewire" ];
+      };
+    };
+
+    # LVA restarted when it stays disconnected from Home Assistant. Root: it
+    # reads the unit's journal and restarts it.
+    systemd.services.lanbat-lva-connection-watchdog = lib.mkIf lva.connectionWatchdog.enable {
+      description = "Restart Linux Voice Assistant when it stays disconnected from Home Assistant";
+      after = [ "linux-voice-assistant.service" ];
+      wantedBy = [ "multi-user.target" ];
+      environment = {
+        UNIT = "linux-voice-assistant.service";
+        GRACE_S = toString lva.connectionWatchdog.afterSeconds;
+        JOURNALCTL = "${config.systemd.package}/bin/journalctl";
+        SYSTEMCTL = "${config.systemd.package}/bin/systemctl";
+      };
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = lib.getExe connectionWatchdog;
+        Restart = "always";
+        RestartSec = "10s";
       };
     };
   };

@@ -72,6 +72,25 @@ in
     };
 
     lva = {
+      connectionWatchdog = {
+        enable = mkOption {
+          type = types.bool;
+          default = true;
+          description = ''
+            Restart Linux Voice Assistant when it has logged a lost connection
+            to Home Assistant and no reconnection after `afterSeconds`. On
+            2026-11-24 LVA logged the disconnect while Home Assistant kept its
+            old connection open, so neither side reconnected and the satellite
+            stayed offline for three days (pkgs/lva-connection-watchdog).
+          '';
+        };
+        afterSeconds = mkOption {
+          type = types.ints.positive;
+          default = 300;
+          description = "How long LVA may stay disconnected before it is restarted. A Home Assistant restart takes a minute or two.";
+        };
+      };
+
       port = mkOption {
         type = types.port;
         default = 6053;

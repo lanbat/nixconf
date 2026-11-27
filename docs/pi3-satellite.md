@@ -288,6 +288,17 @@ most every five minutes. Look for it with `journalctl -u lanbat-mic-watchdog`, a
 failures with `journalctl -t pipewire | grep snd_pcm_mmap_commit`. Turn it off with
 `lanbat.voiceSatellite.microphone.watchdog = false`.
 
+**The connection watchdog.** LVA logs `Disconnected from Home Assistant; waiting for
+reconnection` when the link drops and `Connected to Home Assistant` when it is back, normally
+seconds apart. On 2026-11-24 the Pi 5 logged the disconnect while Home Assistant kept its old
+connection open and answering keep-alives, so neither side reconnected and the satellite sat
+offline for three days. `lanbat-lva-connection-watchdog` reads LVA's journal every 30 seconds
+and restarts it when the last of those two events is the disconnect and it is five minutes old.
+The restart starts a clean run, so a Home Assistant that stays down is restarted for once, not
+repeatedly. Look for it with `journalctl -u lanbat-lva-connection-watchdog`. Change the delay
+with `lanbat.voiceSatellite.lva.connectionWatchdog.afterSeconds`, or turn it off with
+`lanbat.voiceSatellite.lva.connectionWatchdog.enable = false`.
+
 The microphone can also stall without an error: its card stays open and PipeWire hands out
 digital silence, so the wake word is never heard and nothing is logged. On the Pi 5 (2026-10-21)
 ALSA's `hw_ptr` in `/proc/asound/card3/pcm0c/sub0/status` sat at 0, a direct `arecord` failed
