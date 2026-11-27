@@ -24,9 +24,15 @@ let
     };
   };
 
-  fixture = import ./fixtures/multi-profile-deploy.nix {
+  # This check is about deploy-rs's wiring (the schema, and an activation script
+  # built from the node's profile), not about the services. A server that names
+  # none gets all of them, and building that whole closure compiled paperless,
+  # redlib, snapcast and spacy on every pull request (about 40 minutes). One
+  # service stands in; the services are evaluated by the `eval` job and built by
+  # the nightly server VM test.
+  fixture = lib.recursiveUpdate (import ./fixtures/multi-profile-deploy.nix {
     inputs = inputsWithSelf;
-  };
+  }) { profiles.homelab.hosts.server.services = [ "caddy" ]; };
 
   profiles = loadDeployments.normalize fixture;
 
