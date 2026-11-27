@@ -1,7 +1,7 @@
 # modules/server/lighting.nix
 #
 # Lighting routines: lights that come on when it gets dark and off in the early
-# morning, and hallway lights that follow someone from the entrance into the
+# morning, room lights that follow a presence sensor, and hallway lights that follow someone from the entrance into the
 # hall and switch off when everyone is gone. Enabled through the
 # lanbat-lighting plugin; configures nothing unless
 # lanbat.homeAssistant.lighting.enable is set.
@@ -69,6 +69,37 @@ in
               type = time;
               example = "04:00";
               description = "Turn the lights off at this time (HH:MM), while it is still dark.";
+            };
+          };
+        }
+      );
+    };
+
+    rooms = mkOption {
+      default = { };
+      description = ''
+        Rooms whose lights follow their presence or motion sensors, by key. The
+        lights come on when a sensor reports someone and it is dark outside, and
+        go off once every sensor has reported nobody for `offAfterSeconds`. The
+        key becomes part of the entity and automation ids.
+      '';
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            sensors = mkOption {
+              type = sensors;
+              example = [ "binary_sensor.kitchen_presence_occupancy" ];
+              description = "The room's presence or motion sensors. Any of them on means someone is there.";
+            };
+            lights = mkOption {
+              type = lights;
+              example = [ "light.kitchen_ceiling" ];
+              description = "The lights to switch, as entity ids. Only these are ever switched.";
+            };
+            offAfterSeconds = mkOption {
+              type = seconds;
+              default = 300;
+              description = "How long every sensor must report nobody before the lights go off.";
             };
           };
         }

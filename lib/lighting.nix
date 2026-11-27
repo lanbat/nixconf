@@ -213,6 +213,102 @@ let
       };
     };
 
+  # A room's lights come on when one of its sensors reports someone in the dark:
+  # the sensor turning on, it getting dark with someone already there, or a
+  # restart. Lights that are already on are left alone.
+  roomOn =
+    cfg: key: rc:
+    let
+      r = slug key;
+    in
+    {
+      id = "lighting_room_${r}_on";
+      alias = "Lighting: ${key} lights on";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = rc.sensors;
+          to = "on";
+        }
+        {
+          trigger = "state";
+          entity_id = "binary_sensor.lighting_dark";
+          from = "off";
+          to = "on";
+        }
+        {
+          trigger = "homeassistant";
+          event = "start";
+        }
+      ];
+      conditions = [
+        notPaused
+        darkOn
+        {
+          condition = "template";
+          value_template = anyOn rc.sensors;
+        }
+        {
+          condition = "template";
+          value_template = allOff rc.lights;
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn on the ${key} lights (someone is there and it is dark)";
+        steps = [
+          {
+            action = "homeassistant.turn_on";
+            target.entity_id = rc.lights;
+          }
+        ];
+      };
+    };
+
+  # They go off once every sensor has reported nobody for offAfterSeconds. A
+  # sensor that is unknown or unavailable is not "nobody": only a real change to
+  # off starts the wait.
+  roomOff =
+    cfg: key: rc:
+    let
+      r = slug key;
+    in
+    {
+      id = "lighting_room_${r}_off";
+      alias = "Lighting: ${key} lights off";
+      mode = "single";
+      triggers = [
+        {
+          trigger = "state";
+          entity_id = rc.sensors;
+          to = "off";
+          for.seconds = rc.offAfterSeconds;
+        }
+      ];
+      conditions = [
+        notPaused
+        {
+          condition = "template";
+          value_template = allOff rc.sensors;
+        }
+        {
+          condition = "template";
+          value_template = anyOn rc.lights;
+        }
+      ];
+      actions = act {
+        inherit cfg;
+        message = "turn off the ${key} lights (nobody there)";
+        steps = [
+          {
+            action = "homeassistant.turn_off";
+            target.entity_id = rc.lights;
+          }
+        ];
+      };
+    };
+
   # The right hallway light comes on when someone approaches the entrance at
   # night.
   approachRightOn =
@@ -399,6 +495,12 @@ let
             (duskOn cfg k rc)
             (duskOff cfg k rc)
           ]) cfg.duskRoutines
+        )
+        ++ lib.concatLists (
+          lib.mapAttrsToList (k: rc: [
+            (roomOn cfg k rc)
+            (roomOff cfg k rc)
+          ]) cfg.rooms
         )
         ++ lib.concatLists (
           lib.mapAttrsToList (
