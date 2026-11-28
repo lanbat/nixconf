@@ -45,6 +45,7 @@
   slskd = ../../services/slskd.nix;
   snapcast = ../../services/snapcast.nix;
   sonarr = ../../services/sonarr.nix;
+  stash = ../../services/stash.nix;
   syncthing = ../../services/syncthing.nix;
   tang = ../../services/tang.nix;
   techo5-bridge = ../../services/techo5-bridge.nix;
