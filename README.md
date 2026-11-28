@@ -205,6 +205,7 @@ Services run in two tiers. See [docs/secure-layers.md](docs/secure-layers.md) fo
 |---|---|---|
 | Bitmagnet | `bitmagnet.<domain>` | Starts on first request, stops after 3 days idle (DHT index needs uptime) |
 | RomM | `romm.<domain>` | Starts on first request, stops after 30 min idle |
+| Stash | `stash.<domain>` | Starts on first request (with Stash-VR), stops after 30 min idle; Authentik group `private` only |
 
 > **External plugin example:** the reference homelab adds *parking-guard* — Frigate-LPR
 > parking enforcement that alerts on unauthorised plates — as an external flake plugin,

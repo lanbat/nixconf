@@ -26,7 +26,7 @@ SERVER — one disk (hosts/server/disk.nix)
   always-on service data (always-on PostgreSQL, Authentik, HA, Grafana, Invidious,
   InfluxDB, Mosquitto, Frigate, Caddy TLS certs, container images)
 - **Does NOT contain**: Tang keys, workload-gated service data (Immich, Jellyfin,
-  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM, Paperless, slskd)
+  Audiobookshelf, Vaultwarden, Syncthing, Samba, qBittorrent, Jackett, Bitmagnet, RomM, Paperless, slskd, Stash)
 
 After a reboot, this layer is immediately accessible. SSH works. Admin tools
 work. Nothing sensitive is exposed.
@@ -115,6 +115,7 @@ its tier in `lanbat.services.<name>.tier`; for workload-gated services it also l
   romm/           — RomM config, artwork, saves and states
   paperless/      — Paperless documents, thumbnails, search index and inbox
   slskd/          — slskd configuration, share index and incomplete downloads
+  stash/          — Stash database, covers, generated previews, and Stash-VR config
   samba/          — Samba configuration and state
 ```
 

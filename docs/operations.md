@@ -315,6 +315,23 @@ sudo systemctl start podman-bitmagnet
 sudo systemctl stop podman-bitmagnet
 ```
 
+## Accessing Stash (on-demand)
+
+Stash starts when you visit `https://stash.<domain>` and stops after 30 minutes
+without requests (`onDemand.idleMinutes` in `services/stash.nix`). Stash-VR
+(`podman-stash-vr`) starts and stops with it. The video library is
+`/srv/storage/<drive>/<libraryPath>` (default `b`, `media/adult`, the private group's folder), read-only. Only members of the Authentik group `private` get in; add them under `authentik.users` in `deploy.nix`.
+
+To start/stop manually:
+```bash
+sudo systemctl start podman-stash
+sudo systemctl stop podman-stash
+```
+
+Stash-VR listens on port 9666 of the server, which the firewall keeps closed, so
+a VR headset cannot reach it yet. Opening it means choosing how the headset
+authenticates, since Stash-VR has no login of its own.
+
 ## Jackett (qBittorrent search)
 
 Jackett is at `https://jackett.<domain>`, for `authentik Admins` only. It has one

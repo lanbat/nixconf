@@ -148,6 +148,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 ├── romm/              RomM config, artwork, saves and states
 ├── paperless/         Paperless documents (media/), search index, inbox (consume/) (BACK THIS UP)
 ├── slskd/             slskd config, share index, incomplete downloads
+├── stash/             Stash database and metadata (BACK THIS UP); generated/ and cache/ rebuild
 ├── vaultwarden/       Vaultwarden SQLite DB + attachments (BACK THIS UP)
 ├── forgejo/           Forgejo repositories, config and SQLite DB (BACK THIS UP)
 ├── syncthing/         Syncthing config + SQLite index (BACK THIS UP)
@@ -181,6 +182,7 @@ are overlaid by bind mounts from `/mnt/workload/`.
 | Paperless | server-local | workload PostgreSQL | Pi/b/users (read, copied in; originals untouched) |
 | slskd | server-local | — | Pi/b/media/music/aMule (downloads, and shared back; `settings.downloadsPath`) |
 | RomM | server-local | workload PostgreSQL | Pi/b/media/roms (ROM library), Pi/b/media/roms-browser (arcade zips) |
+| Stash | server-local | server-local (SQLite) | Pi/b/media/adult (private group only, read-only) |
 | SearXNG | server-local | — | — |
 | Redlib | server-local (none) | — | — |
 | Invidious | server-local (hmac key) | always-on PostgreSQL | — (the companion container's cache is disposable) |

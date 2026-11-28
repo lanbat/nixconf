@@ -268,6 +268,7 @@ let
     "slskd"
     "snapcast"
     "sonarr"
+    "stash"
     "syncthing"
     "zigbee2mqtt"
   ];
@@ -282,6 +283,7 @@ let
     slskd = "Soulseek";
     snapcast = "Snapcast";
     sonarr = "Sonarr";
+    stash = "Stash";
     syncthing = "Syncthing";
     zigbee2mqtt = "Zigbee2MQTT";
   };
