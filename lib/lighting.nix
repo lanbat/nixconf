@@ -7,7 +7,7 @@
 #
 # Entities (key_slug comes from `slug`):
 #   binary_sensor.lighting_dark                   dark outside (sun elevation)
-#   binary_sensor.lighting_approach_<key>_active  someone at the entrance or in the hall
+#   binary_sensor.lighting_<key>_active  someone at the entrance or in the hall
 #   input_boolean.lighting_paused                 pauses every rule (off: running)
 { lib }:
 
@@ -57,9 +57,7 @@ let
     key: rc:
     let
       sensors =
-        rc.approach
-        ++ rc.presence
-        ++ lib.optional (hasNear rc) "binary_sensor.lighting_approach_${slug key}_near";
+        rc.approach ++ rc.presence ++ lib.optional (hasNear rc) "binary_sensor.lighting_${slug key}_near";
     in
     {
       name = "lighting ${key} active";
@@ -363,7 +361,7 @@ let
       triggers = [
         {
           trigger = "state";
-          entity_id = "binary_sensor.lighting_approach_${r}_near";
+          entity_id = "binary_sensor.lighting_${r}_near";
           to = "on";
         }
       ];
@@ -439,7 +437,7 @@ let
       triggers = [
         {
           trigger = "state";
-          entity_id = "binary_sensor.lighting_approach_${r}_active";
+          entity_id = "binary_sensor.lighting_${r}_active";
           from = "on";
           to = "off";
           for.seconds = rc.offAfterSeconds;

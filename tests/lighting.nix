@@ -276,11 +276,25 @@ pkgs.runCommand "lighting-check" { inherit configCheck; } ''
       let
         t = lib.head offRule.triggers;
       in
-      t.entity_id == "binary_sensor.lighting_approach_hall_active"
+      t.entity_id == "binary_sensor.lighting_hall_active"
       && t.from == "on"
       && t.to == "off"
       && t.for.seconds == 180
     )
+    +
+      expect "approach off and near on watch the entity Home Assistant derives from each helper's name"
+        (
+          let
+            idOf =
+              n:
+              "binary_sensor."
+              +
+                lib.replaceStrings [ " " ] [ "_" ]
+                  (lib.findFirst (e: e.name == n) { name = "missing"; } templateSensors).name;
+          in
+          (lib.head offRule.triggers).entity_id == idOf "lighting hall active"
+          && (lib.head nearOn.triggers).entity_id == idOf "lighting hall near"
+        )
     + expect "approach off: turns off both lights" (
       lib.hasInfix "light.hall_right" (json offRuleLive.actions)
       && lib.hasInfix "light.hall_left" (json offRuleLive.actions)
@@ -312,7 +326,7 @@ pkgs.runCommand "lighting-check" { inherit configCheck; } ''
         t = lib.head nearOn.triggers;
         c = json nearOn.conditions;
       in
-      t.entity_id == "binary_sensor.lighting_approach_hall_near"
+      t.entity_id == "binary_sensor.lighting_hall_near"
       && t.to == "on"
       && lib.hasInfix "binary_sensor.lighting_dark" c
       && lib.hasInfix "light.hall_left" c
@@ -338,7 +352,7 @@ pkgs.runCommand "lighting-check" { inherit configCheck; } ''
       let
         a = lib.findFirst (e: e.name == "lighting hall active") null templateSensors;
       in
-      lib.hasInfix "binary_sensor.lighting_approach_hall_near" a.state
+      lib.hasInfix "binary_sensor.lighting_hall_near" a.state
     )
     + expect "room lights: offAfterSeconds defaults to 300" (
       (lt on).rooms.kitchen.offAfterSeconds == 300
